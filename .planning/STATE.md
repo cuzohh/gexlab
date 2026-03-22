@@ -1,17 +1,17 @@
 # Project State: GEX Dashboard
 
 ## Current Status
-- **Phase:** Initialized
+- **Phase:** 1 Complete
 - **Milestone:** V1 Dashboard (MVP)
 - **Blocked:** None
-- **Context:** Starting from scratch (Greenfield). ThetaTerminal and Java 11+ required.
+- **Context:** FastAPI backend and Vite frontend scaffolded.
 
 ## Position
-Initializing project structure, research, and roadmap.
+Phase 1 executed successfully. The backend is configured to talk to ThetaTerminal. The frontend UI is wrapped in a dark theme.
 
 ## To-Do
-- [ ] Approve Phase 1 (Setup & Data Connectivity)
-- [ ] Run `/gsd-plan-phase 1`
+- [ ] Read `/gsd-plan-phase 2` for Phase 2: GEX Engine & Calculus
+- [ ] Or run `run_backend.bat` and `run_frontend.bat` manually to verify.
 
 ## Recent Decisions
 - **Stack:** FastAPI (Python) + Vite (React) for premium web dashboard feel.

@@ -1,0 +1,19 @@
+﻿{
+  "researcher_model": "sonnet",
+  "synthesizer_model": "sonnet",
+  "roadmapper_model": "sonnet",
+  "commit_docs": true,
+  "project_exists": false,
+  "has_codebase_map": false,
+  "planning_exists": false,
+  "has_existing_code": true,
+  "has_package_file": false,
+  "is_brownfield": true,
+  "needs_codebase_map": true,
+  "has_git": false,
+  "brave_search_available": false,
+  "firecrawl_available": false,
+  "exa_search_available": false,
+  "project_path": ".planning/PROJECT.md",
+  "project_root": "C:\\Users\\pranav\\Desktop\\Trading\\gexlab"
+}

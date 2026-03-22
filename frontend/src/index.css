@@ -1,0 +1,49 @@
+:root {
+  --bg-base: #0a0a0c;
+  --bg-panel: #16161a;
+  --bg-panel-hover: #1f1f25;
+  --border: #26262f;
+  --text-main: #ededf0;
+  --text-muted: #8a8a93;
+  --accent: #5e6ad2;
+  --accent-hover: #6e7be4;
+  --positive: #10b981;
+  --negative: #ef4444;
+  --panel-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  
+  --font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+  font-family: var(--font-family);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  width: 100vw;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Base utility classes */
+.panel {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--panel-shadow);
+  padding: 1.5rem;
+}
+
+.text-positive { color: var(--positive); }
+.text-negative { color: var(--negative); }
+.text-muted { color: var(--text-muted); }
