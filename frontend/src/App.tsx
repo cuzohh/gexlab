@@ -348,11 +348,11 @@ function App() {
           }}>
             {data ? (
               activeTab === 'bar' ? (
-                <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} />
+                <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
               ) : activeTab === 'heatmap' ? (
-                <GEXHeatmap data={data.heatmap_data} spot={data.spot} />
+                <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
               ) : (
-                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} />
+                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
               )
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -362,33 +362,32 @@ function App() {
               </div>
             )}
           </div>
+          {/* Loading Overlay (now inline, not hijacking screen) */}
+          {loading && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'rgba(22, 22, 26, 0.7)', backdropFilter: 'blur(4px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                  COMPUTING GAMMA EXPOSURE...
+                </div>
+                <div style={{
+                  width: '200px', height: '2px', background: 'var(--border)',
+                  borderRadius: '10px', overflow: 'hidden', margin: '0 auto',
+                }}>
+                  <div style={{
+                    width: '40%', height: '100%',
+                    background: 'linear-gradient(90deg, var(--accent), var(--positive))',
+                    animation: 'pulse 1.2s ease-in-out infinite',
+                  }} />
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       </main>
-
-      {/* Loading Overlay */}
-      {loading && (
-        <div style={{
-          position: 'fixed', inset: 0,
-          background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '1rem', marginBottom: '1rem' }}>
-              COMPUTING GAMMA EXPOSURE...
-            </div>
-            <div style={{
-              width: '200px', height: '2px', background: 'var(--border)',
-              borderRadius: '10px', overflow: 'hidden',
-            }}>
-              <div style={{
-                width: '40%', height: '100%',
-                background: 'linear-gradient(90deg, var(--accent), var(--positive))',
-                animation: 'pulse 1.2s ease-in-out infinite',
-              }} />
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Error Toast */}
       {error && !loading && (

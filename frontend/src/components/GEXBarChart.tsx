@@ -26,18 +26,33 @@ interface KeyLevels {
   vol_trigger: number | null
 }
 
+interface FuturesData {
+  symbol: string
+  name: string
+  full_name: string
+  futures_price: number
+  ratio: number
+}
+
 interface GEXBarChartProps {
   data: StrikeData[]
   spot: number
   keyLevels: KeyLevels
+  futures?: FuturesData | null
 }
 
-export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps) {
+export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarChartProps) {
   const lowerBound = spot * 0.85
   const upperBound = spot * 1.15
   const filtered = data.filter(d => d.strike >= lowerBound && d.strike <= upperBound)
 
-  const strikes = filtered.map(d => d.strike.toFixed(0))
+  const strikes = filtered.map(d => {
+    if (futures) {
+      const fPrice = (d.strike * futures.ratio).toFixed(0)
+      return `${d.strike.toFixed(0)} (${fPrice})`
+    }
+    return d.strike.toFixed(0)
+  })
   const callGex = filtered.map(d => d.call_gex)
   const putGex = filtered.map(d => d.put_gex)
 
@@ -81,8 +96,8 @@ export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps)
       borderColor: '#26262f',
       textStyle: { color: '#ededf0', fontFamily: 'Inter' },
       formatter: (params: any) => {
-        const strike = params[0]?.axisValue || ''
-        let html = `<strong>Strike $${strike}</strong><br/>`
+        const strikeLabel = params[0]?.axisValue || ''
+        let html = `<strong>Strike $${strikeLabel}</strong><br/>`
         params.forEach((p: any) => {
           html += `${p.marker} ${p.seriesName}: ${p.value?.toFixed(4)}B<br/>`
         })

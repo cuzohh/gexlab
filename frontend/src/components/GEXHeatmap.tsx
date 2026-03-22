@@ -15,12 +15,21 @@ interface HeatmapPoint {
   gex: number
 }
 
+interface FuturesData {
+  symbol: string
+  name: string
+  full_name: string
+  futures_price: number
+  ratio: number
+}
+
 interface GEXHeatmapProps {
   data: HeatmapPoint[]
   spot: number
+  futures?: FuturesData | null
 }
 
-export default function GEXHeatmap({ data, spot }: GEXHeatmapProps) {
+export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No heatmap data available</div>
   }
@@ -53,11 +62,11 @@ export default function GEXHeatmap({ data, spot }: GEXHeatmapProps) {
       backgroundColor: '#16161a',
       borderColor: '#26262f',
       textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
-      formatter: (params: any) => {
         const strike = strikes[params.value[0]]
         const exp = expirations[params.value[1]]
         const rawGex = filtered.find(d => d.strike === strike && d.expiration === exp)?.gex || 0
-        return `<strong>$${strike.toFixed(0)}</strong> | ${exp}<br/>GEX: ${rawGex.toFixed(4)}B`
+        const fStr = futures ? ` (${futures.name} ${(strike * futures.ratio).toFixed(2)})` : ''
+        return `<strong>$${strike.toFixed(0)}${fStr}</strong> | ${exp}<br/>GEX: ${rawGex.toFixed(4)}B`
       },
     },
     grid: {
@@ -66,9 +75,12 @@ export default function GEXHeatmap({ data, spot }: GEXHeatmapProps) {
       top: 20,
       bottom: 60,
     },
-    xAxis: {
+      xAxis: {
       type: 'category',
-      data: strikes.map(s => `$${s.toFixed(0)}`),
+      data: strikes.map(s => {
+        if (futures) return `$${s.toFixed(0)}\n(${futures.name} ${(s * futures.ratio).toFixed(0)})`
+        return `$${s.toFixed(0)}`
+      }),
       axisLabel: {
         color: '#5c5c66',
         fontFamily: 'JetBrains Mono',

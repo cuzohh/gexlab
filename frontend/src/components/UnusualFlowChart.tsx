@@ -22,12 +22,21 @@ interface StrikeData {
   avg_iv: number
 }
 
+interface FuturesData {
+  symbol: string
+  name: string
+  full_name: string
+  futures_price: number
+  ratio: number
+}
+
 interface UnusualFlowChartProps {
   data: StrikeData[]
   spot: number
+  futures?: FuturesData | null
 }
 
-export default function UnusualFlowChart({ data, spot }: UnusualFlowChartProps) {
+export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowChartProps) {
   if (!data || data.length === 0) {
     return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No flow data available</div>
   }
@@ -77,7 +86,8 @@ export default function UnusualFlowChart({ data, spot }: UnusualFlowChartProps) 
       formatter: (params: any) => {
         const raw = params.data._raw as StrikeData
         const tag = params.data._isAnomaly ? '<span style="color:#f59e0b">⚡ UNUSUAL</span><br/>' : ''
-        return `${tag}<strong>$${raw.strike.toFixed(0)}</strong><br/>` +
+        const fStr = futures ? ` (${futures.name} ${(raw.strike * futures.ratio).toFixed(2)})` : ''
+        return `${tag}<strong>$${raw.strike.toFixed(0)}${fStr}</strong><br/>` +
           `IV: ${raw.avg_iv.toFixed(1)}%<br/>` +
           `Volume: ${raw.total_volume.toLocaleString()}<br/>` +
           `OI: ${raw.total_oi.toLocaleString()}<br/>` +
@@ -95,7 +105,15 @@ export default function UnusualFlowChart({ data, spot }: UnusualFlowChartProps) 
       type: 'value' as const,
       name: 'Strike',
       nameTextStyle: { color: '#5c5c66', fontSize: 11 },
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 10, formatter: (v: number) => `$${v.toFixed(0)}` },
+      axisLabel: { 
+        color: '#5c5c66', 
+        fontFamily: 'JetBrains Mono', 
+        fontSize: 10, 
+        formatter: (v: number) => {
+          if (futures) return `$${v.toFixed(0)}\n(${futures.name} ${(v * futures.ratio).toFixed(0)})`
+          return `$${v.toFixed(0)}`
+        }
+      },
       axisLine: { lineStyle: { color: '#26262f' } },
       splitLine: { lineStyle: { color: '#1a1a22' } },
     },
