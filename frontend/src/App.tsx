@@ -140,7 +140,7 @@ function App() {
   // ═══════════ HOME PAGE ═══════════
   if (page === 'home') {
     return (
-      <div style={{ flex: 1, width: '100%', height: '100vh', overflowY: 'auto', background: 'radial-gradient(ellipse at 50% 0%, #13131a 0%, var(--bg-base) 70%)' }}>
+      <div className="animated-bg" style={{ flex: 1, width: '100%', display: 'flex' }}>
         <HomePage onNavigate={setPage} />
       </div>
     )
@@ -149,7 +149,7 @@ function App() {
   // ═══════════ DOCS PAGE ═══════════
   if (page === 'docs') {
     return (
-      <div style={{ flex: 1, width: '100%', height: '100vh', overflowY: 'auto', background: 'radial-gradient(ellipse at 50% 0%, #13131a 0%, var(--bg-base) 70%)' }}>
+      <div className="animated-bg" style={{ flex: 1, width: '100%', display: 'flex' }}>
         <DocsPage onNavigate={setPage} />
       </div>
     )

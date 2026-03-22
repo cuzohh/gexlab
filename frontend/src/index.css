@@ -72,8 +72,75 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  position: relative;
   background: radial-gradient(ellipse at 50% 0%, #13131a 0%, var(--bg-base) 70%);
 }
+
+/* ═══════════════════════ Animated Background ═══════════════════════ */
+.animated-bg {
+  position: relative;
+  overflow-y: auto;
+  min-height: 100vh;
+  width: 100%;
+  background: var(--bg-base);
+}
+
+.animated-bg::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 100%;
+  background: 
+    radial-gradient(circle at 15% 50%, rgba(94, 106, 210, 0.04), transparent 40%),
+    radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.03), transparent 40%),
+    radial-gradient(circle at 50% 80%, rgba(239, 68, 68, 0.02), transparent 40%);
+  z-index: 0;
+  pointer-events: none;
+  animation: bgBreathing 15s ease-in-out infinite alternate;
+}
+
+@keyframes bgBreathing {
+  0%   { opacity: 0.5; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.05); }
+}
+
+/* ═══════════════════════ Tooltips ═══════════════════════ */
+.def-tooltip {
+  position: relative;
+  border-bottom: 1px dotted var(--text-muted);
+  cursor: help;
+  color: var(--text-main);
+}
+
+.def-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%; left: 50%;
+  transform: translateX(-50%) translateY(5px);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  white-space: pre-wrap;
+  width: max-content;
+  max-width: 280px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 1000;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.def-tooltip:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-8px);
+}
+
 
 /* ═══════════════════════ Panels ═══════════════════════ */
 .panel {
