@@ -1,0 +1,80 @@
+{
+  "name": "gexlab-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "description": "GEXLAB desktop app packaging and installer configuration",
+  "author": "GEXLAB",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "desktop:build:frontend": "npm --prefix frontend run build",
+    "desktop:build:backend": "backend\\venv\\Scripts\\python.exe -m PyInstaller --noconfirm --clean --name gexlab-backend --distpath desktop-build/backend --workpath desktop-build/pyinstaller/build --specpath desktop-build/pyinstaller backend/desktop_runner.py",
+    "desktop:build": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder",
+    "desktop:start": "electron ."
+  },
+  "build": {
+    "appId": "com.gexlab.desktop",
+    "productName": "GEXLAB",
+    "directories": {
+      "output": "desktop-dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "desktop-build/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "icon": "desktop/assets/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "GEXLAB-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "icon": "desktop/assets/icon.png",
+      "category": "public.app-category.finance",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "artifactName": "GEXLAB-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "desktop/assets",
+      "category": "Office;Finance;",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "GEXLAB-${version}-linux-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "desktop/assets/icon.ico",
+      "uninstallerIcon": "desktop/assets/icon.ico",
+      "installerHeaderIcon": "desktop/assets/icon.ico"
+    }
+  },
+  "devDependencies": {
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12"
+  }
+}

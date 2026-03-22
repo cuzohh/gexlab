@@ -1,0 +1,17 @@
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Python
+backend/venv/
+__pycache__/
+*.py[cod]
+
+# Desktop build artifacts
+desktop-build/
+desktop-dist/
+
+# Runtime/cache artifacts
+backend/yfinance.cache
+backend/out.json

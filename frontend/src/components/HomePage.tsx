@@ -8,6 +8,8 @@ interface HomePageProps {
 }
 
 export default function HomePage({ onNavigate }: HomePageProps) {
+  const isDesktop = typeof window !== 'undefined' && Boolean(window.gexlabDesktop?.isDesktop)
+
   const features = [
     {
       icon: '◈',
@@ -40,6 +42,18 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       desc: 'Data refreshes every 60 seconds to keep levels current throughout the trading session.',
     },
   ]
+
+  const quickStartSteps = isDesktop
+    ? [
+        { step: '1', text: 'Launch the installed GEXLAB desktop app.' },
+        { step: '2', text: 'Wait a few seconds for the bundled Python engine to start in the background.' },
+        { step: '3', text: 'Choose a ticker and begin your analysis directly inside the app window.' },
+      ]
+    : [
+        { step: '1', text: 'Run `run_backend.bat` to start the Python GEX engine on port 8000.' },
+        { step: '2', text: 'Run `run_frontend.bat` to start the React dashboard on port 3000.' },
+        { step: '3', text: 'Open `http://localhost:3000` and select a ticker to begin your analysis.' },
+      ]
 
   return (
     <div style={{ maxWidth: '900px', margin: '0 auto', padding: '4rem 2rem 8rem' }}>
@@ -124,11 +138,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       <div className="panel" style={{ marginTop: '3rem', padding: '2rem' }}>
         <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600 }}>Quick Start</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {[
-            { step: '1', text: 'Run run_backend.bat to start the Python GEX engine on port 8000' },
-            { step: '2', text: 'Run run_frontend.bat to start the React dashboard on port 3000' },
-            { step: '3', text: 'Open http://localhost:3000 and select a ticker to begin your analysis' },
-          ].map(s => (
+          {quickStartSteps.map(s => (
             <div key={s.step} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
               <div style={{
                 width: '24px', height: '24px', borderRadius: '6px',
