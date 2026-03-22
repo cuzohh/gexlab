@@ -67,7 +67,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
         yAxis: idx,
         label: {
           show: true,
-          formatter: `${label} $${level.toFixed(0)}`,
+          formatter: `${label} $${level.toFixed(2)}`,
           position: 'insideEndBottom',
           fontSize: 10,
           fontWeight: 600,
