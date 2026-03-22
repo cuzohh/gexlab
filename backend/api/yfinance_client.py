@@ -1,4 +1,4 @@
-import yfinance as yf
+from yahooquery import Ticker
 import logging
 
 logger = logging.getLogger(__name__)
@@ -9,16 +9,17 @@ class YFinanceClient:
     
     async def check_connection(self) -> bool:
         """
-        Hit yfinance for a simple quote to verify connection to Yahoo Finance servers.
+        Hit yahooquery for a simple quote to verify connection to Yahoo Finance servers.
         """
         try:
-            ticker = yf.Ticker(self.default_ticker)
-            info = ticker.fast_info
+            ticker = Ticker(self.default_ticker)
+            price_data = ticker.all_modules.get(self.default_ticker, {}).get('price', {})
+            price = float(price_data.get('regularMarketPrice', 0))
             
             # If we get a valid close or last price, the connection is good.
-            if hasattr(info, "last_price") and info.last_price > 0:
+            if price > 0:
                 return True
             return False
         except Exception as e:
-            logger.warning(f"Failed to connect to YFinance: {e}")
+            logger.warning(f"Failed to connect to YahooQuery: {e}")
             return False

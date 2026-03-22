@@ -7,7 +7,7 @@ We fetch both the ETF and futures prices from yfinance, compute the ratio,
 and apply it to every key level.
 """
 
-import yfinance as yf
+from yahooquery import Ticker
 import logging
 from cachetools import cached, TTLCache
 
@@ -46,8 +46,9 @@ def get_futures_translation(ticker: str, etf_spot: float) -> dict | None:
         return None
     
     try:
-        futures_ticker = yf.Ticker(mapping['symbol'])
-        futures_price = float(futures_ticker.fast_info.last_price)
+        futures_ticker = Ticker(mapping['symbol'])
+        price_data = futures_ticker.price.get(mapping['symbol'], {})
+        futures_price = float(price_data.get('regularMarketPrice', 0))
         
         if etf_spot <= 0:
             return None

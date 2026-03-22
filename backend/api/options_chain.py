@@ -8,10 +8,9 @@ Orchestrates:
   4. Derive key levels: Call Wall, Put Wall, Zero Gamma, Max Pain, Vol Trigger.
 """
 
-import yfinance as yf
+from yahooquery import Ticker
 import numpy as np
 import pandas as pd
-import time
 from datetime import datetime, date
 from typing import Optional
 import logging
@@ -68,128 +67,87 @@ cache = TTLCache(maxsize=100, ttl=300)
 @cached(cache)
 def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3):
     """
-    Fetch the full options chain for a ticker and compute GEX data.
-    
-    Returns a dict with:
-      - spot: current underlying price
-      - gex_by_strike: list of per-strike GEX data
-      - key_levels: dict with call_wall, put_wall, zero_gamma, max_pain, vol_trigger
-      - expirations: list of expiration dates used
-      - net_gex: total net GEX across all strikes (billions)
-      - regime: 'LONG_GAMMA' or 'SHORT_GAMMA' 
-      - heatmap_data: per-expiry GEX for heatmap rendering
+    Fetch the full options chain for a ticker using YahooQuery (more resilient on Render).
     """
-    ticker = yf.Ticker(ticker_symbol)
+    symbol = ticker_symbol.upper()
+    ticker = Ticker(symbol)
     
-    # Get available expirations, limit to nearest N
-    all_expirations = ticker.options
-    if not all_expirations:
-         raise ValueError(f"No options found for {ticker_symbol}. Ticker might be invalid or Yahoo is rate-limiting.")
-         
-    expirations = list(all_expirations[:max_expirations])
+    # ─── Fetch All Data in one/two hits ──────────────────────────────
+    try:
+        # 1. Get spot price
+        price_data = ticker.price.get(symbol, {})
+        if not price_data or isinstance(price_data, str):
+            # YahooQuery sometimes returns a string error instead of dict
+            raise ValueError(f"Yahoo Finance returned an error: {price_data}")
+            
+        spot = float(price_data.get('regularMarketPrice', 0))
+        if spot <= 0:
+            raise ValueError(f"Could not retrieve a valid spot price for {symbol}.")
+
+        # 2. Fetch ALL options at once (very efficient)
+        df_all = ticker.option_chain
+        
+        # Check if we got data (yahooquery returns a string error if 429'd)
+        if isinstance(df_all, str):
+             if "Too Many Requests" in df_all or "429" in df_all:
+                 raise ValueError("Yahoo Finance is currently rate limiting this server IP. Please try again in a minute.")
+             raise ValueError(f"Yahoo Finance error: {df_all}")
+             
+        if df_all is None or df_all.empty:
+            raise ValueError(f"No options found for {symbol}.")
+
+    except Exception as e:
+        if "Rate limited" in str(e) or "429" in str(e):
+            raise ValueError("Yahoo Finance/Render IP is currently rate-limited. Try again in a minute.")
+        raise ValueError(f"API Error for {symbol}: {e}")
+
+    # ─── Processing and Filtering ────────────────────────────────────
+    # Extract unique expirations and filter for the nearest N
+    all_exps = sorted(df_all.index.get_level_values('expiration').unique())
+    selected_exps = all_exps[:max_expirations]
+    expirations = [str(e).split(' ')[0] for e in selected_exps]
+    
+    # Filter DF to just we want (using the original datetime objects in the index)
+    # Using .xs(symbol) drops the 'symbol' level from index, giving us (expiration, optionType)
+    df_filtered = df_all.xs(symbol, level='symbol').loc[selected_exps]
     
     all_strikes_data = []
     heatmap_data = []
 
-    # ─── Fetch first chain to extract spot ────────────────────────────
-    try:
-        # Fetching the first chain usually populates internal quote data too
-        first_exp = expirations[0]
-        chain = ticker.option_chain(first_exp)
+    # Map yahooquery columns to our internal format
+    # Index now has: expiration, optionType
+    for (exp, otype), row in df_filtered.iterrows():
+        opt_type = 'call' if otype == 'calls' else 'put'
         
-        # Try to extract spot from underlying metadata if possible (saves a hit)
-        # yfinance 0.2.x provides .underlying which is a dict-like with price info
-        try:
-            spot = float(chain.underlying.get('regularMarketPrice', 0))
-        except:
-            spot = 0
-            
-        if spot <= 0:
-            # Fallback to fast_info if metadata missing (costly extra hit)
-            spot = float(ticker.fast_info.last_price)
-            
-    except Exception as e:
-        if "Rate limited" in str(e) or "429" in str(e):
-            raise ValueError("Yahoo Finance/Render IP is currently rate-limited. Try again in a minute.")
-        raise ValueError(f"Failed to fetch initial chain for {ticker_symbol}: {e}")
-
-    # Process remaining expirations
-    for i, exp_date in enumerate(expirations):
-        # Already fetched the first one
-        if i == 0:
-            pass 
-        else:
-            time.sleep(1.0)  # Gentle rhythm to avoid 429
-            try:
-                chain = ticker.option_chain(exp_date)
-            except Exception as e:
-                if "Rate limited" in str(e) or "429" in str(e):
-                    raise ValueError("Yahoo Finance is currently rate limiting this server IP. Please wait a minute and try again.")
-                logger.warning(f"Failed to fetch chain for {exp_date}: {e}")
-                continue
+        strike = _safe_float(row['strike'])
+        oi = _safe_int(row.get('openInterest', 0))
+        volume = _safe_int(row.get('volume', 0))
+        iv = _safe_float(row.get('impliedVolatility', 0))
+        last_price = _safe_float(row.get('lastPrice', 0))
         
-        calls_df = chain.calls
-        puts_df = chain.puts
+        if iv <= 0 or oi <= 0:
+            continue
+            
+        T = _years_to_expiry(str(exp).split(' ')[0])
         
-        T = _years_to_expiry(exp_date)
+        # Calculate Greeks
+        gamma = black_scholes_gamma(spot, strike, T, RISK_FREE_RATE, iv)
+        delta = black_scholes_delta(spot, strike, T, RISK_FREE_RATE, iv, opt_type)
+        vanna = black_scholes_vanna(spot, strike, T, RISK_FREE_RATE, iv)
         
-        # ─── Process CALLS ────────────────────────────────────────────
-        for _, row in calls_df.iterrows():
-            strike = _safe_float(row['strike'])
-            oi = _safe_int(row.get('openInterest', 0))
-            volume = _safe_int(row.get('volume', 0))
-            iv = _safe_float(row.get('impliedVolatility', 0))
-            last_price = _safe_float(row.get('lastPrice', 0))
-            
-            if iv <= 0 or oi <= 0:
-                continue
-            
-            gamma = black_scholes_gamma(spot, strike, T, RISK_FREE_RATE, iv)
-            delta = black_scholes_delta(spot, strike, T, RISK_FREE_RATE, iv, 'call')
-            vanna = black_scholes_vanna(spot, strike, T, RISK_FREE_RATE, iv)
-            
-            all_strikes_data.append({
-                'strike': strike,
-                'expiration': exp_date,
-                'type': 'call',
-                'oi': oi,
-                'volume': volume,
-                'iv': iv,
-                'gamma': gamma,
-                'delta': delta,
-                'vanna': vanna,
-                'last_price': last_price,
-                'T': T,
-            })
-        
-        # ─── Process PUTS ─────────────────────────────────────────────
-        for _, row in puts_df.iterrows():
-            strike = _safe_float(row['strike'])
-            oi = _safe_int(row.get('openInterest', 0))
-            volume = _safe_int(row.get('volume', 0))
-            iv = _safe_float(row.get('impliedVolatility', 0))
-            last_price = _safe_float(row.get('lastPrice', 0))
-            
-            if iv <= 0 or oi <= 0:
-                continue
-            
-            gamma = black_scholes_gamma(spot, strike, T, RISK_FREE_RATE, iv)
-            delta = black_scholes_delta(spot, strike, T, RISK_FREE_RATE, iv, 'put')
-            vanna = black_scholes_vanna(spot, strike, T, RISK_FREE_RATE, iv)
-            
-            all_strikes_data.append({
-                'strike': strike,
-                'expiration': exp_date,
-                'type': 'put',
-                'oi': oi,
-                'volume': volume,
-                'iv': iv,
-                'gamma': gamma,
-                'delta': delta,
-                'vanna': vanna,
-                'last_price': last_price,
-                'T': T,
-            })
+        all_strikes_data.append({
+            'strike': strike,
+            'expiration': str(exp).split(' ')[0],
+            'type': opt_type,
+            'oi': oi,
+            'volume': volume,
+            'iv': iv,
+            'gamma': gamma,
+            'delta': delta,
+            'vanna': vanna,
+            'last_price': last_price,
+            'T': T,
+        })
     
     if not all_strikes_data:
         return {
