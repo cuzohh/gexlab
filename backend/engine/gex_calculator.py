@@ -2,7 +2,7 @@
 GEX Engine — Core Math for Gamma Exposure Calculations.
 
 Implements Black-Scholes Greeks (Delta, Gamma) and the industry-standard
-GEX formula used by SpotGamma / GEXRADAR:
+GEX formula:
 
     GEX = Gamma × Open_Interest × 100 × Spot² × 0.01 / 1,000,000,000
 
