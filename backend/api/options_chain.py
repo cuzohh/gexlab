@@ -29,6 +29,26 @@ logger = logging.getLogger(__name__)
 RISK_FREE_RATE = 0.043
 
 
+def _safe_int(val) -> int:
+    """Safely convert a value to int, treating NaN/None as 0."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 0
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _safe_float(val) -> float:
+    """Safely convert a value to float, treating NaN/None as 0.0."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _years_to_expiry(expiry_str: str) -> float:
     """Convert an expiration date string to fractional years from now."""
     exp_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
@@ -78,11 +98,11 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
         
         # ─── Process CALLS ────────────────────────────────────────────
         for _, row in calls_df.iterrows():
-            strike = float(row['strike'])
-            oi = int(row.get('openInterest', 0) or 0)
-            volume = int(row.get('volume', 0) or 0)
-            iv = float(row.get('impliedVolatility', 0) or 0)
-            last_price = float(row.get('lastPrice', 0) or 0)
+            strike = _safe_float(row['strike'])
+            oi = _safe_int(row.get('openInterest', 0))
+            volume = _safe_int(row.get('volume', 0))
+            iv = _safe_float(row.get('impliedVolatility', 0))
+            last_price = _safe_float(row.get('lastPrice', 0))
             
             if iv <= 0 or oi <= 0:
                 continue
@@ -105,11 +125,11 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
         
         # ─── Process PUTS ─────────────────────────────────────────────
         for _, row in puts_df.iterrows():
-            strike = float(row['strike'])
-            oi = int(row.get('openInterest', 0) or 0)
-            volume = int(row.get('volume', 0) or 0)
-            iv = float(row.get('impliedVolatility', 0) or 0)
-            last_price = float(row.get('lastPrice', 0) or 0)
+            strike = _safe_float(row['strike'])
+            oi = _safe_int(row.get('openInterest', 0))
+            volume = _safe_int(row.get('volume', 0))
+            iv = _safe_float(row.get('impliedVolatility', 0))
+            last_price = _safe_float(row.get('lastPrice', 0))
             
             if iv <= 0 or oi <= 0:
                 continue
