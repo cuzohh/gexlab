@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import './index.css'
 import GEXBarChart from './components/GEXBarChart'
 import GEXHeatmap from './components/GEXHeatmap'
+import UnusualFlowChart from './components/UnusualFlowChart'
 import KeyLevelsPanel from './components/KeyLevelsPanel'
 
 interface StrikeData {
@@ -42,6 +43,7 @@ interface GEXData {
 }
 
 const API_BASE = 'http://localhost:8000'
+const AUTO_REFRESH_INTERVAL = 60_000 // 60 seconds
 
 function App() {
   const [ticker, setTicker] = useState('SPY')
@@ -51,7 +53,11 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap'>('bar')
+  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'flow'>('bar')
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [countdown, setCountdown] = useState(60)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchData = useCallback(async (symbol: string) => {
     setLoading(true)
@@ -64,6 +70,7 @@ function App() {
       } else {
         setData(json)
         setLastUpdated(new Date().toLocaleTimeString())
+        setCountdown(60)
       }
     } catch {
       setError('Failed to reach backend. Is it running?')
@@ -72,6 +79,7 @@ function App() {
     }
   }, [])
 
+  // Initial load + health check
   useEffect(() => {
     fetchData(ticker)
 
@@ -80,6 +88,27 @@ function App() {
       .then(d => setBackendStatus(d.status))
       .catch(() => setBackendStatus('offline'))
   }, [ticker, fetchData])
+
+  // Auto-refresh timer
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (countdownRef.current) clearInterval(countdownRef.current)
+
+    if (autoRefresh) {
+      timerRef.current = setInterval(() => {
+        fetchData(ticker)
+      }, AUTO_REFRESH_INTERVAL)
+
+      countdownRef.current = setInterval(() => {
+        setCountdown(prev => (prev <= 1 ? 60 : prev - 1))
+      }, 1000)
+    }
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      if (countdownRef.current) clearInterval(countdownRef.current)
+    }
+  }, [autoRefresh, ticker, fetchData])
 
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -92,9 +121,15 @@ function App() {
     { label: 'Rates / Vol', tickers: ['TLT', 'GLD', 'SLV', 'USO'] },
   ]
 
+  const tabs = [
+    { key: 'bar' as const, icon: '◈', label: 'GEX Profile' },
+    { key: 'heatmap' as const, icon: '◉', label: 'GEX Heatmap' },
+    { key: 'flow' as const, icon: '⚡', label: 'Unusual Flow' },
+  ]
+
   return (
     <>
-      {/* Sidebar */}
+      {/* ═══════════ Sidebar ═══════════ */}
       <aside className="sidebar">
         <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)' }}>
           <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700, letterSpacing: '0.05em' }}>
@@ -147,12 +182,12 @@ function App() {
 
         {/* Key Levels */}
         {data && (
-          <div style={{ padding: '0 1.25rem', flex: 1, overflowY: 'auto' }}>
-            <div className="card-title" style={{ marginTop: '0.5rem' }}>Daily Key Levels</div>
+          <div className="animate-fadeIn" style={{ padding: '0 1.25rem', flex: 1, overflowY: 'auto' }}>
+            <div className="card-title" style={{ marginTop: '0.5rem' }}>Key Levels</div>
             <KeyLevelsPanel keyLevels={data.key_levels} spot={data.spot} />
 
-            <div className="card-title" style={{ marginTop: '1.5rem' }}>Expirations Used</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div className="card-title" style={{ marginTop: '1.5rem' }}>Expirations</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
               {data.expirations.map(exp => (
                 <div key={exp} style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
                   {exp}
@@ -162,19 +197,39 @@ function App() {
           </div>
         )}
 
+        {/* Footer */}
         <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: '11px' }}>
-          <div style={{ color: 'var(--text-dim)' }}>
-            Backend: <span style={{ color: backendStatus === 'ok' ? 'var(--positive)' : 'var(--negative)' }}>{backendStatus.toUpperCase()}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ color: 'var(--text-dim)' }}>
+              <span className={`refresh-indicator ${backendStatus === 'ok' ? 'live' : ''}`} />
+              {backendStatus === 'ok' ? 'LIVE' : 'OFFLINE'}
+            </div>
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              style={{
+                background: autoRefresh ? 'var(--positive-soft)' : 'var(--bg-base)',
+                border: `1px solid ${autoRefresh ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
+                color: autoRefresh ? 'var(--positive)' : 'var(--text-dim)',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '10px',
+                fontWeight: 500,
+              }}
+            >
+              {autoRefresh ? `AUTO ${countdown}s` : 'AUTO OFF'}
+            </button>
           </div>
           {lastUpdated && (
-            <div style={{ color: 'var(--text-dim)', marginTop: '2px' }}>
-              Updated: {lastUpdated}
+            <div style={{ color: 'var(--text-dim)', marginTop: '4px', fontSize: '10px' }}>
+              Last: {lastUpdated}
             </div>
           )}
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* ═══════════ Main Content ═══════════ */}
       <main className="main-content">
         {/* Header Bar */}
         <header className="glass-header">
@@ -212,35 +267,35 @@ function App() {
               onClick={() => fetchData(ticker)}
               disabled={loading}
               style={{
-                background: 'var(--accent)',
+                background: loading ? 'var(--bg-panel)' : 'var(--accent)',
                 color: 'white',
                 border: 'none',
                 padding: '8px 16px',
                 borderRadius: '8px',
-                cursor: 'pointer',
+                cursor: loading ? 'not-allowed' : 'pointer',
                 fontFamily: 'var(--font-sans)',
                 fontWeight: 600,
                 fontSize: '12px',
                 opacity: loading ? 0.5 : 1,
-                transition: 'opacity 0.2s',
+                transition: 'all 0.2s ease',
               }}
             >
-              {loading ? 'Loading...' : '↻ Refresh'}
+              {loading ? '⟳ Loading...' : '↻ Refresh'}
             </button>
           </div>
         </header>
 
-        {/* Chart Tabs */}
+        {/* Tab Navigation */}
         <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0' }}>
-          {(['bar', 'heatmap'] as const).map(tab => (
+          {tabs.map(tab => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
               style={{
-                background: activeTab === tab ? 'var(--bg-panel)' : 'transparent',
-                color: activeTab === tab ? 'var(--text-main)' : 'var(--text-dim)',
-                border: `1px solid ${activeTab === tab ? 'var(--border)' : 'transparent'}`,
-                borderBottom: activeTab === tab ? '1px solid var(--bg-panel)' : '1px solid var(--border)',
+                background: activeTab === tab.key ? 'var(--bg-panel)' : 'transparent',
+                color: activeTab === tab.key ? 'var(--text-main)' : 'var(--text-dim)',
+                border: `1px solid ${activeTab === tab.key ? 'var(--border)' : 'transparent'}`,
+                borderBottom: activeTab === tab.key ? '1px solid var(--bg-panel)' : '1px solid var(--border)',
                 padding: '8px 20px',
                 cursor: 'pointer',
                 fontFamily: 'var(--font-sans)',
@@ -250,13 +305,13 @@ function App() {
                 transition: 'all 0.15s ease',
               }}
             >
-              {tab === 'bar' ? '◈ OI Gamma Exposure' : '◉ GEX Heatmap'}
+              {tab.icon} {tab.label}
             </button>
           ))}
         </div>
 
-        {/* Charts */}
-        <section style={{ padding: '0 2rem 2rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Chart Area */}
+        <section className="animate-fadeIn" style={{ padding: '0 2rem 2rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div className="panel" style={{
             flex: 1,
             minHeight: '500px',
@@ -265,16 +320,11 @@ function App() {
           }}>
             {data ? (
               activeTab === 'bar' ? (
-                <GEXBarChart
-                  data={data.gex_by_strike}
-                  spot={data.spot}
-                  keyLevels={data.key_levels}
-                />
+                <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} />
+              ) : activeTab === 'heatmap' ? (
+                <GEXHeatmap data={data.heatmap_data} spot={data.spot} />
               ) : (
-                <GEXHeatmap
-                  data={data.heatmap_data}
-                  spot={data.spot}
-                />
+                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} />
               )
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -297,7 +347,7 @@ function App() {
           zIndex: 1000,
         }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '1rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '1rem', marginBottom: '1rem' }}>
               COMPUTING GAMMA EXPOSURE...
             </div>
             <div style={{
@@ -305,12 +355,11 @@ function App() {
               background: 'var(--border)',
               borderRadius: '10px',
               overflow: 'hidden',
-              marginTop: '1rem',
             }}>
               <div style={{
-                width: '60%', height: '100%',
+                width: '40%', height: '100%',
                 background: 'linear-gradient(90deg, var(--accent), var(--positive))',
-                animation: 'pulse 1.5s ease-in-out infinite',
+                animation: 'pulse 1.2s ease-in-out infinite',
               }} />
             </div>
           </div>
@@ -319,7 +368,7 @@ function App() {
 
       {/* Error Toast */}
       {error && !loading && (
-        <div style={{
+        <div className="animate-slideUp" style={{
           position: 'fixed', bottom: '2rem', right: '2rem',
           padding: '1rem 1.5rem',
           background: 'var(--negative-soft)',
@@ -329,6 +378,7 @@ function App() {
           boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
           zIndex: 1001,
           fontSize: '13px',
+          maxWidth: '400px',
         }}>
           <strong>Error:</strong> {error}
         </div>
