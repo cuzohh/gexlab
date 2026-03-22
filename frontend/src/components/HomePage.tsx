@@ -146,6 +146,8 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-dim)', fontSize: '12px' }}>
         GEXLAB is open source · Built with FastAPI + React + ECharts · Data from Yahoo Finance
       </div>
+
+      <div style={{ height: '24rem', width: '100%' }} />
     </div>
   )
 }

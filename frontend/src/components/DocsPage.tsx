@@ -292,6 +292,9 @@ export default function DocsPage({ onNavigate }: DocsPageProps) {
             </Section>
           </div>
         )}
+        
+        {/* Massive bottom spacer ensures the text can always be scrolled to the center of the screen */}
+        <div style={{ height: '24rem', width: '100%' }} />
       </article>
     </div>
   )
