@@ -12,3 +12,4 @@ if not exist "venv" (
 
 echo Starting FastAPI Backend for GEXRADAR Clone...
 uvicorn main:app --reload --host 127.0.0.1 --port 8000
+pause
