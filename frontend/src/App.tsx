@@ -60,8 +60,8 @@ type Page = 'home' | 'dashboard' | 'docs'
 
 function App() {
   const [page, setPage] = useState<Page>('home')
-  const [ticker, setTicker] = useState('SPY')
-  const [inputTicker, setInputTicker] = useState('SPY')
+  const [ticker, setTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
+  const [inputTicker, setInputTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
   const [data, setData] = useState<GEXData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -92,6 +92,10 @@ function App() {
       if (!isBackground) setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('gexlab_ticker', ticker)
+  }, [ticker])
 
   useEffect(() => {
     if (page === 'dashboard') {
