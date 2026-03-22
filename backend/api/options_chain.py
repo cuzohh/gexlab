@@ -60,7 +60,13 @@ def _years_to_expiry(expiry_str: str) -> float:
     return max(days / 365.0, 1 / 365.0)  # Floor at 1 day to avoid div/0
 
 
-def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
+from cachetools import cached, TTLCache
+
+# Cache up to 100 tickers for 5 minutes (300 seconds) to heavily restrict API hits
+cache = TTLCache(maxsize=100, ttl=300)
+
+@cached(cache)
+def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3):
     """
     Fetch the full options chain for a ticker and compute GEX data.
     
