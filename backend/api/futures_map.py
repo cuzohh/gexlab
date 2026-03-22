@@ -9,8 +9,12 @@ and apply it to every key level.
 
 import yfinance as yf
 import logging
+from cachetools import cached, TTLCache
 
 logger = logging.getLogger(__name__)
+
+# Cache futures for 10 minutes to avoid redundant hits
+futures_cache = TTLCache(maxsize=50, ttl=600)
 
 # ETF → Futures symbol mapping
 FUTURES_MAP = {
@@ -25,6 +29,7 @@ FUTURES_MAP = {
 }
 
 
+@cached(futures_cache)
 def get_futures_translation(ticker: str, etf_spot: float) -> dict | None:
     """
     Fetch the live futures price and compute the ETF→Futures conversion ratio.

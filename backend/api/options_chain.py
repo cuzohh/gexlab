@@ -81,25 +81,52 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3):
     """
     ticker = yf.Ticker(ticker_symbol)
     
-    # Get current spot price
-    fast_info = ticker.fast_info
-    spot = float(fast_info.last_price)
-    
     # Get available expirations, limit to nearest N
     all_expirations = ticker.options
+    if not all_expirations:
+         raise ValueError(f"No options found for {ticker_symbol}. Ticker might be invalid or Yahoo is rate-limiting.")
+         
     expirations = list(all_expirations[:max_expirations])
     
-    # Aggregate across all expirations
     all_strikes_data = []
     heatmap_data = []
 
-    for exp_date in expirations:
-        time.sleep(0.3)  # Rate Limit protection against 429 Too Many Requests
+    # ─── Fetch first chain to extract spot ────────────────────────────
+    try:
+        # Fetching the first chain usually populates internal quote data too
+        first_exp = expirations[0]
+        chain = ticker.option_chain(first_exp)
+        
+        # Try to extract spot from underlying metadata if possible (saves a hit)
+        # yfinance 0.2.x provides .underlying which is a dict-like with price info
         try:
-            chain = ticker.option_chain(exp_date)
-        except Exception as e:
-            logger.warning(f"Failed to fetch chain for {exp_date}: {e}")
-            continue
+            spot = float(chain.underlying.get('regularMarketPrice', 0))
+        except:
+            spot = 0
+            
+        if spot <= 0:
+            # Fallback to fast_info if metadata missing (costly extra hit)
+            spot = float(ticker.fast_info.last_price)
+            
+    except Exception as e:
+        if "Rate limited" in str(e) or "429" in str(e):
+            raise ValueError("Yahoo Finance/Render IP is currently rate-limited. Try again in a minute.")
+        raise ValueError(f"Failed to fetch initial chain for {ticker_symbol}: {e}")
+
+    # Process remaining expirations
+    for i, exp_date in enumerate(expirations):
+        # Already fetched the first one
+        if i == 0:
+            pass 
+        else:
+            time.sleep(1.0)  # Gentle rhythm to avoid 429
+            try:
+                chain = ticker.option_chain(exp_date)
+            except Exception as e:
+                if "Rate limited" in str(e) or "429" in str(e):
+                    raise ValueError("Yahoo Finance is currently rate limiting this server IP. Please wait a minute and try again.")
+                logger.warning(f"Failed to fetch chain for {exp_date}: {e}")
+                continue
         
         calls_df = chain.calls
         puts_df = chain.puts

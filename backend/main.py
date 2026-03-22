@@ -33,7 +33,7 @@ async def data_status():
 @app.get("/api/gex/{ticker}")
 async def get_gex_data(
     ticker: str,
-    max_expirations: int = Query(default=6, ge=1, le=20)
+    max_expirations: int = Query(default=3, ge=1, le=10)
 ):
     """
     Fetch the full GEX analysis for a given ticker.
