@@ -4,6 +4,11 @@ import GEXBarChart from './components/GEXBarChart'
 import GEXHeatmap from './components/GEXHeatmap'
 import UnusualFlowChart from './components/UnusualFlowChart'
 import KeyLevelsPanel from './components/KeyLevelsPanel'
+import DEXProfile from './components/DEXProfile'
+import GEXByExpiration from './components/GEXByExpiration'
+import IVSkewChart from './components/IVSkewChart'
+import PutCallRatio from './components/PutCallRatio'
+import VannaExposure from './components/VannaExposure'
 import HomePage from './components/HomePage'
 import DocsPage from './components/DocsPage'
 
@@ -41,6 +46,12 @@ interface FuturesData {
   ratio: number
 }
 
+interface DEXStrike { strike: number; call_dex: number; put_dex: number; net_dex: number }
+interface ExpGEX { expiration: string; total_gex: number }
+interface IVPoint { strike: number; call_iv: number; put_iv: number }
+interface PCPoint { strike: number; call_oi: number; put_oi: number; pc_ratio: number }
+interface VannaPoint { strike: number; vanna_exposure: number }
+
 interface GEXData {
   spot: number
   regime: string
@@ -51,6 +62,11 @@ interface GEXData {
   gex_by_strike: StrikeData[]
   heatmap_data: HeatmapPoint[]
   futures: FuturesData | null
+  dex_by_strike: DEXStrike[]
+  gex_by_expiration: ExpGEX[]
+  iv_skew: IVPoint[]
+  pc_ratio: PCPoint[]
+  vanna_by_strike: VannaPoint[]
 }
 
 const API_BASE = 'http://localhost:8000'
@@ -67,7 +83,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'flow'>('bar')
+  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'flow' | 'dex' | 'exp' | 'iv' | 'pc' | 'vanna'>('bar')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [countdown, setCountdown] = useState(60)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -137,8 +153,13 @@ function App() {
 
   const tabs = [
     { key: 'bar' as const, icon: '◈', label: 'GEX Profile' },
-    { key: 'heatmap' as const, icon: '◉', label: 'GEX Heatmap' },
-    { key: 'flow' as const, icon: '⚡', label: 'Unusual Flow' },
+    { key: 'heatmap' as const, icon: '◉', label: 'Heatmap' },
+    { key: 'flow' as const, icon: '⚡', label: 'Flow' },
+    { key: 'dex' as const, icon: '△', label: 'DEX' },
+    { key: 'exp' as const, icon: '▧', label: 'By Exp' },
+    { key: 'iv' as const, icon: '∿', label: 'IV Skew' },
+    { key: 'pc' as const, icon: '⚖', label: 'P/C Ratio' },
+    { key: 'vanna' as const, icon: '∇', label: 'Vanna' },
   ]
 
   // ═══════════ HOME PAGE ═══════════
@@ -326,7 +347,7 @@ function App() {
         </header>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0' }}>
+        <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0', overflowX: 'auto', scrollbarWidth: 'none' }}>
           {tabs.map(tab => (
             <button
               key={tab.key}
@@ -355,9 +376,19 @@ function App() {
                 <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
               ) : activeTab === 'heatmap' ? (
                 <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
-              ) : (
+              ) : activeTab === 'flow' ? (
                 <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
-              )
+              ) : activeTab === 'dex' ? (
+                <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'exp' ? (
+                <GEXByExpiration data={data.gex_by_expiration} />
+              ) : activeTab === 'iv' ? (
+                <IVSkewChart data={data.iv_skew} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'pc' ? (
+                <PutCallRatio data={data.pc_ratio} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'vanna' ? (
+                <VannaExposure data={data.vanna_by_strike} spot={data.spot} futures={data.futures} />
+              ) : null
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                 <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>

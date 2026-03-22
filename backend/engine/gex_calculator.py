@@ -70,6 +70,25 @@ def black_scholes_gamma(
     return gamma
 
 
+def black_scholes_vanna(
+    S: float,         # Spot price
+    K: float,         # Strike price
+    T: float,         # Time to expiration in years
+    r: float,         # Risk-free rate
+    sigma: float      # Implied volatility (annualised)
+) -> float:
+    """
+    Calculate Black-Scholes Vanna (dDelta/dVol = dVega/dSpot).
+    Vanna measures how much delta changes per 1% move in implied volatility.
+    """
+    if T <= 0 or sigma <= 0:
+        return 0.0
+    d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
+    d2 = d1 - sigma * np.sqrt(T)
+    vanna = float(-_norm_pdf(d1) * d2 / sigma)
+    return vanna
+
+
 def calculate_gex(
     gamma: float,
     open_interest: int,

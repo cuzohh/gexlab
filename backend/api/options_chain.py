@@ -18,6 +18,7 @@ import logging
 from engine.gex_calculator import (
     black_scholes_gamma,
     black_scholes_delta,
+    black_scholes_vanna,
     calculate_gex_vectorized,
     find_zero_gamma,
     compute_max_pain,
@@ -109,6 +110,7 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
             
             gamma = black_scholes_gamma(spot, strike, T, RISK_FREE_RATE, iv)
             delta = black_scholes_delta(spot, strike, T, RISK_FREE_RATE, iv, 'call')
+            vanna = black_scholes_vanna(spot, strike, T, RISK_FREE_RATE, iv)
             
             all_strikes_data.append({
                 'strike': strike,
@@ -119,6 +121,7 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
                 'iv': iv,
                 'gamma': gamma,
                 'delta': delta,
+                'vanna': vanna,
                 'last_price': last_price,
                 'T': T,
             })
@@ -136,6 +139,7 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
             
             gamma = black_scholes_gamma(spot, strike, T, RISK_FREE_RATE, iv)
             delta = black_scholes_delta(spot, strike, T, RISK_FREE_RATE, iv, 'put')
+            vanna = black_scholes_vanna(spot, strike, T, RISK_FREE_RATE, iv)
             
             all_strikes_data.append({
                 'strike': strike,
@@ -146,6 +150,7 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
                 'iv': iv,
                 'gamma': gamma,
                 'delta': delta,
+                'vanna': vanna,
                 'last_price': last_price,
                 'T': T,
             })
@@ -267,6 +272,80 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
     ).sum()
     net_dex = float(call_dex + put_dex)
     
+    # ─── DEX by Strike ────────────────────────────────────────────────
+    df['dex'] = df.apply(
+        lambda r: r['delta'] * r['oi'] * 100 * spot / 1_000_000_000, axis=1
+    )
+    dex_by_strike_agg = df.groupby('strike').agg(
+        call_dex=('dex', lambda x: x[df.loc[x.index, 'type'] == 'call'].sum()),
+        put_dex=('dex', lambda x: x[df.loc[x.index, 'type'] == 'put'].sum()),
+    ).reset_index()
+    dex_by_strike_agg['net_dex'] = dex_by_strike_agg['call_dex'] + dex_by_strike_agg['put_dex']
+    dex_by_strike_agg = dex_by_strike_agg.sort_values('strike').reset_index(drop=True)
+    
+    dex_by_strike = []
+    for _, row in dex_by_strike_agg.iterrows():
+        dex_by_strike.append({
+            'strike': float(row['strike']),
+            'call_dex': float(row['call_dex']),
+            'put_dex': float(row['put_dex']),
+            'net_dex': float(row['net_dex']),
+        })
+    
+    # ─── GEX by Expiration ────────────────────────────────────────────
+    gex_by_exp = df.groupby('expiration')['gex'].sum().reset_index()
+    gex_by_exp.columns = ['expiration', 'total_gex']
+    gex_by_exp = gex_by_exp.sort_values('expiration')
+    gex_by_expiration = [
+        {'expiration': row['expiration'], 'total_gex': round(float(row['total_gex']), 4)}
+        for _, row in gex_by_exp.iterrows()
+    ]
+    
+    # ─── IV Skew ──────────────────────────────────────────────────────
+    call_iv = df[df['type'] == 'call'].groupby('strike')['iv'].mean().reset_index()
+    call_iv.columns = ['strike', 'call_iv']
+    put_iv = df[df['type'] == 'put'].groupby('strike')['iv'].mean().reset_index()
+    put_iv.columns = ['strike', 'put_iv']
+    iv_skew_df = pd.merge(call_iv, put_iv, on='strike', how='outer').sort_values('strike')
+    iv_skew = []
+    for _, row in iv_skew_df.iterrows():
+        iv_skew.append({
+            'strike': float(row['strike']),
+            'call_iv': round(float(row.get('call_iv', 0) or 0) * 100, 2),
+            'put_iv': round(float(row.get('put_iv', 0) or 0) * 100, 2),
+        })
+    
+    # ─── Put/Call OI Ratio by Strike ──────────────────────────────────
+    call_oi_agg = df[df['type'] == 'call'].groupby('strike')['oi'].sum().reset_index()
+    call_oi_agg.columns = ['strike', 'call_oi']
+    put_oi_agg = df[df['type'] == 'put'].groupby('strike')['oi'].sum().reset_index()
+    put_oi_agg.columns = ['strike', 'put_oi']
+    pc_df = pd.merge(call_oi_agg, put_oi_agg, on='strike', how='outer').fillna(0).sort_values('strike')
+    pc_ratio = []
+    for _, row in pc_df.iterrows():
+        c = int(row['call_oi'])
+        p = int(row['put_oi'])
+        ratio = round(p / c, 2) if c > 0 else 0.0
+        pc_ratio.append({
+            'strike': float(row['strike']),
+            'call_oi': c,
+            'put_oi': p,
+            'pc_ratio': ratio,
+        })
+    
+    # ─── Vanna Exposure by Strike ─────────────────────────────────────
+    df['vex'] = df.apply(
+        lambda r: r['vanna'] * r['oi'] * 100 * spot / 1_000_000_000
+                  * (1.0 if r['type'] == 'call' else -1.0),
+        axis=1
+    )
+    vex_agg = df.groupby('strike')['vex'].sum().reset_index()
+    vex_agg = vex_agg.sort_values('strike')
+    vanna_by_strike = [
+        {'strike': float(row['strike']), 'vanna_exposure': round(float(row['vex']), 6)}
+        for _, row in vex_agg.iterrows()
+    ]
+    
     return {
         'spot': round(spot, 2),
         'gex_by_strike': gex_by_strike,
@@ -284,4 +363,9 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
         'net_dex': round(net_dex, 4),
         'regime': regime,
         'heatmap_data': heatmap_data,
+        'dex_by_strike': dex_by_strike,
+        'gex_by_expiration': gex_by_expiration,
+        'iv_skew': iv_skew,
+        'pc_ratio': pc_ratio,
+        'vanna_by_strike': vanna_by_strike,
     }
