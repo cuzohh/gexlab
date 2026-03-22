@@ -73,8 +73,8 @@ function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchData = useCallback(async (symbol: string) => {
-    setLoading(true)
+  const fetchData = useCallback(async (symbol: string, isBackground = false) => {
+    if (!isBackground) setLoading(true)
     setError(null)
     try {
       const res = await fetch(`${API_BASE}/api/gex/${symbol}`)
@@ -89,7 +89,7 @@ function App() {
     } catch {
       setError('Failed to reach backend. Is it running?')
     } finally {
-      setLoading(false)
+      if (!isBackground) setLoading(false)
     }
   }, [])
 
@@ -108,7 +108,7 @@ function App() {
     if (countdownRef.current) clearInterval(countdownRef.current)
 
     if (autoRefresh && page === 'dashboard') {
-      timerRef.current = setInterval(() => fetchData(ticker), AUTO_REFRESH_INTERVAL)
+      timerRef.current = setInterval(() => fetchData(ticker, true), AUTO_REFRESH_INTERVAL)
       countdownRef.current = setInterval(() => {
         setCountdown(prev => (prev <= 1 ? 60 : prev - 1))
       }, 1000)

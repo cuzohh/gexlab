@@ -159,7 +159,7 @@ export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowCha
     <ReactECharts
       option={option}
       style={{ height: '100%', width: '100%' }}
-      notMerge={true}
+      notMerge={false}
     />
   )
 }

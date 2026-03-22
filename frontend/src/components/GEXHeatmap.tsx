@@ -143,7 +143,7 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
     <ReactECharts
       option={option}
       style={{ height: '100%', width: '100%' }}
-      notMerge={true}
+      notMerge={false}
     />
   )
 }

@@ -88,7 +88,6 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
 
   const option: echarts.EChartsCoreOption = {
     backgroundColor: 'transparent',
-    animation: false,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -168,7 +167,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
     <ReactECharts
       option={option}
       style={{ height: '100%', width: '100%' }}
-      notMerge={true}
+      notMerge={false}
     />
   )
 }
