@@ -12,6 +12,7 @@
   "dependencies": {
     "echarts": "^6.0.0",
     "echarts-for-react": "^3.0.6",
+    "echarts-gl": "^2.0.9",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tslib": "^2.8.1"

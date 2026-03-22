@@ -11,6 +11,7 @@ import IVSkewChart from './components/IVSkewChart'
 import PutCallRatio from './components/PutCallRatio'
 import VannaExposure from './components/VannaExposure'
 import OIDistribution from './components/OIDistribution'
+import GEXTopology from './components/GEXTopology'
 import HomePage from './components/HomePage'
 import DocsPage from './components/DocsPage'
 
@@ -85,7 +86,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'exp' | 'cumulative' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'>('bar')
+  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'topology' | 'exp' | 'cumulative' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'>('bar')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [countdown, setCountdown] = useState(60)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -159,6 +160,7 @@ function App() {
     // ─── Gamma ───
     { key: 'bar', icon: '◈', label: 'GEX Profile' },
     { key: 'heatmap', icon: '◉', label: 'Heatmap' },
+    { key: 'topology', icon: '🏔', label: 'Topology' },
     { key: 'exp', icon: '▧', label: 'By Exp' },
     { key: 'cumulative', icon: '∾', label: 'Cumulative' },
     { divider: 'Greeks' },
@@ -401,6 +403,8 @@ function App() {
                 <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
               ) : activeTab === 'heatmap' ? (
                 <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'topology' ? (
+                <GEXTopology data={data.heatmap_data} spot={data.spot} futures={data.futures} />
               ) : activeTab === 'exp' ? (
                 <GEXByExpiration data={data.gex_by_expiration} />
               ) : activeTab === 'cumulative' ? (
