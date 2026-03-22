@@ -62,6 +62,7 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
       backgroundColor: '#16161a',
       borderColor: '#26262f',
       textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
+      formatter: (params: any) => {
         const strike = strikes[params.value[0]]
         const exp = expirations[params.value[1]]
         const rawGex = filtered.find(d => d.strike === strike && d.expiration === exp)?.gex || 0
