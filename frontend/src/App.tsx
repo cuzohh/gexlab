@@ -361,31 +361,31 @@ function App() {
                 </div>
               </div>
             )}
-          </div>
-          {/* Loading Overlay (now inline, not hijacking screen) */}
-          {loading && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'rgba(22, 22, 26, 0.7)', backdropFilter: 'blur(4px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
-            }}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                  COMPUTING GAMMA EXPOSURE...
-                </div>
-                <div style={{
-                  width: '200px', height: '2px', background: 'var(--border)',
-                  borderRadius: '10px', overflow: 'hidden', margin: '0 auto',
-                }}>
+            {/* Loading Overlay (now correctly bounds to just the panel) */}
+            {loading && (
+              <div style={{
+                position: 'absolute', inset: 0,
+                background: 'rgba(22, 22, 26, 0.7)', backdropFilter: 'blur(4px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
+              }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                    COMPUTING GAMMA EXPOSURE...
+                  </div>
                   <div style={{
-                    width: '40%', height: '100%',
-                    background: 'linear-gradient(90deg, var(--accent), var(--positive))',
-                    animation: 'pulse 1.2s ease-in-out infinite',
-                  }} />
+                    width: '200px', height: '2px', background: 'var(--border)',
+                    borderRadius: '10px', overflow: 'hidden', margin: '0 auto',
+                  }}>
+                    <div style={{
+                      width: '40%', height: '100%',
+                      background: 'linear-gradient(90deg, var(--accent), var(--positive))',
+                      animation: 'pulse 1.2s ease-in-out infinite',
+                    }} />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </section>
       </main>
 
