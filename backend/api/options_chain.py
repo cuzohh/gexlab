@@ -11,6 +11,7 @@ Orchestrates:
 import yfinance as yf
 import numpy as np
 import pandas as pd
+import time
 from datetime import datetime, date
 from typing import Optional
 import logging
@@ -87,6 +88,7 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
     heatmap_data = []
 
     for exp_date in expirations:
+        time.sleep(0.3)  # Rate Limit protection against 429 Too Many Requests
         try:
             chain = ticker.option_chain(exp_date)
         except Exception as e:
