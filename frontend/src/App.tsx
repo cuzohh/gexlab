@@ -3,7 +3,7 @@ import './index.css'
 
 function App() {
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [thetaStatus, setThetaStatus] = useState<boolean | null>(null)
+  const [dataStatus, setDataStatus] = useState<boolean | null>(null)
 
   useEffect(() => {
     // Check backend health
@@ -12,11 +12,11 @@ function App() {
       .then(data => setBackendStatus(data.status))
       .catch(() => setBackendStatus('offline'))
 
-    // Check ThetaData connectivity
-    fetch('http://localhost:8000/api/theta-status')
+    // Check YFinance connectivity
+    fetch('http://localhost:8000/api/data-status')
       .then(res => res.json())
-      .then(data => setThetaStatus(data.terminal_connected))
-      .catch(() => setThetaStatus(null))
+      .then(data => setDataStatus(data.api_connected))
+      .catch(() => setDataStatus(null))
   }, [])
 
   return (
@@ -34,9 +34,9 @@ function App() {
           </div>
           <div style={{ width: '1px', height: '14px', backgroundColor: 'var(--border)' }}></div>
           <div>
-            ThetaTerminal:{' '}
-            <span className={thetaStatus ? 'text-positive' : 'text-negative'}>
-              {thetaStatus === null ? 'CHECKING...' : thetaStatus ? 'LIVE' : 'DISCONNECTED'}
+            YFinance API:{' '}
+            <span className={dataStatus ? 'text-positive' : 'text-negative'}>
+              {dataStatus === null ? 'CHECKING...' : dataStatus ? 'LIVE' : 'UNREACHABLE'}
             </span>
           </div>
         </div>
@@ -44,12 +44,12 @@ function App() {
 
       <main>
         <div className="panel" style={{ maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-          <h2 style={{marginTop: 0}}>Phase 1 Complete</h2>
+          <h2 style={{marginTop: 0}}>Data Source Switched</h2>
           <p className="text-muted">
-            The frontend is scaffolded with our custom dark theme and configured to fetch live statuses from the FastAPI backend. 
+            The frontend is now configured to fetch live statuses from the FastAPI backend using Yahoo Finance (`yfinance`) data endpoints.
           </p>
           <div style={{ marginTop: '2rem', padding: '1rem', backgroundColor: 'var(--bg-base)', borderRadius: '4px', border: '1px solid var(--border)' }}>
-            <p>If ThetaTerminal is DISCONNECTED, please ensure Java 11+ is installed and the terminal is running locally on port 25510.</p>
+            <p>You can deploy this immediately. Render.com will host the Python FastAPI app seamlessly since `yfinance` fetches data directly from the web.</p>
           </div>
         </div>
       </main>

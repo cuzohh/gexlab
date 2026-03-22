@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.thetadata_client import ThetaClient
+from api.yfinance_client import YFinanceClient
 
-app = FastAPI(title="GEX Dashboard Backend", version="1.0.0")
+app = FastAPI(title="GEX Dashboard Backend (YFinance)", version="1.0.0")
 
 # CORS middleware for Vite frontend
 app.add_middleware(
@@ -13,14 +13,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-theta_client = ThetaClient()
+data_client = YFinanceClient()
 
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "service": "gexlab-backend"}
 
-@app.get("/api/theta-status")
-async def theta_status():
-    """Check if the local ThetaTerminal is responding."""
-    is_connected = await theta_client.check_connection()
-    return {"terminal_connected": is_connected}
+@app.get("/api/data-status")
+async def data_status():
+    """Check if Yahoo Finance data API is reachable."""
+    is_connected = await data_client.check_connection()
+    return {"api_connected": is_connected}
