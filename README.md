@@ -45,6 +45,10 @@
   Free gamma exposure analytics for retail traders, with a native desktop app for local use.
 </p>
 
+<p align="center">
+  <img src=".github/assets/social-preview.png" alt="GEXLAB social preview" width="100%" />
+</p>
+
 ## Why This Exists
 
 GEXLAB makes dealer positioning visible without requiring a paid terminal.
@@ -135,14 +139,24 @@ Windows installer output:
 
 - `desktop-dist/GEXLAB-Setup-1.0.0.exe`
 
-Run from source:
+Cross-platform packaging is configured in `package.json` for:
+
+- Windows: `nsis`
+- macOS: `dmg`, `zip`
+- Linux: `AppImage`, `deb`
+
+<details>
+<summary><strong>Run the desktop app from source</strong></summary>
 
 ```bat
 npm run desktop:build:frontend
 run_desktop_app.bat
 ```
 
-Build the installer:
+</details>
+
+<details>
+<summary><strong>Build the Windows installer</strong></summary>
 
 ```bat
 npm install
@@ -151,13 +165,12 @@ backend\venv\Scripts\python.exe -m pip install pyinstaller
 npm run desktop:build
 ```
 
-Cross-platform packaging is configured in `package.json` for:
-
-- Windows: `nsis`
-- macOS: `dmg`, `zip`
-- Linux: `AppImage`, `deb`
+</details>
 
 ## Web Development
+
+<details>
+<summary><strong>Start the web development stack</strong></summary>
 
 Backend:
 
@@ -176,6 +189,8 @@ Then open:
 ```text
 http://localhost:3000
 ```
+
+</details>
 
 ## Formula
 
@@ -207,6 +222,14 @@ run_desktop_app.bat     Local desktop app runner
 - The desktop app is the preferred user distribution because the website is more likely to get rate-limited.
 - The desktop app still uses loopback internally for its bundled backend, but users interact with a normal app window, not a browser-based localhost setup.
 - Build artifacts are ignored by `.gitignore`.
+
+## Roadmap
+
+- shrink the frontend bundle with route-level or chart-level code splitting
+- add CI builds for Windows, macOS, and Linux installers
+- add signed Windows releases and cleaner release artifacts
+- improve caching and request strategy to reduce upstream rate-limit pressure
+- add more market structure views and better historical comparison workflows
 
 ## Disclaimer
 
