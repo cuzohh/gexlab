@@ -9,9 +9,22 @@ GEX formula used by SpotGamma / GEXRADAR:
 Result is in billions of dollars of hedging flow per 1% move.
 """
 
+import math
 import numpy as np
-from scipy.stats import norm
 from typing import Optional
+
+
+# ─── Pure-Python replacements for scipy.stats.norm ────────────────────
+# This avoids the scipy install headache on Windows (needs C compiler).
+
+def _norm_cdf(x: float) -> float:
+    """Standard normal CDF using math.erf (built-in, no scipy needed)."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+def _norm_pdf(x: float) -> float:
+    """Standard normal PDF."""
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
 
 
 def black_scholes_delta(
@@ -33,9 +46,9 @@ def black_scholes_delta(
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
 
     if option_type == 'call':
-        return float(norm.cdf(d1))
+        return float(_norm_cdf(d1))
     else:
-        return float(norm.cdf(d1) - 1.0)
+        return float(_norm_cdf(d1) - 1.0)
 
 
 def black_scholes_gamma(
@@ -53,7 +66,7 @@ def black_scholes_gamma(
         return 0.0
 
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
-    gamma = float(norm.pdf(d1) / (S * sigma * np.sqrt(T)))
+    gamma = float(_norm_pdf(d1) / (S * sigma * np.sqrt(T)))
     return gamma
 
 
