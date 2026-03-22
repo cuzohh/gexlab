@@ -42,7 +42,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
   ]
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '4rem 2rem' }}>
+    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '4rem 2rem 12rem' }}>
       {/* Hero */}
       <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
         <h1 style={{
