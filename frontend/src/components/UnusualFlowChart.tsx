@@ -87,7 +87,7 @@ export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowCha
         const raw = params.data._raw as StrikeData
         const tag = params.data._isAnomaly ? '<span style="color:#f59e0b">⚡ UNUSUAL</span><br/>' : ''
         const fStr = futures ? ` (${futures.name} ${(raw.strike * futures.ratio).toFixed(2)})` : ''
-        return `${tag}<strong>$${raw.strike.toFixed(0)}${fStr}</strong><br/>` +
+        return `${tag}<strong>$${raw.strike.toFixed(2)}${fStr}</strong><br/>` +
           `IV: ${raw.avg_iv.toFixed(1)}%<br/>` +
           `Volume: ${raw.total_volume.toLocaleString()}<br/>` +
           `OI: ${raw.total_oi.toLocaleString()}<br/>` +
@@ -110,8 +110,8 @@ export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowCha
         fontFamily: 'JetBrains Mono', 
         fontSize: 10, 
         formatter: (v: number) => {
-          if (futures) return `$${v.toFixed(0)}\n(${futures.name} ${(v * futures.ratio).toFixed(0)})`
-          return `$${v.toFixed(0)}`
+          if (futures) return `$${v.toFixed(2)}\n(${futures.name} ${(v * futures.ratio).toFixed(2)})`
+          return `$${v.toFixed(2)}`
         }
       },
       axisLine: { lineStyle: { color: '#26262f' } },

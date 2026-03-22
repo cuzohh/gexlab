@@ -67,7 +67,7 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
         const exp = expirations[params.value[1]]
         const rawGex = filtered.find(d => d.strike === strike && d.expiration === exp)?.gex || 0
         const fStr = futures ? ` (${futures.name} ${(strike * futures.ratio).toFixed(2)})` : ''
-        return `<strong>$${strike.toFixed(0)}${fStr}</strong> | ${exp}<br/>GEX: ${rawGex.toFixed(4)}B`
+        return `<strong>$${strike.toFixed(2)}${fStr}</strong> | ${exp}<br/>GEX: ${rawGex.toFixed(4)}B`
       },
     },
     grid: {
@@ -79,8 +79,8 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
       xAxis: {
       type: 'category',
       data: strikes.map(s => {
-        if (futures) return `$${s.toFixed(0)}\n(${futures.name} ${(s * futures.ratio).toFixed(0)})`
-        return `$${s.toFixed(0)}`
+        if (futures) return `$${s.toFixed(2)}\n(${futures.name} ${(s * futures.ratio).toFixed(2)})`
+        return `$${s.toFixed(2)}`
       }),
       axisLabel: {
         color: '#5c5c66',

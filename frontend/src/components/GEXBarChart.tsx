@@ -48,10 +48,10 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
 
   const strikes = filtered.map(d => {
     if (futures) {
-      const fPrice = (d.strike * futures.ratio).toFixed(0)
-      return `${d.strike.toFixed(0)} (${fPrice})`
+      const fPrice = (d.strike * futures.ratio).toFixed(2)
+      return `${d.strike.toFixed(2)} (${fPrice})`
     }
-    return d.strike.toFixed(0)
+    return d.strike.toFixed(2)
   })
   const callGex = filtered.map(d => d.call_gex)
   const putGex = filtered.map(d => d.put_gex)
