@@ -48,7 +48,7 @@ export default function DocsPage({ onNavigate }: DocsPageProps) {
   ] as const
 
   return (
-    <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '2rem 2rem 12rem', gap: '3rem', width: '100%' }}>
+    <div style={{ display: 'flex', maxWidth: '1100px', margin: '0 auto', padding: '2rem 2rem 8rem', gap: '3rem', width: '100%' }}>
       {/* Sidebar Navigation */}
       <nav style={{
         width: '220px', flexShrink: 0,
@@ -292,9 +292,6 @@ export default function DocsPage({ onNavigate }: DocsPageProps) {
             </Section>
           </div>
         )}
-        
-        {/* Massive bottom spacer ensures the text can always be scrolled to the center of the screen */}
-        <div style={{ height: '24rem', width: '100%' }} />
       </article>
     </div>
   )
