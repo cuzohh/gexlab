@@ -5,7 +5,6 @@
  */
 
 import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
 import 'echarts-gl'
 
 interface HeatmapPoint { strike: number; expiration: string; gex: number }
