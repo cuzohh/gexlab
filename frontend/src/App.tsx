@@ -86,7 +86,11 @@ function App() {
     setTicker(inputTicker.toUpperCase())
   }
 
-  const quickTickers = ['SPY', 'QQQ', 'IWM', 'TSLA', 'AAPL', 'NVDA']
+  const tickerGroups = [
+    { label: 'Indices', tickers: ['SPY', 'QQQ', 'IWM', 'DIA'] },
+    { label: 'Mega Caps', tickers: ['TSLA', 'AAPL', 'NVDA', 'AMZN', 'META'] },
+    { label: 'Rates / Vol', tickers: ['TLT', 'GLD', 'SLV', 'USO'] },
+  ]
 
   return (
     <>
@@ -110,26 +114,33 @@ function App() {
             />
           </form>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '0.75rem' }}>
-            {quickTickers.map(t => (
-              <button
-                key={t}
-                onClick={() => { setInputTicker(t); setTicker(t) }}
-                style={{
-                  background: ticker === t ? 'var(--accent-soft)' : 'var(--bg-base)',
-                  border: `1px solid ${ticker === t ? 'var(--accent)' : 'var(--border)'}`,
-                  color: ticker === t ? 'var(--accent)' : 'var(--text-muted)',
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                {t}
-              </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem' }}>
+            {tickerGroups.map(group => (
+              <div key={group.label}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{group.label}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
+                  {group.tickers.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => { setInputTicker(t); setTicker(t) }}
+                      style={{
+                        background: ticker === t ? 'var(--accent-soft)' : 'var(--bg-base)',
+                        border: `1px solid ${ticker === t ? 'var(--accent)' : 'var(--border)'}`,
+                        color: ticker === t ? 'var(--accent)' : 'var(--text-muted)',
+                        padding: '4px 10px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>

@@ -1,5 +1,5 @@
 @echo off
-cd %~dp0backend
+cd /d %~dp0backend
 
 echo Setting up Python environment...
 if not exist "venv" (
@@ -10,6 +10,8 @@ if not exist "venv" (
     call venv\Scripts\activate.bat
 )
 
-echo Starting FastAPI Backend for GEXRADAR Clone...
-uvicorn main:app --reload --host 127.0.0.1 --port 8000
+echo.
+echo Starting FastAPI Backend on http://localhost:8000 ...
+echo.
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 pause

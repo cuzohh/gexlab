@@ -103,7 +103,7 @@ export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps)
     }
   }
 
-  const option: echarts.EChartsOption = {
+  const option: echarts.EChartsCoreOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',

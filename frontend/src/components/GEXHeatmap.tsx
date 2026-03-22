@@ -55,7 +55,7 @@ export default function GEXHeatmap({ data, spot }: GEXHeatmapProps) {
   // Get max value for visual map range
   const absMax = Math.max(...heatmapData.map(d => Math.abs(d[2] as number)), 0.001)
 
-  const option: echarts.EChartsOption = {
+  const option: echarts.EChartsCoreOption = {
     backgroundColor: 'transparent',
     tooltip: {
       position: 'top',
