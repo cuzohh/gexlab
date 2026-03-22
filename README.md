@@ -1,10 +1,6 @@
 # GEXLAB
 
 <p align="center">
-  <img src="desktop/assets/icon.png" alt="GEXLAB icon" width="96" height="96" />
-</p>
-
-<p align="center">
   <svg width="100%" viewBox="0 0 1200 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GEXLAB hero banner">
     <rect width="1200" height="280" rx="28" fill="#0D1117"/>
     <rect x="24" y="24" width="1152" height="232" rx="20" fill="url(#bg)"/>
@@ -46,8 +42,22 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/social-preview.png" alt="GEXLAB social preview" width="100%" />
+  <a href="#recommended-usage">Why Local App</a> •
+  <a href="#feature-grid">Features</a> •
+  <a href="#desktop-app">Desktop App</a> •
+  <a href="#web-development">Web Dev</a> •
+  <a href="#roadmap">Roadmap</a>
 </p>
+
+<p align="center">
+  <code>gamma exposure</code>
+  <code>options analytics</code>
+  <code>desktop app</code>
+  <code>fastapi</code>
+  <code>react</code>
+</p>
+
+---
 
 ## Why This Exists
 
@@ -75,11 +85,12 @@ Why the local app is better:
 - no browser-tab localhost workflow for end users
 - generally better reliability during market hours
 
-## Visual Preview
+<details>
+<summary><strong>Short version</strong></summary>
 
-<p align="center">
-  <img src="frontend/src/assets/hero.png" alt="GEXLAB dashboard preview" width="100%" />
-</p>
+Use the website for quick access. Use the desktop app for actual regular use.
+
+</details>
 
 ## Feature Grid
 
@@ -114,6 +125,16 @@ Why the local app is better:
   </tr>
 </table>
 
+## At A Glance
+
+| Area | What it does | Why it matters |
+| --- | --- | --- |
+| `GEX Profile` | Shows net dealer gamma by strike | Helps identify pinning, resistance, and support zones |
+| `Heatmap` | Breaks exposure across expirations | Makes near-dated pressure easier to spot |
+| `Key Levels` | Computes call wall, put wall, zero gamma, vol trigger, max pain | Gives a practical trading map |
+| `Desktop App` | Runs the backend locally in a native window | Reduces web bottlenecks and rate-limit issues |
+| `Futures Translation` | Maps ETF levels to futures equivalents | Makes levels usable on `/ES`, `/NQ`, and related charts |
+
 ## Web Vs Local App
 
 ```text
@@ -125,6 +146,9 @@ native app window -> local bundled backend -> market data source
 ```
 
 The desktop route removes the shared hosted bottleneck, which is the part most likely to get hit when traffic spikes.
+
+> [!TIP]
+> If you are sharing this project with users, point them to the downloadable desktop installer first and treat the website as the lighter fallback path.
 
 ## Stack
 
@@ -204,6 +228,14 @@ Interpretation:
 - positive net gamma tends to dampen volatility
 - negative net gamma tends to amplify volatility
 
+<details>
+<summary><strong>What the sign usually implies</strong></summary>
+
+- positive gamma: dealers tend to buy dips and sell rips, which can suppress volatility
+- negative gamma: dealers tend to chase price direction, which can amplify volatility
+
+</details>
+
 ## Project Layout
 
 ```text
@@ -230,6 +262,14 @@ run_desktop_app.bat     Local desktop app runner
 - add signed Windows releases and cleaner release artifacts
 - improve caching and request strategy to reduce upstream rate-limit pressure
 - add more market structure views and better historical comparison workflows
+
+## Contributing
+
+If you are modifying the project:
+
+- keep the desktop path working, not just the browser path
+- prefer changes that improve local reliability during market hours
+- avoid adding hosted-only assumptions, since the desktop app is the recommended distribution
 
 ## Disclaimer
 
