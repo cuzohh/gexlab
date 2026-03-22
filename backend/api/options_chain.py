@@ -32,7 +32,7 @@ RISK_FREE_RATE = 0.043
 
 def _safe_int(val) -> int:
     """Safely convert a value to int, treating NaN/None as 0."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
+    if pd.isna(val):
         return 0
     try:
         return int(val)
@@ -42,10 +42,11 @@ def _safe_int(val) -> int:
 
 def _safe_float(val) -> float:
     """Safely convert a value to float, treating NaN/None as 0.0."""
-    if val is None or (isinstance(val, float) and np.isnan(val)):
+    if pd.isna(val):
         return 0.0
     try:
-        return float(val)
+        fval = float(val)
+        return 0.0 if pd.isna(fval) else fval
     except (ValueError, TypeError):
         return 0.0
 
@@ -306,13 +307,13 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 6):
     call_iv.columns = ['strike', 'call_iv']
     put_iv = df[df['type'] == 'put'].groupby('strike')['iv'].mean().reset_index()
     put_iv.columns = ['strike', 'put_iv']
-    iv_skew_df = pd.merge(call_iv, put_iv, on='strike', how='outer').sort_values('strike')
+    iv_skew_df = pd.merge(call_iv, put_iv, on='strike', how='outer').fillna(0).sort_values('strike')
     iv_skew = []
     for _, row in iv_skew_df.iterrows():
         iv_skew.append({
             'strike': float(row['strike']),
-            'call_iv': round(float(row.get('call_iv', 0) or 0) * 100, 2),
-            'put_iv': round(float(row.get('put_iv', 0) or 0) * 100, 2),
+            'call_iv': round(float(row.get('call_iv', 0)) * 100, 2),
+            'put_iv': round(float(row.get('put_iv', 0)) * 100, 2),
         })
     
     # ─── Put/Call OI Ratio by Strike ──────────────────────────────────
