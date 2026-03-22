@@ -6,17 +6,8 @@
  * Green = positive GEX (call dominated), Red = negative GEX (put dominated).
  */
 
-import ReactEChartsCore from 'echarts-for-react/lib/core'
-import * as echarts from 'echarts/core'
-import { HeatmapChart } from 'echarts/charts'
-import {
-  GridComponent,
-  TooltipComponent,
-  VisualMapComponent,
-} from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-
-echarts.use([HeatmapChart, GridComponent, TooltipComponent, VisualMapComponent, CanvasRenderer])
+import ReactECharts from 'echarts-for-react'
+import * as echarts from 'echarts'
 
 interface HeatmapPoint {
   strike: number
@@ -136,11 +127,9 @@ export default function GEXHeatmap({ data, spot }: GEXHeatmapProps) {
   }
 
   return (
-    <ReactEChartsCore
-      echarts={echarts}
+    <ReactECharts
       option={option}
       style={{ height: '100%', width: '100%' }}
-      opts={{ renderer: 'canvas' }}
       notMerge={true}
     />
   )

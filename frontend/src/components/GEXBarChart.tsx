@@ -7,18 +7,8 @@
  * Overlays: Spot price line, Zero Gamma line, Call Wall, Put Wall markers.
  */
 
-import ReactEChartsCore from 'echarts-for-react/lib/core'
-import * as echarts from 'echarts/core'
-import { BarChart } from 'echarts/charts'
-import {
-  GridComponent,
-  TooltipComponent,
-  MarkLineComponent,
-  LegendComponent,
-} from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-
-echarts.use([BarChart, GridComponent, TooltipComponent, MarkLineComponent, LegendComponent, CanvasRenderer])
+import ReactECharts from 'echarts-for-react'
+import * as echarts from 'echarts'
 
 interface StrikeData {
   strike: number
@@ -179,11 +169,9 @@ export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps)
   }
 
   return (
-    <ReactEChartsCore
-      echarts={echarts}
+    <ReactECharts
       option={option}
       style={{ height: '100%', width: '100%' }}
-      opts={{ renderer: 'canvas' }}
       notMerge={true}
     />
   )
