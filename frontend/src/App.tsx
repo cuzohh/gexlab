@@ -6,9 +6,11 @@ import UnusualFlowChart from './components/UnusualFlowChart'
 import KeyLevelsPanel from './components/KeyLevelsPanel'
 import DEXProfile from './components/DEXProfile'
 import GEXByExpiration from './components/GEXByExpiration'
+import CumulativeGEX from './components/CumulativeGEX'
 import IVSkewChart from './components/IVSkewChart'
 import PutCallRatio from './components/PutCallRatio'
 import VannaExposure from './components/VannaExposure'
+import OIDistribution from './components/OIDistribution'
 import HomePage from './components/HomePage'
 import DocsPage from './components/DocsPage'
 
@@ -83,7 +85,7 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
-  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'flow' | 'dex' | 'exp' | 'iv' | 'pc' | 'vanna'>('bar')
+  const [activeTab, setActiveTab] = useState<'bar' | 'heatmap' | 'exp' | 'cumulative' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'>('bar')
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [countdown, setCountdown] = useState(60)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -151,15 +153,24 @@ function App() {
     { label: 'Rates / Vol', tickers: ['TLT', 'GLD', 'SLV', 'USO'] },
   ]
 
-  const tabs = [
-    { key: 'bar' as const, icon: '◈', label: 'GEX Profile' },
-    { key: 'heatmap' as const, icon: '◉', label: 'Heatmap' },
-    { key: 'flow' as const, icon: '⚡', label: 'Flow' },
-    { key: 'dex' as const, icon: '△', label: 'DEX' },
-    { key: 'exp' as const, icon: '▧', label: 'By Exp' },
-    { key: 'iv' as const, icon: '∿', label: 'IV Skew' },
-    { key: 'pc' as const, icon: '⚖', label: 'P/C Ratio' },
-    { key: 'vanna' as const, icon: '∇', label: 'Vanna' },
+  type TabItem = { key: string; icon: string; label: string } | { divider: string }
+
+  const tabs: TabItem[] = [
+    // ─── Gamma ───
+    { key: 'bar', icon: '◈', label: 'GEX Profile' },
+    { key: 'heatmap', icon: '◉', label: 'Heatmap' },
+    { key: 'exp', icon: '▧', label: 'By Exp' },
+    { key: 'cumulative', icon: '∾', label: 'Cumulative' },
+    { divider: 'Greeks' },
+    // ─── Greeks ───
+    { key: 'dex', icon: '△', label: 'DEX' },
+    { key: 'vanna', icon: '∇', label: 'Vanna' },
+    { divider: 'Sentiment' },
+    // ─── Sentiment ───
+    { key: 'flow', icon: '⚡', label: 'Flow' },
+    { key: 'iv', icon: '∿', label: 'IV Skew' },
+    { key: 'pc', icon: '⚖', label: 'P/C Ratio' },
+    { key: 'oi', icon: '◔', label: 'OI Dist.' },
   ]
 
   // ═══════════ HOME PAGE ═══════════
@@ -346,23 +357,37 @@ function App() {
           </div>
         </header>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0', overflowX: 'auto', scrollbarWidth: 'none' }}>
-          {tabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                background: activeTab === tab.key ? 'var(--bg-panel)' : 'transparent',
-                color: activeTab === tab.key ? 'var(--text-main)' : 'var(--text-dim)',
-                border: `1px solid ${activeTab === tab.key ? 'var(--border)' : 'transparent'}`,
-                borderBottom: activeTab === tab.key ? '1px solid var(--bg-panel)' : '1px solid var(--border)',
-                padding: '8px 20px', cursor: 'pointer',
-                fontFamily: 'var(--font-sans)', fontSize: '13px', fontWeight: 500,
-                borderRadius: '8px 8px 0 0', transition: 'all 0.15s ease',
-              }}
-            >{tab.icon} {tab.label}</button>
-          ))}
+        {/* Tabs — grouped by Gamma / Greeks / Sentiment */}
+        <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0', overflowX: 'auto', scrollbarWidth: 'none', alignItems: 'center' }}>
+          {tabs.map((item, i) => {
+            if ('divider' in item) {
+              return (
+                <div key={`div-${i}`} style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '0 10px', flexShrink: 0,
+                }}>
+                  <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
+                  <span style={{ fontSize: '9px', color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, whiteSpace: 'nowrap' }}>{item.divider}</span>
+                </div>
+              )
+            }
+            const tab = item as { key: string; icon: string; label: string }
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key as any)}
+                style={{
+                  background: activeTab === tab.key ? 'var(--bg-panel)' : 'transparent',
+                  color: activeTab === tab.key ? 'var(--text-main)' : 'var(--text-dim)',
+                  border: `1px solid ${activeTab === tab.key ? 'var(--border)' : 'transparent'}`,
+                  borderBottom: activeTab === tab.key ? '1px solid var(--bg-panel)' : '1px solid var(--border)',
+                  padding: '8px 14px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  fontFamily: 'var(--font-sans)', fontSize: '12px', fontWeight: 500,
+                  borderRadius: '8px 8px 0 0', transition: 'all 0.15s ease',
+                }}
+              >{tab.icon} {tab.label}</button>
+            )
+          })}
         </div>
 
         {/* Chart */}
@@ -376,18 +401,22 @@ function App() {
                 <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
               ) : activeTab === 'heatmap' ? (
                 <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
-              ) : activeTab === 'flow' ? (
-                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
-              ) : activeTab === 'dex' ? (
-                <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
               ) : activeTab === 'exp' ? (
                 <GEXByExpiration data={data.gex_by_expiration} />
+              ) : activeTab === 'cumulative' ? (
+                <CumulativeGEX data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'dex' ? (
+                <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'vanna' ? (
+                <VannaExposure data={data.vanna_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'flow' ? (
+                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
               ) : activeTab === 'iv' ? (
                 <IVSkewChart data={data.iv_skew} spot={data.spot} futures={data.futures} />
               ) : activeTab === 'pc' ? (
                 <PutCallRatio data={data.pc_ratio} spot={data.spot} futures={data.futures} />
-              ) : activeTab === 'vanna' ? (
-                <VannaExposure data={data.vanna_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'oi' ? (
+                <OIDistribution data={data.pc_ratio} spot={data.spot} futures={data.futures} />
               ) : null
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
