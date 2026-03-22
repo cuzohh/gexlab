@@ -1,10 +1,8 @@
 /**
  * GEX Bar Chart — Horizontal bar chart showing Call GEX vs Put GEX by strike.
  * 
- * This is THE signature chart of any GEX dashboard: green bars extend right
- * (positive call GEX) and red bars extend left (negative put GEX).
- * 
- * Overlays: Spot price line, Zero Gamma line, Call Wall, Put Wall markers.
+ * Green bars extend right (positive call GEX), red bars extend left (negative put GEX).
+ * Key level overlays rendered as static horizontal reference lines.
  */
 
 import ReactECharts from 'echarts-for-react'
@@ -35,7 +33,6 @@ interface GEXBarChartProps {
 }
 
 export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps) {
-  // Filter to strikes within a reasonable range of spot (±15%)
   const lowerBound = spot * 0.85
   const upperBound = spot * 1.15
   const filtered = data.filter(d => d.strike >= lowerBound && d.strike <= upperBound)
@@ -44,57 +41,39 @@ export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps)
   const callGex = filtered.map(d => d.call_gex)
   const putGex = filtered.map(d => d.put_gex)
 
-  // Build mark lines for key levels
+  // Build static mark lines for key levels
   const markLines: any[] = []
-  
-  // Spot price
-  const spotIdx = filtered.findIndex(d => d.strike >= spot)
-  if (spotIdx >= 0) {
-    markLines.push({
-      yAxis: spotIdx,
-      label: { formatter: `SPOT $${spot.toFixed(0)}`, position: 'insideStartTop', fontSize: 10, color: '#ededf0' },
-      lineStyle: { color: '#ededf0', type: 'solid', width: 2 },
-    })
-  }
 
-  // Zero Gamma
-  if (keyLevels.zero_gamma) {
-    const zgIdx = filtered.findIndex(d => d.strike >= keyLevels.zero_gamma!)
-    if (zgIdx >= 0) {
+  const addMarkLine = (level: number | null, label: string, color: string, lineType: string) => {
+    if (!level) return
+    const idx = filtered.findIndex(d => d.strike >= level)
+    if (idx >= 0) {
       markLines.push({
-        yAxis: zgIdx,
-        label: { formatter: `ZERO γ $${keyLevels.zero_gamma.toFixed(0)}`, position: 'insideStartTop', fontSize: 10, color: '#f59e0b' },
-        lineStyle: { color: '#f59e0b', type: 'dashed', width: 1.5 },
+        yAxis: idx,
+        label: {
+          show: true,
+          formatter: `${label} $${level.toFixed(0)}`,
+          position: 'insideEndBottom',
+          fontSize: 10,
+          fontWeight: 600,
+          color: color,
+          backgroundColor: 'rgba(10, 10, 12, 0.85)',
+          padding: [2, 6],
+          borderRadius: 3,
+        },
+        lineStyle: { color, type: lineType, width: 1.5 },
       })
     }
   }
 
-  // Call Wall
-  if (keyLevels.call_wall) {
-    const cwIdx = filtered.findIndex(d => d.strike >= keyLevels.call_wall!)
-    if (cwIdx >= 0) {
-      markLines.push({
-        yAxis: cwIdx,
-        label: { formatter: `CALL WALL $${keyLevels.call_wall.toFixed(0)}`, position: 'insideEndTop', fontSize: 10, color: '#10b981' },
-        lineStyle: { color: '#10b981', type: 'dotted', width: 1.5 },
-      })
-    }
-  }
-
-  // Put Wall
-  if (keyLevels.put_wall) {
-    const pwIdx = filtered.findIndex(d => d.strike >= keyLevels.put_wall!)
-    if (pwIdx >= 0) {
-      markLines.push({
-        yAxis: pwIdx,
-        label: { formatter: `PUT WALL $${keyLevels.put_wall.toFixed(0)}`, position: 'insideEndTop', fontSize: 10, color: '#ef4444' },
-        lineStyle: { color: '#ef4444', type: 'dotted', width: 1.5 },
-      })
-    }
-  }
+  addMarkLine(spot, 'SPOT', '#ededf0', 'solid')
+  addMarkLine(keyLevels.zero_gamma, 'ZERO γ', '#f59e0b', 'dashed')
+  addMarkLine(keyLevels.call_wall, 'CALL WALL', '#10b981', 'dotted')
+  addMarkLine(keyLevels.put_wall, 'PUT WALL', '#ef4444', 'dotted')
 
   const option: echarts.EChartsCoreOption = {
     backgroundColor: 'transparent',
+    animation: false,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -149,6 +128,8 @@ export default function GEXBarChart({ data, spot, keyLevels }: GEXBarChartProps)
         },
         markLine: {
           symbol: 'none',
+          animation: false,
+          silent: true,
           data: markLines,
         },
       },

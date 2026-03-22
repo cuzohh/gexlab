@@ -4,6 +4,8 @@ import GEXBarChart from './components/GEXBarChart'
 import GEXHeatmap from './components/GEXHeatmap'
 import UnusualFlowChart from './components/UnusualFlowChart'
 import KeyLevelsPanel from './components/KeyLevelsPanel'
+import HomePage from './components/HomePage'
+import DocsPage from './components/DocsPage'
 
 interface StrikeData {
   strike: number
@@ -31,6 +33,14 @@ interface KeyLevels {
   vol_trigger: number | null
 }
 
+interface FuturesData {
+  symbol: string
+  name: string
+  full_name: string
+  futures_price: number
+  ratio: number
+}
+
 interface GEXData {
   spot: number
   regime: string
@@ -40,12 +50,16 @@ interface GEXData {
   expirations: string[]
   gex_by_strike: StrikeData[]
   heatmap_data: HeatmapPoint[]
+  futures: FuturesData | null
 }
 
 const API_BASE = 'http://localhost:8000'
-const AUTO_REFRESH_INTERVAL = 60_000 // 60 seconds
+const AUTO_REFRESH_INTERVAL = 60_000
+
+type Page = 'home' | 'dashboard' | 'docs'
 
 function App() {
+  const [page, setPage] = useState<Page>('home')
   const [ticker, setTicker] = useState('SPY')
   const [inputTicker, setInputTicker] = useState('SPY')
   const [data, setData] = useState<GEXData | null>(null)
@@ -79,26 +93,22 @@ function App() {
     }
   }, [])
 
-  // Initial load + health check
   useEffect(() => {
-    fetchData(ticker)
+    if (page === 'dashboard') {
+      fetchData(ticker)
+      fetch(`${API_BASE}/api/health`)
+        .then(res => res.json())
+        .then(d => setBackendStatus(d.status))
+        .catch(() => setBackendStatus('offline'))
+    }
+  }, [ticker, fetchData, page])
 
-    fetch(`${API_BASE}/api/health`)
-      .then(res => res.json())
-      .then(d => setBackendStatus(d.status))
-      .catch(() => setBackendStatus('offline'))
-  }, [ticker, fetchData])
-
-  // Auto-refresh timer
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     if (countdownRef.current) clearInterval(countdownRef.current)
 
-    if (autoRefresh) {
-      timerRef.current = setInterval(() => {
-        fetchData(ticker)
-      }, AUTO_REFRESH_INTERVAL)
-
+    if (autoRefresh && page === 'dashboard') {
+      timerRef.current = setInterval(() => fetchData(ticker), AUTO_REFRESH_INTERVAL)
       countdownRef.current = setInterval(() => {
         setCountdown(prev => (prev <= 1 ? 60 : prev - 1))
       }, 1000)
@@ -108,7 +118,7 @@ function App() {
       if (timerRef.current) clearInterval(timerRef.current)
       if (countdownRef.current) clearInterval(countdownRef.current)
     }
-  }, [autoRefresh, ticker, fetchData])
+  }, [autoRefresh, ticker, fetchData, page])
 
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -127,14 +137,46 @@ function App() {
     { key: 'flow' as const, icon: '⚡', label: 'Unusual Flow' },
   ]
 
+  // ═══════════ HOME PAGE ═══════════
+  if (page === 'home') {
+    return (
+      <div style={{ height: '100vh', overflowY: 'auto', background: 'radial-gradient(ellipse at 50% 0%, #13131a 0%, var(--bg-base) 70%)' }}>
+        <HomePage onNavigate={setPage} />
+      </div>
+    )
+  }
+
+  // ═══════════ DOCS PAGE ═══════════
+  if (page === 'docs') {
+    return (
+      <div style={{ height: '100vh', overflowY: 'auto', background: 'radial-gradient(ellipse at 50% 0%, #13131a 0%, var(--bg-base) 70%)' }}>
+        <DocsPage onNavigate={setPage} />
+      </div>
+    )
+  }
+
+  // ═══════════ DASHBOARD ═══════════
   return (
     <>
-      {/* ═══════════ Sidebar ═══════════ */}
+      {/* Sidebar */}
       <aside className="sidebar">
         <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--border)' }}>
-          <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700, letterSpacing: '0.05em' }}>
-            GEX<span style={{ color: 'var(--accent)' }}>LAB</span>
-          </h1>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1
+              style={{ margin: 0, fontSize: '18px', fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer' }}
+              onClick={() => setPage('home')}
+            >
+              GEX<span style={{ color: 'var(--accent)' }}>LAB</span>
+            </h1>
+            <button
+              onClick={() => setPage('docs')}
+              style={{
+                background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)',
+                padding: '2px 8px', borderRadius: '4px', cursor: 'pointer',
+                fontFamily: 'var(--font-sans)', fontSize: '10px', fontWeight: 500,
+              }}
+            >DOCS</button>
+          </div>
           <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '4px' }}>Gamma Exposure Dashboard</div>
         </div>
 
@@ -162,17 +204,11 @@ function App() {
                         background: ticker === t ? 'var(--accent-soft)' : 'var(--bg-base)',
                         border: `1px solid ${ticker === t ? 'var(--accent)' : 'var(--border)'}`,
                         color: ticker === t ? 'var(--accent)' : 'var(--text-muted)',
-                        padding: '4px 10px',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: '11px',
-                        fontWeight: 500,
+                        padding: '4px 10px', borderRadius: '6px', cursor: 'pointer',
+                        fontFamily: 'var(--font-mono)', fontSize: '11px', fontWeight: 500,
                         transition: 'all 0.15s ease',
                       }}
-                    >
-                      {t}
-                    </button>
+                    >{t}</button>
                   ))}
                 </div>
               </div>
@@ -180,11 +216,22 @@ function App() {
           </div>
         </div>
 
-        {/* Key Levels */}
+        {/* Key Levels with Futures Translation */}
         {data && (
           <div className="animate-fadeIn" style={{ padding: '0 1.25rem', flex: 1, overflowY: 'auto' }}>
-            <div className="card-title" style={{ marginTop: '0.5rem' }}>Key Levels</div>
-            <KeyLevelsPanel keyLevels={data.key_levels} spot={data.spot} />
+            <div className="card-title" style={{ marginTop: '0.5rem' }}>
+              Key Levels
+              {data.futures && (
+                <span style={{ color: 'var(--accent)', marginLeft: '6px', fontWeight: 400, textTransform: 'none' }}>
+                  ({data.futures.name})
+                </span>
+              )}
+            </div>
+            <KeyLevelsPanel
+              keyLevels={data.key_levels}
+              spot={data.spot}
+              futures={data.futures ? { name: data.futures.name, ratio: data.futures.ratio } : undefined}
+            />
 
             <div className="card-title" style={{ marginTop: '1.5rem' }}>Expirations</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
@@ -210,33 +257,31 @@ function App() {
                 background: autoRefresh ? 'var(--positive-soft)' : 'var(--bg-base)',
                 border: `1px solid ${autoRefresh ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
                 color: autoRefresh ? 'var(--positive)' : 'var(--text-dim)',
-                padding: '2px 8px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-mono)',
-                fontSize: '10px',
-                fontWeight: 500,
+                padding: '2px 8px', borderRadius: '4px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500,
               }}
-            >
-              {autoRefresh ? `AUTO ${countdown}s` : 'AUTO OFF'}
-            </button>
+            >{autoRefresh ? `AUTO ${countdown}s` : 'AUTO OFF'}</button>
           </div>
           {lastUpdated && (
-            <div style={{ color: 'var(--text-dim)', marginTop: '4px', fontSize: '10px' }}>
-              Last: {lastUpdated}
-            </div>
+            <div style={{ color: 'var(--text-dim)', marginTop: '4px', fontSize: '10px' }}>Last: {lastUpdated}</div>
           )}
         </div>
       </aside>
 
-      {/* ═══════════ Main Content ═══════════ */}
+      {/* Main Content */}
       <main className="main-content">
-        {/* Header Bar */}
         <header className="glass-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
             <div style={{ fontSize: '1.5rem', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ticker}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem' }}>
-              ${data?.spot.toFixed(2) || '---'}
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem' }}>
+                ${data?.spot.toFixed(2) || '---'}
+              </div>
+              {data?.futures && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  {data.futures.name} {data.futures.futures_price.toFixed(2)}
+                </div>
+              )}
             </div>
             {data && (
               <span className={`badge ${data.regime === 'LONG_GAMMA' ? 'badge-positive' : 'badge-negative'}`}>
@@ -249,9 +294,7 @@ function App() {
             <div>
               <div className="card-title" style={{ margin: 0 }}>Net GEX</div>
               <div style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '0.95rem',
-                fontWeight: 600,
+                fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 600,
                 color: data?.net_gex && data.net_gex > 0 ? 'var(--positive)' : 'var(--negative)'
               }}>
                 {data?.net_gex !== undefined ? `${data.net_gex > 0 ? '+' : ''}${data.net_gex.toFixed(2)}B` : '---'}
@@ -268,24 +311,17 @@ function App() {
               disabled={loading}
               style={{
                 background: loading ? 'var(--bg-panel)' : 'var(--accent)',
-                color: 'white',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '8px',
+                color: 'white', border: 'none',
+                padding: '8px 16px', borderRadius: '8px',
                 cursor: loading ? 'not-allowed' : 'pointer',
-                fontFamily: 'var(--font-sans)',
-                fontWeight: 600,
-                fontSize: '12px',
-                opacity: loading ? 0.5 : 1,
-                transition: 'all 0.2s ease',
+                fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: '12px',
+                opacity: loading ? 0.5 : 1, transition: 'all 0.2s ease',
               }}
-            >
-              {loading ? '⟳ Loading...' : '↻ Refresh'}
-            </button>
+            >{loading ? '⟳ Loading...' : '↻ Refresh'}</button>
           </div>
         </header>
 
-        {/* Tab Navigation */}
+        {/* Tabs */}
         <div style={{ display: 'flex', gap: '0', padding: '1rem 2rem 0' }}>
           {tabs.map(tab => (
             <button
@@ -296,27 +332,19 @@ function App() {
                 color: activeTab === tab.key ? 'var(--text-main)' : 'var(--text-dim)',
                 border: `1px solid ${activeTab === tab.key ? 'var(--border)' : 'transparent'}`,
                 borderBottom: activeTab === tab.key ? '1px solid var(--bg-panel)' : '1px solid var(--border)',
-                padding: '8px 20px',
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-                fontSize: '13px',
-                fontWeight: 500,
-                borderRadius: '8px 8px 0 0',
-                transition: 'all 0.15s ease',
+                padding: '8px 20px', cursor: 'pointer',
+                fontFamily: 'var(--font-sans)', fontSize: '13px', fontWeight: 500,
+                borderRadius: '8px 8px 0 0', transition: 'all 0.15s ease',
               }}
-            >
-              {tab.icon} {tab.label}
-            </button>
+            >{tab.icon} {tab.label}</button>
           ))}
         </div>
 
-        {/* Chart Area */}
+        {/* Chart */}
         <section className="animate-fadeIn" style={{ padding: '0 2rem 2rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div className="panel" style={{
-            flex: 1,
-            minHeight: '500px',
-            borderRadius: '0 12px 12px 12px',
-            overflow: 'hidden',
+            flex: 1, minHeight: '500px',
+            borderRadius: '0 12px 12px 12px', overflow: 'hidden',
           }}>
             {data ? (
               activeTab === 'bar' ? (
@@ -341,20 +369,16 @@ function App() {
       {loading && (
         <div style={{
           position: 'fixed', inset: 0,
-          background: 'rgba(0,0,0,0.4)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 1000,
+          background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
         }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: '1rem', marginBottom: '1rem' }}>
               COMPUTING GAMMA EXPOSURE...
             </div>
             <div style={{
-              width: '200px', height: '2px',
-              background: 'var(--border)',
-              borderRadius: '10px',
-              overflow: 'hidden',
+              width: '200px', height: '2px', background: 'var(--border)',
+              borderRadius: '10px', overflow: 'hidden',
             }}>
               <div style={{
                 width: '40%', height: '100%',
@@ -370,15 +394,10 @@ function App() {
       {error && !loading && (
         <div className="animate-slideUp" style={{
           position: 'fixed', bottom: '2rem', right: '2rem',
-          padding: '1rem 1.5rem',
-          background: 'var(--negative-soft)',
-          border: '1px solid var(--negative)',
-          color: 'var(--negative)',
-          borderRadius: '8px',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-          zIndex: 1001,
-          fontSize: '13px',
-          maxWidth: '400px',
+          padding: '1rem 1.5rem', background: 'var(--negative-soft)',
+          border: '1px solid var(--negative)', color: 'var(--negative)',
+          borderRadius: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+          zIndex: 1001, fontSize: '13px', maxWidth: '400px',
         }}>
           <strong>Error:</strong> {error}
         </div>

@@ -2,8 +2,9 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from api.yfinance_client import YFinanceClient
 from api.options_chain import fetch_options_chain
+from api.futures_map import get_futures_translation
 
-app = FastAPI(title="GEX Dashboard Backend", version="2.0.0")
+app = FastAPI(title="GEXLAB Backend", version="3.0.0")
 
 # CORS middleware for Vite frontend
 app.add_middleware(
@@ -37,18 +38,16 @@ async def get_gex_data(
     """
     Fetch the full GEX analysis for a given ticker.
     
-    Returns:
-      - spot: current underlying price
-      - gex_by_strike: per-strike GEX data (call_gex, put_gex, net_gex, oi, volume, iv)
-      - key_levels: call_wall, put_wall, zero_gamma, max_pain, vol_trigger
-      - expirations: list of expiry dates used
-      - net_gex: total net GEX (billions)
-      - net_dex: Delta Exposure (billions)
-      - regime: LONG_GAMMA or SHORT_GAMMA
-      - heatmap_data: per-expiry per-strike GEX for heatmap rendering
+    Includes futures translation for tickers with futures equivalents
+    (SPY→/ES, QQQ→/NQ, IWM→/RTY, DIA→/YM, TLT→/ZN, GLD→/GC, SLV→/SI, USO→/CL).
     """
     try:
         result = fetch_options_chain(ticker.upper(), max_expirations=max_expirations)
+        
+        # Attach futures translation if available
+        futures = get_futures_translation(ticker.upper(), result.get('spot', 0))
+        result['futures'] = futures
+        
         return result
     except Exception as e:
         return {"error": str(e), "ticker": ticker}
