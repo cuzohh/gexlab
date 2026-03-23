@@ -76,6 +76,16 @@ button {
 .app-screen {
   flex: 1;
   min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.dashboard-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .desktop-titlebar {

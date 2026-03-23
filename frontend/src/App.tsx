@@ -180,7 +180,7 @@ function App() {
   ]
 
   const pageContent = (
-    <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+    <div className="dashboard-wrapper">
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-brand-block">
