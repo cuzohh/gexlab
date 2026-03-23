@@ -1,0 +1,64 @@
+name: Desktop Desktop Build & Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install PyInstaller & Backend Deps
+        run: |
+          cd backend
+          python -m venv venv
+          ./venv/Scripts/python.exe -m pip install -r requirements.txt
+          ./venv/Scripts/python.exe -m pip install pyinstaller
+          
+      - name: Build Backend
+        run: |
+          npm run desktop:build:backend
+          
+      - name: Install Frontend Deps
+        run: |
+          cd frontend
+          npm install --legacy-peer-deps
+          
+      - name: Install Root Deps (Electron Builder)
+        run: |
+          npm install --legacy-peer-deps
+          
+      - name: Build Desktop App
+        run: |
+          npm run desktop:build:frontend
+          # Use electron-builder directly from node_modules
+          ./node_modules/.bin/electron-builder --win nsis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            desktop-dist/*.exe
+            desktop-dist/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
