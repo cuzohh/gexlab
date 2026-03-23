@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, shell } = require('electron');
 
 const apiBaseArg = process.argv.find((argument) => argument.startsWith('--gexlab-api-base='));
 const apiBase = apiBaseArg ? apiBaseArg.replace('--gexlab-api-base=', '') : null;
@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('gexlabDesktop', {
   apiBase,
   isDesktop: true,
   platform: process.platform,
+  openExternal: (url) => shell.openExternal(url),
   windowControls: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('window:toggle-maximize'),

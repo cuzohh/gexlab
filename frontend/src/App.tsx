@@ -12,8 +12,6 @@ import PutCallRatio from './components/PutCallRatio'
 import VannaExposure from './components/VannaExposure'
 import OIDistribution from './components/OIDistribution'
 import GEXTopology from './components/GEXTopology'
-import HomePage from './components/HomePage'
-import DocsPage from './components/DocsPage'
 import DesktopTitleBar from './components/DesktopTitleBar'
 import LogoMark from './components/LogoMark'
 
@@ -77,14 +75,13 @@ interface GEXData {
 const API_BASE = window.gexlabDesktop?.apiBase || import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const AUTO_REFRESH_INTERVAL = 60_000
 const isDesktop = Boolean(window.gexlabDesktop?.isDesktop)
+const WEBSITE_URL = import.meta.env.VITE_GEXLAB_WEBSITE_URL || 'https://github.com/cuzohh/gexlab#readme'
 
-type Page = 'home' | 'dashboard' | 'docs'
 type DashboardTab = 'bar' | 'heatmap' | 'topology' | 'exp' | 'cumulative' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'
 
 type TabItem = { key: DashboardTab; label: string } | { divider: string }
 
 function App() {
-  const [page, setPage] = useState<Page>('home')
   const [ticker, setTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
   const [inputTicker, setInputTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
   const [data, setData] = useState<GEXData | null>(null)
@@ -97,6 +94,15 @@ function App() {
   const [countdown, setCountdown] = useState(60)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const openDocs = useCallback(() => {
+    if (window.gexlabDesktop?.openExternal) {
+      void window.gexlabDesktop.openExternal(WEBSITE_URL)
+      return
+    }
+
+    window.open(WEBSITE_URL, '_blank', 'noopener,noreferrer')
+  }, [])
 
   const fetchData = useCallback(async (symbol: string, isBackground = false) => {
     if (!isBackground) setLoading(true)
@@ -124,20 +130,18 @@ function App() {
   }, [ticker])
 
   useEffect(() => {
-    if (page === 'dashboard') {
-      fetchData(ticker)
-      fetch(`${API_BASE}/api/health`)
-        .then(res => res.json())
-        .then(d => setBackendStatus(d.status))
-        .catch(() => setBackendStatus('offline'))
-    }
-  }, [ticker, fetchData, page])
+    fetchData(ticker)
+    fetch(`${API_BASE}/api/health`)
+      .then(res => res.json())
+      .then(d => setBackendStatus(d.status))
+      .catch(() => setBackendStatus('offline'))
+  }, [ticker, fetchData])
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current)
     if (countdownRef.current) clearInterval(countdownRef.current)
 
-    if (autoRefresh && page === 'dashboard') {
+    if (autoRefresh) {
       timerRef.current = setInterval(() => fetchData(ticker, true), AUTO_REFRESH_INTERVAL)
       countdownRef.current = setInterval(() => {
         setCountdown(prev => (prev <= 1 ? 60 : prev - 1))
@@ -148,7 +152,7 @@ function App() {
       if (timerRef.current) clearInterval(timerRef.current)
       if (countdownRef.current) clearInterval(countdownRef.current)
     }
-  }, [autoRefresh, ticker, fetchData, page])
+  }, [autoRefresh, ticker, fetchData])
 
   const handleTickerSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -177,37 +181,22 @@ function App() {
     { key: 'oi', label: 'OI Dist.' },
   ]
 
-  let pageContent: React.ReactNode
-
-  if (page === 'home') {
-    pageContent = (
-      <div className="animated-bg app-screen" style={{ width: '100%', display: 'flex' }}>
-        <HomePage onNavigate={setPage} />
-      </div>
-    )
-  } else if (page === 'docs') {
-    pageContent = (
-      <div className="animated-bg app-screen" style={{ width: '100%', display: 'flex' }}>
-        <DocsPage onNavigate={setPage} />
-      </div>
-    )
-  } else {
-    pageContent = (
-      <>
+  const pageContent = (
+    <>
         <aside className="sidebar">
           <div className="sidebar-brand-block">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-              <button type="button" className="brand-button" onClick={() => setPage('home')}>
+              <button type="button" className="brand-button" aria-label="GEXLAB dashboard">
                 <LogoMark />
               </button>
               <button
-                onClick={() => setPage('docs')}
+                onClick={openDocs}
                 style={{
                   background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)',
                   padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
                   fontFamily: 'var(--font-sans)', fontSize: '10px', fontWeight: 600,
                 }}
-              >DOCS</button>
+              >WEBSITE</button>
             </div>
             <div className="sidebar-brand-subtitle">Gamma Exposure Dashboard</div>
           </div>
@@ -428,13 +417,12 @@ function App() {
             <strong>Error:</strong> {error}
           </div>
         )}
-      </>
-    )
-  }
+        </>
+  )
 
   return (
     <div className={isDesktop ? 'desktop-shell' : 'browser-shell'}>
-      <DesktopTitleBar page={page} ticker={ticker} />
+      <DesktopTitleBar ticker={ticker} />
       {pageContent}
     </div>
   )

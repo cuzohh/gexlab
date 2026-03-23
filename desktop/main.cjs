@@ -40,11 +40,11 @@ function findFreePort() {
 
 function getBackendLaunchConfig(port) {
   if (app.isPackaged) {
-    const backendExe = path.join(getBackendDirectory(), 'gexlab-backend.exe');
+    const backendExe = path.join(getBackendDirectory(), 'gexlab-backend', 'gexlab-backend.exe');
     return {
       command: backendExe,
       args: [String(port)],
-      cwd: getBackendDirectory(),
+      cwd: path.dirname(backendExe),
     };
   }
 

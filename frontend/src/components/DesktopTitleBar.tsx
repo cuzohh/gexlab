@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react'
 import LogoMark from './LogoMark'
 
 interface DesktopTitleBarProps {
-  page: 'home' | 'dashboard' | 'docs'
   ticker?: string
 }
 
-export default function DesktopTitleBar({ page, ticker }: DesktopTitleBarProps) {
+export default function DesktopTitleBar({ ticker }: DesktopTitleBarProps) {
   const desktopBridge = window.gexlabDesktop
   const [maximized, setMaximized] = useState(false)
 
@@ -23,11 +22,7 @@ export default function DesktopTitleBar({ page, ticker }: DesktopTitleBarProps) 
     return null
   }
 
-  const subtitle = page === 'dashboard'
-    ? `${ticker || 'SPY'} gamma dashboard`
-    : page === 'docs'
-      ? 'Documentation'
-      : 'Local analytics terminal'
+  const subtitle = `${ticker || 'SPY'} gamma dashboard`
 
   return (
     <div className="desktop-titlebar">

@@ -6,6 +6,7 @@ declare global {
       apiBase: string | null
       isDesktop: boolean
       platform: string
+      openExternal: (url: string) => Promise<void>
       windowControls: {
         minimize: () => Promise<void>
         toggleMaximize: () => Promise<boolean>
