@@ -48,8 +48,7 @@ jobs:
       - name: Build Desktop App
         run: |
           npm run desktop:build:frontend
-          # Use electron-builder directly from node_modules
-          ./node_modules/.bin/electron-builder --win nsis
+          npx electron-builder --win nsis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -60,5 +59,8 @@ jobs:
           files: |
             desktop-dist/*.exe
             desktop-dist/*.blockmap
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
