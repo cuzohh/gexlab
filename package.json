@@ -7,9 +7,10 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "desktop:build:frontend": "npm --prefix frontend run build",
-    "desktop:build:backend": "backend\\venv\\Scripts\\python.exe -m PyInstaller --noconfirm --clean --name gexlab-backend --distpath desktop-build/backend --workpath desktop-build/pyinstaller/build --specpath desktop-build/pyinstaller backend/desktop_runner.py",
+    "desktop:build:backend": "node scripts/build-backend.cjs",
     "desktop:build": "npm run desktop:build:frontend && npm run desktop:build:backend && electron-builder",
-    "desktop:start": "electron ."
+    "desktop:start": "electron .",
+    "desktop:verify": "node -c desktop/main.cjs && node -c desktop/preload.cjs"
   },
   "build": {
     "appId": "com.gexlab.desktop",

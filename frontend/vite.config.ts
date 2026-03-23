@@ -12,6 +12,16 @@ export default defineConfig({
     commonjsOptions: {
       include: [/echarts/, /tslib/, /node_modules/],
     },
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('echarts') || id.includes('echarts-for-react')) {
+            return 'charts'
+          }
+          return undefined
+        },
+      },
+    },
   },
   server: {
     port: 3000,

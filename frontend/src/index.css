@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
 :root {
   --bg-base: #090b10;
   --bg-surface: #0d1117;
@@ -22,8 +20,8 @@
   --warning: #f59e0b;
   --panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
   --glass: blur(18px) saturate(150%);
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Segoe UI', 'SF Pro Display', 'Helvetica Neue', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
 }
 
 * {
@@ -323,6 +321,12 @@ button {
   line-height: 1.45;
 }
 
+.status-note {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+
 .stat-value {
   font-family: var(--font-mono);
   font-size: 1.5rem;
@@ -528,6 +532,23 @@ button {
   align-items: center;
   justify-content: center;
   z-index: 10;
+}
+
+.chart-suspense {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.rate-limit-panel {
+  border-color: rgba(245, 158, 11, 0.22);
+  background: linear-gradient(180deg, rgba(51, 32, 10, 0.66), rgba(23, 18, 11, 0.9));
 }
 
 .hero-panel {
