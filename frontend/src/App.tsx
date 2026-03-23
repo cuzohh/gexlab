@@ -100,14 +100,12 @@ function App() {
       void window.gexlabDesktop.openExternal(WEBSITE_URL)
       return
     }
-
     window.open(WEBSITE_URL, '_blank', 'noopener,noreferrer')
   }, [])
 
   const fetchData = useCallback(async (symbol: string, isBackground = false) => {
     if (!isBackground) setLoading(true)
     setError(null)
-
     try {
       const res = await fetch(`${API_BASE}/api/gex/${symbol}`)
       const json = await res.json()
@@ -182,242 +180,243 @@ function App() {
   ]
 
   const pageContent = (
-    <>
-        <aside className="sidebar">
-          <div className="sidebar-brand-block">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
-              <button type="button" className="brand-button" aria-label="GEXLAB dashboard">
-                <LogoMark />
-              </button>
-              <button
-                onClick={openDocs}
-                style={{
-                  background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)',
-                  padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
-                  fontFamily: 'var(--font-sans)', fontSize: '10px', fontWeight: 600,
-                }}
-              >WEBSITE</button>
-            </div>
-            <div className="sidebar-brand-subtitle">Gamma Exposure Dashboard</div>
+    <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <div className="sidebar-brand-block">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem' }}>
+            <button type="button" className="brand-button" aria-label="GEXLAB dashboard">
+              <LogoMark />
+            </button>
+            <button
+              onClick={openDocs}
+              style={{
+                background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)',
+                padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
+                fontFamily: 'var(--font-sans)', fontSize: '10px', fontWeight: 600,
+              }}
+            >WEBSITE</button>
           </div>
+          <div className="sidebar-brand-subtitle">Gamma Exposure Dashboard</div>
+        </div>
 
-          <div style={{ padding: '1.25rem' }}>
-            <form onSubmit={handleTickerSubmit}>
-              <div className="card-title">Symbol</div>
-              <input
-                className="search-input"
-                value={inputTicker}
-                onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
-                placeholder="e.g. SPY, QQQ, TSLA"
-              />
-            </form>
+        <div style={{ padding: '1.25rem' }}>
+          <form onSubmit={handleTickerSubmit}>
+            <div className="card-title">Symbol</div>
+            <input
+              className="search-input"
+              value={inputTicker}
+              onChange={(e) => setInputTicker(e.target.value.toUpperCase())}
+              placeholder="e.g. SPY, QQQ, TSLA"
+            />
+          </form>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', marginTop: '0.9rem' }}>
-              {tickerGroups.map(group => (
-                <div key={group.label}>
-                  <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{group.label}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {group.tickers.map(t => (
-                      <button
-                        key={t}
-                        onClick={() => { setInputTicker(t); setTicker(t) }}
-                        className="ticker-chip"
-                        data-active={ticker === t}
-                      >{t}</button>
-                    ))}
-                  </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', marginTop: '0.9rem' }}>
+            {tickerGroups.map(group => (
+              <div key={group.label}>
+                <div style={{ fontSize: '10px', color: 'var(--text-dim)', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{group.label}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {group.tickers.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => { setInputTicker(t); setTicker(t) }}
+                      className="ticker-chip"
+                      data-active={ticker === t}
+                    >{t}</button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {data && (
+          <div className="animate-fadeIn" style={{ padding: '0 1.25rem', flex: 1, overflowY: 'auto' }}>
+            <div className="card-title" style={{ marginTop: '0.5rem' }}>
+              Key Levels
+              {data.futures && (
+                <span style={{ color: 'var(--accent-2)', marginLeft: '6px', fontWeight: 500, textTransform: 'none' }}>
+                  ({data.futures.name})
+                </span>
+              )}
+            </div>
+            <KeyLevelsPanel
+              keyLevels={data.key_levels}
+              spot={data.spot}
+              futures={data.futures ? { name: data.futures.name, ratio: data.futures.ratio } : undefined}
+            />
+
+            <div className="card-title" style={{ marginTop: '1.5rem' }}>Expirations</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {data.expirations.map(exp => (
+                <div key={exp} style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
+                  {exp}
                 </div>
               ))}
             </div>
           </div>
+        )}
 
-          {data && (
-            <div className="animate-fadeIn" style={{ padding: '0 1.25rem', flex: 1, overflowY: 'auto' }}>
-              <div className="card-title" style={{ marginTop: '0.5rem' }}>
-                Key Levels
-                {data.futures && (
-                  <span style={{ color: 'var(--accent-2)', marginLeft: '6px', fontWeight: 500, textTransform: 'none' }}>
-                    ({data.futures.name})
-                  </span>
+        <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: '11px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ color: 'var(--text-dim)' }}>
+              <span className={`refresh-indicator ${backendStatus === 'ok' ? 'live' : ''}`} />
+              {backendStatus === 'ok' ? 'LIVE' : 'OFFLINE'}
+            </div>
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              style={{
+                background: autoRefresh ? 'var(--positive-soft)' : 'var(--bg-base)',
+                border: `1px solid ${autoRefresh ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
+                color: autoRefresh ? 'var(--positive)' : 'var(--text-dim)',
+                padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
+                fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500,
+              }}
+            >{autoRefresh ? `AUTO ${countdown}s` : 'AUTO OFF'}</button>
+          </div>
+          {lastUpdated && (
+            <div style={{ color: 'var(--text-dim)', marginTop: '4px', fontSize: '10px' }}>Last: {lastUpdated}</div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="main-content app-screen">
+        <header className="glass-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+              <div className="ticker-sigil">{ticker}</div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem' }}>
+                  ${data?.spot.toFixed(2) || '---'}
+                </div>
+                {data?.futures && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                    {data.futures.name} {data.futures.futures_price.toFixed(2)}
+                  </div>
                 )}
               </div>
-              <KeyLevelsPanel
-                keyLevels={data.key_levels}
-                spot={data.spot}
-                futures={data.futures ? { name: data.futures.name, ratio: data.futures.ratio } : undefined}
-              />
-
-              <div className="card-title" style={{ marginTop: '1.5rem' }}>Expirations</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {data.expirations.map(exp => (
-                  <div key={exp} style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-dim)' }}>
-                    {exp}
-                  </div>
-                ))}
-              </div>
             </div>
-          )}
-
-          <div style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', fontSize: '11px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
-              <div style={{ color: 'var(--text-dim)' }}>
-                <span className={`refresh-indicator ${backendStatus === 'ok' ? 'live' : ''}`} />
-                {backendStatus === 'ok' ? 'LIVE' : 'OFFLINE'}
-              </div>
-              <button
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                style={{
-                  background: autoRefresh ? 'var(--positive-soft)' : 'var(--bg-base)',
-                  border: `1px solid ${autoRefresh ? 'rgba(16,185,129,0.3)' : 'var(--border)'}`,
-                  color: autoRefresh ? 'var(--positive)' : 'var(--text-dim)',
-                  padding: '2px 8px', borderRadius: '999px', cursor: 'pointer',
-                  fontFamily: 'var(--font-mono)', fontSize: '10px', fontWeight: 500,
-                }}
-              >{autoRefresh ? `AUTO ${countdown}s` : 'AUTO OFF'}</button>
-            </div>
-            {lastUpdated && (
-              <div style={{ color: 'var(--text-dim)', marginTop: '4px', fontSize: '10px' }}>Last: {lastUpdated}</div>
+            {data && (
+              <span className={`badge ${data.regime === 'LONG_GAMMA' ? 'badge-positive' : 'badge-negative'}`}>
+                {data.regime === 'LONG_GAMMA' ? 'Positive Gamma' : 'Negative Gamma'}
+              </span>
             )}
           </div>
-        </aside>
 
-        <main className="main-content app-screen">
-          <header className="glass-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
-                <div className="ticker-sigil">{ticker}</div>
-                <div>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.25rem' }}>
-                    ${data?.spot.toFixed(2) || '---'}
-                  </div>
-                  {data?.futures && (
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--text-dim)' }}>
-                      {data.futures.name} {data.futures.futures_price.toFixed(2)}
-                    </div>
-                  )}
-                </div>
+          <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+            <div>
+              <div className="card-title" style={{ margin: 0 }}>Net GEX</div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 600,
+                color: data?.net_gex && data.net_gex > 0 ? 'var(--positive)' : 'var(--negative)'
+              }}>
+                {data?.net_gex !== undefined ? `${data.net_gex > 0 ? '+' : ''}${data.net_gex.toFixed(2)}B` : '---'}
               </div>
-              {data && (
-                <span className={`badge ${data.regime === 'LONG_GAMMA' ? 'badge-positive' : 'badge-negative'}`}>
-                  {data.regime === 'LONG_GAMMA' ? 'Positive Gamma' : 'Negative Gamma'}
-                </span>
-              )}
             </div>
-
-            <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-              <div>
-                <div className="card-title" style={{ margin: 0 }}>Net GEX</div>
-                <div style={{
-                  fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 600,
-                  color: data?.net_gex && data.net_gex > 0 ? 'var(--positive)' : 'var(--negative)'
-                }}>
-                  {data?.net_gex !== undefined ? `${data.net_gex > 0 ? '+' : ''}${data.net_gex.toFixed(2)}B` : '---'}
-                </div>
+            <div>
+              <div className="card-title" style={{ margin: 0 }}>Net DEX</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 600 }}>
+                {data?.net_dex !== undefined ? `${data.net_dex > 0 ? '+' : ''}${data.net_dex.toFixed(2)}B` : '---'}
               </div>
-              <div>
-                <div className="card-title" style={{ margin: 0 }}>Net DEX</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 600 }}>
-                  {data?.net_dex !== undefined ? `${data.net_dex > 0 ? '+' : ''}${data.net_dex.toFixed(2)}B` : '---'}
-                </div>
-              </div>
-              <button
-                onClick={() => fetchData(ticker)}
-                disabled={loading}
-                className="action-button"
-              >{loading ? 'Loading...' : 'Refresh'}</button>
             </div>
-          </header>
+            <button
+              onClick={() => fetchData(ticker)}
+              disabled={loading}
+              className="action-button"
+            >{loading ? 'Loading...' : 'Refresh'}</button>
+          </div>
+        </header>
 
-          <div className="tab-strip">
-            {tabs.map((item, i) => {
-              if ('divider' in item) {
-                return (
-                  <div key={`div-${i}`} className="tab-divider">
-                    <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
-                    <span>{item.divider}</span>
-                  </div>
-                )
-              }
-
+        <div className="tab-strip">
+          {tabs.map((item, i) => {
+            if ('divider' in item) {
               return (
-                <button
-                  key={item.key}
-                  onClick={() => setActiveTab(item.key)}
-                  className="tab-button"
-                  data-active={activeTab === item.key}
-                >{item.label}</button>
+                <div key={`div-${i}`} className="tab-divider">
+                  <div style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
+                  <span>{item.divider}</span>
+                </div>
               )
-            })}
-          </div>
+            }
+            return (
+              <button
+                key={item.key}
+                onClick={() => setActiveTab(item.key)}
+                className="tab-button"
+                data-active={activeTab === item.key}
+              >{item.label}</button>
+            )
+          })}
+        </div>
 
-          <section className="animate-fadeIn" style={{ padding: '0 2rem 2rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div className="panel chart-shell" style={{ flex: 1, minHeight: '500px', borderRadius: '0 18px 18px 18px', overflow: 'hidden' }}>
-              {data ? (
-                activeTab === 'bar' ? (
-                  <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
-                ) : activeTab === 'heatmap' ? (
-                  <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'topology' ? (
-                  <GEXTopology data={data.heatmap_data} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'exp' ? (
-                  <GEXByExpiration data={data.gex_by_expiration} />
-                ) : activeTab === 'cumulative' ? (
-                  <CumulativeGEX data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'dex' ? (
-                  <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'vanna' ? (
-                  <VannaExposure data={data.vanna_by_strike} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'flow' ? (
-                  <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'iv' ? (
-                  <IVSkewChart data={data.iv_skew} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'pc' ? (
-                  <PutCallRatio data={data.pc_ratio} spot={data.spot} futures={data.futures} />
-                ) : activeTab === 'oi' ? (
-                  <OIDistribution data={data.pc_ratio} spot={data.spot} futures={data.futures} />
-                ) : null
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
-                    {loading ? 'Calculating GEX...' : error || 'Enter a ticker to begin'}
-                  </div>
+        <section className="animate-fadeIn" style={{ padding: '0 2rem 2rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div className="panel chart-shell" style={{ flex: 1, minHeight: '500px', borderRadius: '0 18px 18px 18px', overflow: 'hidden' }}>
+            {data ? (
+              activeTab === 'bar' ? (
+                <GEXBarChart data={data.gex_by_strike} spot={data.spot} keyLevels={data.key_levels} futures={data.futures} />
+              ) : activeTab === 'heatmap' ? (
+                <GEXHeatmap data={data.heatmap_data} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'topology' ? (
+                <GEXTopology data={data.heatmap_data} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'exp' ? (
+                <GEXByExpiration data={data.gex_by_expiration} />
+              ) : activeTab === 'cumulative' ? (
+                <CumulativeGEX data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'dex' ? (
+                <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'vanna' ? (
+                <VannaExposure data={data.vanna_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'flow' ? (
+                <UnusualFlowChart data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'iv' ? (
+                <IVSkewChart data={data.iv_skew} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'pc' ? (
+                <PutCallRatio data={data.pc_ratio} spot={data.spot} futures={data.futures} />
+              ) : activeTab === 'oi' ? (
+                <OIDistribution data={data.pc_ratio} spot={data.spot} futures={data.futures} />
+              ) : null
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-dim)' }}>
+                  {loading ? 'Calculating GEX...' : error || 'Enter a ticker to begin'}
                 </div>
-              )}
-              {loading && (
-                <div className="chart-loading-overlay">
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-2)', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                      COMPUTING GAMMA EXPOSURE...
-                    </div>
+              </div>
+            )}
+            {loading && (
+              <div className="chart-loading-overlay">
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-2)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                    COMPUTING GAMMA EXPOSURE...
+                  </div>
+                  <div style={{
+                    width: '200px', height: '2px', background: 'var(--border)',
+                    borderRadius: '10px', overflow: 'hidden', margin: '0 auto',
+                  }}>
                     <div style={{
-                      width: '200px', height: '2px', background: 'var(--border)',
-                      borderRadius: '10px', overflow: 'hidden', margin: '0 auto',
-                    }}>
-                      <div style={{
-                        width: '40%', height: '100%',
-                        background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
-                        animation: 'pulse 1.2s ease-in-out infinite',
-                      }} />
-                    </div>
+                      width: '40%', height: '100%',
+                      background: 'linear-gradient(90deg, var(--accent), var(--accent-2))',
+                      animation: 'pulse 1.2s ease-in-out infinite',
+                    }} />
                   </div>
                 </div>
-              )}
-            </div>
-          </section>
-        </main>
-
-        {error && !loading && (
-          <div className="animate-slideUp" style={{
-            position: 'fixed', bottom: '2rem', right: '2rem',
-            padding: '1rem 1.5rem', background: 'var(--negative-soft)',
-            border: '1px solid var(--negative)', color: 'var(--negative)',
-            borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-            zIndex: 1001, fontSize: '13px', maxWidth: '400px',
-          }}>
-            <strong>Error:</strong> {error}
+              </div>
+            )}
           </div>
-        )}
-        </>
+        </section>
+      </main>
+
+      {error && !loading && (
+        <div className="animate-slideUp" style={{
+          position: 'fixed', bottom: '2rem', right: '2rem',
+          padding: '1rem 1.5rem', background: 'var(--negative-soft)',
+          border: '1px solid var(--negative)', color: 'var(--negative)',
+          borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+          zIndex: 1001, fontSize: '13px', maxWidth: '400px',
+        }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+    </div>
   )
 
   return (
