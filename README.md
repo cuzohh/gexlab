@@ -67,10 +67,10 @@ It includes:
 
 - GEX profile by strike
 - GEX heatmap by expiration
-- key levels such as call wall, put wall, zero gamma, max pain, and vol trigger
-- DEX, vanna, IV skew, put/call ratio, OI distribution, unusual flow, and topology views
-- futures translation for mappings like `SPY -> /ES` and `QQQ -> /NQ`
-- a native desktop app that bundles the frontend and backend into an installable local application
+- Key Levels such as Call Wall, Put Wall, Zero Gamma, Max Pain, and Vol Trigger
+- DEX, Vanna, IV Skew, Put/Call Ratio, OI Distribution, unusual flow, and topology views
+- Futures Translation for mappings like `SPY -> /ES` and `QQQ -> /NQ`
+- A native desktop app that bundles the frontend and backend into an installable local application
 
 ## Recommended Usage
 
@@ -112,7 +112,7 @@ Use the website for quick access. Use the desktop app for actual regular use.
   <tr>
     <td width="33%">
       <h3>Key Levels</h3>
-      <p>Call wall, put wall, zero gamma, vol trigger, and max pain are computed directly from the chain.</p>
+      <p>Call Wall, Put Wall, Zero Gamma, Vol Trigger, and Max Pain are computed directly from the options chain.</p>
     </td>
     <td width="33%">
       <h3>Dealer Flow Signals</h3>
@@ -131,7 +131,7 @@ Use the website for quick access. Use the desktop app for actual regular use.
 | --- | --- | --- |
 | `GEX Profile` | Shows net dealer gamma by strike | Helps identify pinning, resistance, and support zones |
 | `Heatmap` | Breaks exposure across expirations | Makes near-dated pressure easier to spot |
-| `Key Levels` | Computes call wall, put wall, zero gamma, vol trigger, max pain | Gives a practical trading map |
+| `Key Levels` | Computes Call Wall, Put Wall, Zero Gamma, Vol Trigger, and Max Pain | Provides a practical trading map |
 | `Desktop App` | Runs the backend locally in a native window | Reduces web bottlenecks and rate-limit issues |
 | `Futures Translation` | Maps ETF levels to futures equivalents | Makes levels usable on `/ES`, `/NQ`, and related charts |
 
@@ -224,15 +224,15 @@ GEX = Gamma x Open Interest x 100 x Spot^2 x 0.01 / 1,000,000,000
 
 Interpretation:
 
-- output is in billions of dollars per 1% move
-- positive net gamma tends to dampen volatility
-- negative net gamma tends to amplify volatility
+- Output is in billions of dollars per 1% move
+- Positive net gamma tends to dampen volatility
+- Negative net gamma tends to amplify volatility
 
 <details>
 <summary><strong>What the sign usually implies</strong></summary>
 
-- positive gamma: dealers tend to buy dips and sell rips, which can suppress volatility
-- negative gamma: dealers tend to chase price direction, which can amplify volatility
+- Positive Gamma: Dealers tend to buy dips and sell rips, which can suppress volatility.
+- Negative Gamma: Dealers tend to chase price direction, which can amplify volatility.
 
 </details>
 
@@ -251,25 +251,25 @@ run_desktop_app.bat     Local desktop app runner
 
 ## Notes
 
-- The desktop app is the preferred user distribution because the website is more likely to get rate-limited.
-- The desktop app still uses loopback internally for its bundled backend, but users interact with a normal app window, not a browser-based localhost setup.
-- Build artifacts are ignored by `.gitignore`.
+- The desktop app is the preferred distribution because it is less likely to encounter rate-limiting issues compared to the shared web version.
+- The desktop app uses a loopback connection internally for its bundled backend, providing a native app experience without a browser dependency.
+- Build artifacts are automatically ignored via `.gitignore`.
 
 ## Roadmap
 
-- shrink the frontend bundle with route-level or chart-level code splitting
-- add CI builds for Windows, macOS, and Linux installers
-- add signed Windows releases and cleaner release artifacts
-- improve caching and request strategy to reduce upstream rate-limit pressure
-- add more market structure views and better historical comparison workflows
+- Shrink the frontend bundle with route-level or chart-level code splitting
+- Use CI builds for Windows, macOS, and Linux installers
+- Provide signed Windows releases and cleaner release artifacts
+- Improve caching and request strategy to reduce upstream rate-limit pressure
+- Add more market structure views and better historical comparison workflows
 
 ## Contributing
 
 If you are modifying the project:
 
-- keep the desktop path working, not just the browser path
-- prefer changes that improve local reliability during market hours
-- avoid adding hosted-only assumptions, since the desktop app is the recommended distribution
+- Ensure the desktop path remains functional, not just the browser development path.
+- Prioritize changes that improve local reliability during market hours.
+- Avoid adding hosted-only assumptions, as the desktop app is the primary distribution.
 
 ## Disclaimer
 
