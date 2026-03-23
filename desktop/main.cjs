@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
@@ -131,6 +131,8 @@ function createWindow() {
     minHeight: 760,
     backgroundColor: '#0d1117',
     icon: getIconPath(),
+    frame: false,
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     autoHideMenuBar: true,
     show: false,
     webPreferences: {
@@ -147,6 +149,41 @@ function createWindow() {
 
   mainWindow.loadFile(frontendEntry);
 }
+
+function getWindowFromEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender);
+}
+
+ipcMain.handle('window:minimize', (event) => {
+  const targetWindow = getWindowFromEvent(event);
+  targetWindow?.minimize();
+});
+
+ipcMain.handle('window:toggle-maximize', (event) => {
+  const targetWindow = getWindowFromEvent(event);
+
+  if (!targetWindow) {
+    return false;
+  }
+
+  if (targetWindow.isMaximized()) {
+    targetWindow.unmaximize();
+  } else {
+    targetWindow.maximize();
+  }
+
+  return targetWindow.isMaximized();
+});
+
+ipcMain.handle('window:close', (event) => {
+  const targetWindow = getWindowFromEvent(event);
+  targetWindow?.close();
+});
+
+ipcMain.handle('window:is-maximized', (event) => {
+  const targetWindow = getWindowFromEvent(event);
+  return Boolean(targetWindow?.isMaximized());
+});
 
 async function stopBackend() {
   if (!backendProcess || backendProcess.killed) {
@@ -166,6 +203,17 @@ async function stopBackend() {
 app.whenReady().then(async () => {
   try {
     app.setName('GEXLAB');
+    app.on('browser-window-created', (_, targetWindow) => {
+      const sendState = () => {
+        targetWindow.webContents.send('window:maximized-changed', targetWindow.isMaximized());
+      };
+
+      targetWindow.on('maximize', sendState);
+      targetWindow.on('unmaximize', sendState);
+      targetWindow.on('enter-full-screen', sendState);
+      targetWindow.on('leave-full-screen', sendState);
+    });
+
     await startBackend();
     createWindow();
   } catch (error) {

@@ -1,7 +1,4 @@
-/**
- * Homepage — Welcome landing page for GEXLAB.
- * Shows a hero section, feature overview, and quick-start guide.
- */
+import LogoMark from './LogoMark'
 
 interface HomePageProps {
   onNavigate: (page: 'dashboard' | 'docs') => void
@@ -12,34 +9,28 @@ export default function HomePage({ onNavigate }: HomePageProps) {
 
   const features = [
     {
-      icon: '◈',
       title: 'GEX Profile',
-      desc: 'Visualize dealer gamma exposure by strike price. See where market makers are forced to buy or sell.',
+      desc: 'Visualize dealer gamma exposure by strike price and see where dealer hedging becomes market structure.',
     },
     {
-      icon: '◉',
-      title: 'GEX Heatmap',
-      desc: 'Explore gamma exposure across every expiration and strike in a color-coded matrix.',
+      title: 'Heatmap',
+      desc: 'Read gamma concentration across strikes and expirations in a fast, spatial view.',
     },
     {
-      icon: '⚡',
       title: 'Unusual Flow',
-      desc: 'Spot anomalous volume concentration that may signal institutional positioning.',
+      desc: 'Spot abnormal volume concentration that can signal institutional positioning or hedging.',
     },
     {
-      icon: '◎',
       title: 'Key Levels',
-      desc: 'Automatically calculated Call Wall, Put Wall, Zero Gamma, Max Pain, and Vol Trigger.',
+      desc: 'Track call wall, put wall, zero gamma, max pain, and vol trigger automatically.',
     },
     {
-      icon: '⟁',
-      title: 'Futures Translation',
-      desc: 'SPY levels automatically converted to /ES, QQQ to /NQ, and more for futures traders.',
+      title: 'Futures Mapping',
+      desc: 'Translate ETF-derived levels to futures equivalents such as SPY to ES and QQQ to NQ.',
     },
     {
-      icon: '↻',
-      title: 'Auto-Refresh',
-      desc: 'Data refreshes every 60 seconds to keep levels current throughout the trading session.',
+      title: 'Auto Refresh',
+      desc: 'Keep the board current during the session without manually reloading each view.',
     },
   ]
 
@@ -56,105 +47,66 @@ export default function HomePage({ onNavigate }: HomePageProps) {
       ]
 
   return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '4rem 2rem 8rem' }}>
-      {/* Hero */}
-      <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
-        <h1 style={{
-          fontSize: '3rem',
-          fontWeight: 700,
-          margin: 0,
-          letterSpacing: '-0.02em',
-          lineHeight: 1.1,
-        }}>
-          GEX<span style={{ color: 'var(--accent)' }}>LAB</span>
-        </h1>
-        <p style={{
-          color: 'var(--text-muted)',
-          fontSize: '1.1rem',
-          marginTop: '1rem',
-          maxWidth: '500px',
-          margin: '1rem auto 0',
-          lineHeight: 1.6,
-        }}>
-          Free, open-source Gamma Exposure analytics.<br />
-          Institutional-grade options intelligence for retail traders.
-        </p>
-
-        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '2.5rem' }}>
-          <button
-            onClick={() => onNavigate('dashboard')}
-            style={{
-              background: 'var(--accent)',
-              color: 'white',
-              border: 'none',
-              padding: '12px 28px',
-              borderRadius: '10px',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-              transition: 'transform 0.15s, box-shadow 0.15s',
-              boxShadow: '0 4px 15px rgba(94, 106, 210, 0.3)',
-            }}
-          >
-            Launch Dashboard →
-          </button>
-          <button
-            onClick={() => onNavigate('docs')}
-            style={{
-              background: 'transparent',
-              color: 'var(--text-muted)',
-              border: '1px solid var(--border)',
-              padding: '12px 28px',
-              borderRadius: '10px',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              fontFamily: 'var(--font-sans)',
-              transition: 'border-color 0.15s',
-            }}
-          >
-            Read the Docs
-          </button>
+    <div style={{ maxWidth: '1040px', margin: '0 auto', padding: '4rem 2rem 7rem' }}>
+      <div className="hero-panel" style={{ marginBottom: '3rem' }}>
+        <div className="hero-copy">
+          <div className="hero-kicker">Dealer positioning, rendered cleanly</div>
+          <h1 className="hero-title">
+            <LogoMark size={34} />
+            <span>Gamma structure for the session, not just another chart.</span>
+          </h1>
+          <p className="hero-description">
+            GEXLAB turns options positioning into a local analytics terminal for traders who want call walls, gamma flips,
+            expiration pressure, and futures translation in one place.
+          </p>
+          <div className="hero-actions">
+            <button className="action-button" onClick={() => onNavigate('dashboard')}>Launch Dashboard</button>
+            <button className="secondary-button" onClick={() => onNavigate('docs')}>Read the Docs</button>
+          </div>
+          <div className="hero-note">
+            {isDesktop ? 'Desktop mode active: custom window chrome and bundled backend enabled.' : 'For regular usage, the local desktop app is the recommended path.'}
+          </div>
+        </div>
+        <div className="hero-metrics panel">
+          <div className="hero-metric-row">
+            <div className="card-title">Focus</div>
+            <div className="stat-value" style={{ fontSize: '1.15rem' }}>Gamma, DEX, vanna</div>
+          </div>
+          <div className="hero-metric-row">
+            <div className="card-title">Best Path</div>
+            <div style={{ color: 'var(--accent-2)', fontWeight: 600 }}>Local desktop app</div>
+          </div>
+          <div className="hero-metric-row">
+            <div className="card-title">Rate Limits</div>
+            <div style={{ color: 'var(--warning)', fontWeight: 600 }}>Web can bottleneck</div>
+          </div>
         </div>
       </div>
 
-      {/* Features Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-        gap: '1.25rem',
-      }}>
-        {features.map(f => (
-          <div key={f.title} className="panel" style={{ padding: '1.5rem' }}>
-            <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>{f.icon}</div>
-            <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 600 }}>{f.title}</h3>
-            <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6 }}>{f.desc}</p>
+      <div className="feature-grid">
+        {features.map((f, index) => (
+          <div key={f.title} className="panel feature-card">
+            <div className="feature-index">0{index + 1}</div>
+            <h3>{f.title}</h3>
+            <p>{f.desc}</p>
           </div>
         ))}
       </div>
 
-      {/* Quick Start */}
       <div className="panel" style={{ marginTop: '3rem', padding: '2rem' }}>
         <h2 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600 }}>Quick Start</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           {quickStartSteps.map(s => (
-            <div key={s.step} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <div style={{
-                width: '24px', height: '24px', borderRadius: '6px',
-                background: 'var(--accent-soft)', color: 'var(--accent)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '12px', fontWeight: 700, flexShrink: 0,
-              }}>{s.step}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.5 }}>{s.text}</div>
+            <div key={s.step} style={{ display: 'flex', gap: '0.85rem', alignItems: 'flex-start' }}>
+              <div className="step-badge">{s.step}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: 1.6 }}>{s.text}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{ textAlign: 'center', marginTop: '3rem', color: 'var(--text-dim)', fontSize: '12px' }}>
-        GEXLAB is open source · Built with FastAPI + React + ECharts · Data from Yahoo Finance
+        GEXLAB is open source. Built with FastAPI, React, and ECharts. Data sourced through Yahoo Finance.
       </div>
     </div>
   )
