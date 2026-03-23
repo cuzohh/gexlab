@@ -3,8 +3,8 @@
  * Stacked bars show Call OI and Put OI to reveal dealer positioning clusters.
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts, echarts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface PCData { strike: number; call_oi: number; put_oi: number; pc_ratio: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -24,7 +24,7 @@ export default function OIDistribution({ data, spot, futures }: Props) {
   // Find max OI strike
   const maxOIStrike = filtered.reduce((max, d) => (d.call_oi + d.put_oi) > (max.call_oi + max.put_oi) ? d : max, filtered[0])
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -78,3 +78,4 @@ export default function OIDistribution({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

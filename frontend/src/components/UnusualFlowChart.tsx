@@ -10,7 +10,8 @@
  * Highlights outlier strikes where volume > 2σ above average.
  */
 
-import ReactECharts from 'echarts-for-react'
+import { ReactECharts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface StrikeData {
   strike: number
@@ -77,7 +78,7 @@ export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowCha
 
   const anomalyCount = bubbleData.filter(d => d._isAnomaly).length
 
-  const option = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       backgroundColor: '#16161a',
@@ -163,3 +164,4 @@ export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowCha
     />
   )
 }
+

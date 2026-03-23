@@ -3,7 +3,8 @@
  * Compares call IV vs put IV to reveal market sentiment.
  */
 
-import ReactECharts from 'echarts-for-react'
+import { ReactECharts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface IVData { strike: number; call_iv: number; put_iv: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -20,7 +21,7 @@ export default function IVSkewChart({ data, spot, futures }: Props) {
     return d.strike.toFixed(2)
   })
 
-  const option = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -65,3 +66,4 @@ export default function IVSkewChart({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

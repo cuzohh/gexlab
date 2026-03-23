@@ -3,8 +3,8 @@
  * Ratios > 1 = more put OI (bearish), < 1 = more call OI (bullish).
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface PCData { strike: number; call_oi: number; put_oi: number; pc_ratio: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -21,7 +21,7 @@ export default function PutCallRatio({ data, spot, futures }: Props) {
     return d.strike.toFixed(2)
   })
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -86,3 +86,4 @@ export default function PutCallRatio({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

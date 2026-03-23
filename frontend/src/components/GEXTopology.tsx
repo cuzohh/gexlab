@@ -106,3 +106,4 @@ export default function GEXTopology({ data, spot, futures }: Props) {
   // notMerge=true is usually safer for echarts-gl 3D components on update
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={true} />
 }
+

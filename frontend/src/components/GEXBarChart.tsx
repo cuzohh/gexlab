@@ -5,8 +5,8 @@
  * Key level overlays rendered as static horizontal reference lines.
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts, echarts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface StrikeData {
   strike: number
@@ -86,7 +86,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
   addMarkLine(keyLevels.call_wall, 'CALL WALL', '#10b981', 'dotted')
   addMarkLine(keyLevels.put_wall, 'PUT WALL', '#ef4444', 'dotted')
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -171,3 +171,4 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
     />
   )
 }
+

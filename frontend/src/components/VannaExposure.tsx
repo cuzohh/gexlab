@@ -4,8 +4,8 @@
  * Negative vanna = dealers sell stock when vol drops (destabilizing).
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts, echarts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface VannaData { strike: number; vanna_exposure: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -22,7 +22,7 @@ export default function VannaExposure({ data, spot, futures }: Props) {
     return d.strike.toFixed(2)
   })
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -62,3 +62,4 @@ export default function VannaExposure({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

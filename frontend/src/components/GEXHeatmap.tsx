@@ -6,8 +6,8 @@
  * Green = positive GEX (call dominated), Red = negative GEX (put dominated).
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface HeatmapPoint {
   strike: number
@@ -55,7 +55,7 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
   // Get max value for visual map range
   const absMax = Math.max(...heatmapData.map(d => Math.abs(d[2] as number)), 0.001)
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       position: 'top',
@@ -147,3 +147,4 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
     />
   )
 }
+

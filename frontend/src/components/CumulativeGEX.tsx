@@ -3,7 +3,8 @@
  * The point where the line crosses zero is the Gamma Flip / Zero Gamma level.
  */
 
-import ReactECharts from 'echarts-for-react'
+import { ReactECharts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface StrikeData {
   strike: number; call_gex: number; put_gex: number; net_gex: number
@@ -35,7 +36,7 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
     }
   }
 
-  const option = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
@@ -76,14 +77,13 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
       markLine: {
         silent: true, animation: false,
         data: [
-          { yAxis: 0, lineStyle: { color: '#f59e0b', type: 'dashed', width: 1.5 }, label: { formatter: 'ZERO GAMMA', color: '#f59e0b', fontSize: 10, fontWeight: 600, backgroundColor: 'rgba(10,10,12,0.85)', padding: [2, 6], borderRadius: 3 } },
+          { yAxis: 0, lineStyle: { color: '#f59e0b', type: 'dashed' as const, width: 1.5 }, label: { formatter: 'ZERO GAMMA', color: '#f59e0b', fontSize: 10, fontWeight: 600, backgroundColor: 'rgba(10,10,12,0.85)', padding: [2, 6], borderRadius: 3 } },
           ...(zeroCrossIdx >= 0 ? [{
-            xAxis: zeroCrossIdx, lineStyle: { color: '#f59e0b', type: 'dotted', width: 1 },
+            xAxis: zeroCrossIdx, lineStyle: { color: '#f59e0b', type: 'dotted' as const, width: 1 },
             label: { show: false },
           }] : []),
         ],
       },
-      visualMap: false,
     }],
     visualMap: {
       show: false, dimension: 1, pieces: [
@@ -95,3 +95,4 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

@@ -3,8 +3,8 @@
  * Near-term expirations carry more weight in the current gamma landscape.
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts, echarts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface ExpGEX { expiration: string; total_gex: number }
 interface Props { data: ExpGEX[] }
@@ -12,7 +12,7 @@ interface Props { data: ExpGEX[] }
 export default function GEXByExpiration({ data }: Props) {
   if (!data || data.length === 0) return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No expiration data</div>
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       backgroundColor: '#16161a', borderColor: '#26262f',
@@ -51,3 +51,4 @@ export default function GEXByExpiration({ data }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+

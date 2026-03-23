@@ -9,14 +9,36 @@ export default defineConfig({
     include: ['echarts', 'echarts-for-react', 'tslib'],
   },
   build: {
+    chunkSizeWarningLimit: 1200,
     commonjsOptions: {
       include: [/echarts/, /tslib/, /node_modules/],
     },
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('echarts') || id.includes('echarts-for-react')) {
-            return 'charts'
+          if (id.includes('echarts-gl')) {
+            return 'charts-3d'
+          }
+          if (id.includes('echarts-for-react')) {
+            return 'charts-react'
+          }
+          if (id.includes('zrender')) {
+            return 'charts-zrender'
+          }
+          if (id.includes('echarts/core')) {
+            return 'charts-runtime'
+          }
+          if (id.includes('echarts/charts')) {
+            return 'charts-series'
+          }
+          if (id.includes('echarts/components')) {
+            return 'charts-components'
+          }
+          if (id.includes('echarts/renderers')) {
+            return 'charts-renderers'
+          }
+          if (id.includes('echarts')) {
+            return 'charts-misc'
           }
           return undefined
         },

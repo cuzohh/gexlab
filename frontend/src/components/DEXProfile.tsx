@@ -3,8 +3,8 @@
  * Shows the directional tilt of dealer hedging at each strike.
  */
 
-import ReactECharts from 'echarts-for-react'
-import * as echarts from 'echarts'
+import { ReactECharts, echarts } from '../lib/echarts'
+import type { EChartsOption } from '../lib/echarts'
 
 interface DEXData { strike: number; call_dex: number; put_dex: number; net_dex: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -24,7 +24,7 @@ export default function DEXProfile({ data, spot, futures }: Props) {
   const callDex = filtered.map(d => d.call_dex)
   const putDex = filtered.map(d => d.put_dex)
 
-  const option: echarts.EChartsCoreOption = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -64,3 +64,4 @@ export default function DEXProfile({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
+
