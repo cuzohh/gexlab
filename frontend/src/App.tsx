@@ -426,6 +426,21 @@ function normalizeDashboardData(payload: unknown): GEXData {
 }
 
 function App() {
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      return (localStorage.getItem('gexlab_theme') as 'light' | 'dark') || 'dark'
+    } catch {
+      return 'dark'
+    }
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    try {
+      localStorage.setItem('gexlab_theme', theme)
+    } catch { /* ignore */ }
+  }, [theme])
+
   const [ticker, setTicker] = useState(() => {
     try { return sanitizeTicker(localStorage.getItem('gexlab_ticker') || DEFAULT_TICKER) || DEFAULT_TICKER } catch { return DEFAULT_TICKER }
   })
@@ -538,7 +553,7 @@ function App() {
       setRateLimitRemaining(retryAfter)
       setAutoRefresh(false)
       setErrorKind('rate_limited')
-      setError(isDesktop ? details.message : `${details.message} The website gets rate-limited often; the local desktop app is more reliable.`)
+      setError(details.message)
       return
     }
 
@@ -878,6 +893,22 @@ function App() {
           )}
 
           <section className="sidebar-footer">
+            <div className="sidebar-footer-row">
+              <div className="segmented-control" role="group" aria-label="Theme switcher">
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className="segmented-control-button compact-control"
+                  data-active={theme === 'dark'}
+                >Dark</button>
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className="segmented-control-button compact-control"
+                  data-active={theme === 'light'}
+                >Light</button>
+              </div>
+            </div>
             <div className="sidebar-footer-row">
               <div className="segmented-control" role="group" aria-label="Data mode">
                 <button
