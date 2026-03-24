@@ -50,8 +50,8 @@ def _years_to_expiry(expiry_str: str) -> float:
     return max(days / 365.0, 1 / 365.0)
 
 
-def _cache_key(symbol: str, max_expirations: int) -> tuple[str, int]:
-    return (symbol, max_expirations)
+def _cache_key(symbol: str, max_expirations: int, snapshot: bool) -> tuple[str, int, bool]:
+    return (symbol, max_expirations, snapshot)
 
 
 def _with_cache_metadata(payload: dict[str, Any], generated_at: datetime, cache_hit: bool) -> dict[str, Any]:
@@ -83,13 +83,13 @@ def _build_empty_payload(spot: float, expirations: list[str]) -> dict[str, Any]:
     }
 
 
-def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3, use_cache: bool = True) -> dict[str, Any]:
+def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3, use_cache: bool = True, snapshot: bool = False) -> dict[str, Any]:
     symbol = ticker_symbol.upper()
-    key = _cache_key(symbol, max_expirations)
+    key = _cache_key(symbol, max_expirations, snapshot)
     cached_entry = cache.get(key) if use_cache else None
 
     if cached_entry is not None:
-        logger.info("options_chain cache_hit symbol=%s max_expirations=%s", symbol, max_expirations)
+        logger.info("options_chain cache_hit symbol=%s max_expirations=%s snapshot=%s", symbol, max_expirations, snapshot)
         return _with_cache_metadata(cached_entry["payload"], cached_entry["generated_at"], True)
 
     ticker = Ticker(symbol)
@@ -99,7 +99,13 @@ def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3, use_cache:
         if not price_data or isinstance(price_data, str):
             raise UpstreamAPIError(f"Yahoo Finance returned an invalid price response for {symbol}: {price_data}")
 
-        spot = float(price_data.get("regularMarketPrice", 0))
+        spot = 0.0
+        if snapshot:
+            spot = float(price_data.get("previousClose", 0))
+
+        if spot <= 0:
+            spot = float(price_data.get("regularMarketPrice", 0))
+
         if spot <= 0:
             raise InvalidTickerError(f"Could not retrieve a valid spot price for {symbol}.")
 

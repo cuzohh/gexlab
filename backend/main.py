@@ -81,8 +81,8 @@ async def data_status():
     return {'api_connected': is_connected}
 
 
-def _build_gex_response(ticker: str, max_expirations: int, use_cache: bool = True) -> dict:
-    result = fetch_options_chain(ticker, max_expirations=max_expirations, use_cache=use_cache)
+def _build_gex_response(ticker: str, max_expirations: int, use_cache: bool = True, snapshot: bool = False) -> dict:
+    result = fetch_options_chain(ticker, max_expirations=max_expirations, use_cache=use_cache, snapshot=snapshot)
     futures = get_futures_translation(ticker, result.get('spot', 0))
     result['futures'] = futures
     return result
@@ -94,22 +94,23 @@ async def get_gex_data(
     max_expirations: int = Query(default=3, ge=1, le=10),
     fresh: bool = Query(default=False),
     track_history: bool = Query(default=False),
+    snapshot: bool = Query(default=False),
 ):
     symbol = ticker.upper()
     started_at = perf_counter()
 
     try:
-        result = await run_in_threadpool(_build_gex_response, symbol, max_expirations, not fresh)
+        result = await run_in_threadpool(_build_gex_response, symbol, max_expirations, not fresh, snapshot)
         if track_history:
             await run_in_threadpool(append_history_sample, symbol, result)
         logger.info(
-            'gex_request_completed ticker=%s max_expirations=%s fresh=%s track_history=%s duration_ms=%.1f cache_hit=%s',
+            'gex_request_completed ticker=%s max_expirations=%s fresh=%s track_history=%s snapshot=%s duration_ms=%.1f',
             symbol,
             max_expirations,
             fresh,
             track_history,
+            snapshot,
             (perf_counter() - started_at) * 1000,
-            result.get('meta', {}).get('cache_hit'),
         )
         return result
     except (RateLimitError, InvalidTickerError, NoOptionsDataError, UpstreamAPIError):

@@ -561,7 +561,7 @@ function App() {
     setError(details.message)
   }, [])
 
-  const fetchData = useCallback(async (symbol: string, isBackground = false) => {
+  const fetchData = useCallback(async (symbol: string, isBackground = false, forcedSnapshot?: boolean) => {
     if (isBackground && rateLimitUntil && Date.now() < rateLimitUntil) {
       return
     }
@@ -570,6 +570,7 @@ function App() {
       setLoading(true)
     }
 
+    const snapshot = forcedSnapshot !== undefined ? forcedSnapshot : !isLiveMode
     setError(null)
     setErrorKind(null)
     setTickerInputError(null)
@@ -578,7 +579,7 @@ function App() {
     fetchControllerRef.current = controller
 
     try {
-      const res = await fetch(`${API_BASE}/api/gex/${symbol}`, { signal: controller.signal })
+      const res = await fetch(`${API_BASE}/api/gex/${symbol}?snapshot=${snapshot}`, { signal: controller.signal })
       const payload = await readJsonSafely(res)
 
       if (!res.ok) {
@@ -607,7 +608,7 @@ function App() {
         setLoading(false)
       }
     }
-  }, [applyApiError, fetchHistory, rateLimitUntil])
+  }, [applyApiError, fetchHistory, rateLimitUntil, isLiveMode])
 
   useEffect(() => {
     try { localStorage.setItem('gexlab_ticker', ticker) } catch { /* ignore */ }
@@ -617,7 +618,7 @@ function App() {
     historyLoadedForRef.current = null
     setHistoryData([])
     fetchData(ticker)
-  }, [ticker, fetchData])
+  }, [ticker, fetchData, isLiveMode])
 
   useEffect(() => {
     if (activeTab === 'timeseries') {
