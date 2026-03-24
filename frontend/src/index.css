@@ -155,7 +155,8 @@ button {
   display: flex;
   flex-direction: column;
   width: 100%;
-  height: 100%;
+  max-width: 100vw;
+  height: 100vh;
   overflow: hidden;
   position: relative;
 }
@@ -656,6 +657,7 @@ button {
   overflow-x: hidden;
   position: relative;
   min-width: 0;
+  max-width: 100%;
   background:
     radial-gradient(circle at top right, rgba(79, 70, 229, 0.03), transparent 34%),
     linear-gradient(180deg, #f8f9fb 0%, #ffffff 100%);
@@ -782,12 +784,12 @@ button {
 }
 
 .glass-header {
-  min-height: 124px;
+  min-height: 112px;
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  gap: clamp(1rem, 3.5vw, 4.5rem);
-  padding: 1.2rem 2.5rem 1.6rem;
+  gap: clamp(1rem, 2vw, 2.5rem);
+  padding: 1.25rem 2.5rem 1.45rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
   backdrop-filter: var(--glass);
@@ -798,6 +800,7 @@ button {
   animation: headerSettle 0.62s cubic-bezier(0.16, 1, 0.3, 1) both;
   transition: background-color 0.22s ease-in-out;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
 }
 
@@ -1180,7 +1183,9 @@ button {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  max-width: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .chart-stage-shell {

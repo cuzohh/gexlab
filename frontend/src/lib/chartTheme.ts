@@ -78,9 +78,9 @@ export function chartGrid(overrides: Record<string, unknown> = {}) {
   return {
     containLabel: true,
     left: 24,
-    right: 20,
+    right: 40,
     top: 40,
-    bottom: 24,
+    bottom: 36,
     ...overrides,
   }
 }
