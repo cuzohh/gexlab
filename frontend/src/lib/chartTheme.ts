@@ -1,32 +1,41 @@
 import { echarts } from './echarts'
 
+function readCssToken(name: string, fallback: string) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return fallback
+  }
+
+  const value = window.getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
+
 export const chartPalette = {
-  tooltipBg: 'var(--bg-surface)',
-  tooltipBorder: 'var(--border-bright)',
-  textMain: 'var(--text-main)',
-  textMuted: 'var(--text-muted)',
-  textDim: 'var(--text-dim)',
-  axis: 'var(--border-bright)',
-  grid: 'var(--border)',
-  panelEdge: 'var(--text-main)',
-  surface: 'var(--bg-base)',
-  surfaceSoft: 'var(--bg-surface)',
-  positive: 'var(--positive)',
-  positiveSoft: 'var(--positive-soft)',
-  negative: 'var(--negative)',
-  negativeSoft: 'var(--negative-soft)',
-  warning: 'var(--warning)',
-  warningSoft: 'var(--warning-soft)',
-  accent: 'var(--accent)',
-  accentSoft: 'var(--accent-soft)',
-  accentAlt: 'var(--accent-2)',
-  accentAltSoft: 'var(--accent-2-soft)',
-  ivory: 'var(--hero-ink)',
+  tooltipBg: readCssToken('--bg-surface', '#121821'),
+  tooltipBorder: readCssToken('--border-bright', 'rgba(176, 190, 210, 0.2)'),
+  textMain: readCssToken('--text-main', '#eef2f7'),
+  textMuted: readCssToken('--text-muted', '#a2adbd'),
+  textDim: readCssToken('--text-dim', '#758195'),
+  axis: readCssToken('--border-bright', 'rgba(176, 190, 210, 0.2)'),
+  grid: readCssToken('--border', 'rgba(160, 173, 193, 0.12)'),
+  panelEdge: readCssToken('--text-main', '#eef2f7'),
+  surface: readCssToken('--bg-base', '#0c1016'),
+  surfaceSoft: readCssToken('--bg-surface', '#121821'),
+  positive: readCssToken('--positive', '#5ba986'),
+  positiveSoft: readCssToken('--positive-soft', 'rgba(91, 169, 134, 0.12)'),
+  negative: readCssToken('--negative', '#c77a7f'),
+  negativeSoft: readCssToken('--negative-soft', 'rgba(199, 122, 127, 0.12)'),
+  warning: readCssToken('--warning', '#c39a66'),
+  warningSoft: readCssToken('--warning-soft', 'rgba(195, 154, 102, 0.12)'),
+  accent: readCssToken('--accent', '#8c96c9'),
+  accentSoft: readCssToken('--accent-soft', 'rgba(140, 150, 201, 0.12)'),
+  accentAlt: readCssToken('--accent-2', '#8aa5b8'),
+  accentAltSoft: readCssToken('--accent-2-soft', 'rgba(138, 165, 184, 0.12)'),
+  ivory: readCssToken('--hero-ink', '#f4ead7'),
 } as const
 
 const chartFonts = {
-  sans: 'var(--font-sans)',
-  mono: 'var(--font-mono)',
+  sans: readCssToken('--font-sans', "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif"),
+  mono: readCssToken('--font-mono', "'Cascadia Code', Consolas, monospace"),
 } as const
 
 export const tooltipStyle = {
@@ -63,6 +72,21 @@ export const categoryAxisStyle = {
     fontSize: 10,
   },
   axisLine: { lineStyle: { color: chartPalette.axis } },
+}
+
+export function chartGrid(overrides: Record<string, unknown> = {}) {
+  return {
+    containLabel: true,
+    left: 24,
+    right: 20,
+    top: 40,
+    bottom: 24,
+    ...overrides,
+  }
+}
+
+export function chartAxisInterval(length: number, targetTicks = 12) {
+  return Math.max(0, Math.floor(length / Math.max(1, targetTicks)))
 }
 
 export function chartLinearGradient(

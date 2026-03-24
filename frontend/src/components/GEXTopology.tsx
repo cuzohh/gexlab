@@ -4,7 +4,7 @@
 
 import { ReactECharts, type EChartsOption, tooltipItems } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartAxisInterval, chartGrid, chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface HeatmapPoint { strike: number; expiration: string; gex: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -39,7 +39,7 @@ export default function GEXTopology({ data, spot, futures }: Props) {
     Math.abs(strike - spot) < Math.abs(strikes[closestIndex] - spot) ? index : closestIndex
   ), 0)
   const maxAbsGex = Math.max(...filtered.map((point) => Math.abs(point.gex)), 0.001)
-  const interval = Math.max(0, Math.floor(strikes.length / 12))
+  const interval = chartAxisInterval(strikes.length, 10)
 
   const series = expirations.map((expiration, index) => {
     const pointsByStrike = new Map(
@@ -107,7 +107,7 @@ export default function GEXTopology({ data, spot, futures }: Props) {
         ].join('<br/>')
       },
     },
-    grid: { left: 74, right: 22, top: 54, bottom: 54 },
+    grid: chartGrid({ left: 72, right: 18, top: 58, bottom: 56 }),
     xAxis: {
       type: 'category',
       data: strikeLabels,

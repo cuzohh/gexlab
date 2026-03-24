@@ -1102,6 +1102,8 @@ button {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .chart-stage {
@@ -1109,6 +1111,8 @@ button {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 .chart-stage-shell {
@@ -1117,11 +1121,14 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
   gap: var(--space-md);
   padding: 1.1rem 0 0;
+  min-width: 0;
+  min-height: 0;
 }
 
 .chart-panel {
   flex: 1;
-  min-height: clamp(320px, 55vh, 500px);
+  min-width: 0;
+  min-height: clamp(280px, 46vh, 500px);
   border-radius: 18px;
   overflow: hidden;
 }
@@ -1132,6 +1139,9 @@ button {
 
 .chart-panel-content {
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   will-change: transform, opacity;
 }
 
@@ -1147,6 +1157,9 @@ button {
 .chart-canvas {
   height: 100%;
   width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chart-loading-overlay {
@@ -1589,6 +1602,23 @@ button {
 
   .sidebar-footer {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 820px) {
+  .glass-header {
+    min-height: 92px;
+    padding-top: 0.8rem;
+    padding-bottom: 0.7rem;
+  }
+
+  .chart-panel {
+    min-height: clamp(250px, 42vh, 420px);
+  }
+
+  .chart-stage-shell {
+    gap: var(--space-sm);
+    padding-top: 0.85rem;
   }
 }
 

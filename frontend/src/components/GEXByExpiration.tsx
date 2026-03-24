@@ -5,7 +5,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartLinearGradient, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartGrid, chartLinearGradient, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface ExpGEX { expiration: string; total_gex: number }
 interface Props { data: ExpGEX[] }
@@ -25,7 +25,7 @@ export default function GEXByExpiration({ data }: Props) {
         return `<strong>${item?.name ?? ''}</strong><br/>GEX: ${value.toFixed(4)}B<br/><span style="color:${tone}">${label}</span>`
       },
     },
-    grid: { left: 80, right: 30, top: 30, bottom: 50 },
+    grid: chartGrid({ left: 76, right: 20, top: 28, bottom: 44 }),
     xAxis: { type: 'category', data: data.map((d) => d.expiration), ...categoryAxisStyle, axisLabel: { ...categoryAxisStyle.axisLabel, rotate: 30 } },
     yAxis: { type: 'value', ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(2)}B` } },
     series: [{

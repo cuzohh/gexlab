@@ -5,7 +5,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartPalette, tooltipStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartAxisInterval, chartGrid, chartPalette, tooltipStyle } from '../lib/chartTheme'
 
 interface HeatmapPoint { strike: number; expiration: string; gex: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -15,6 +15,7 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
   if (!data || data.length === 0) return <ChartEmptyState>No heatmap data available.</ChartEmptyState>
 
   const filtered = data.filter((d) => d.strike >= spot * 0.9 && d.strike <= spot * 1.1)
+  if (filtered.length === 0) return <ChartEmptyState>No heatmap cells are available within the current spot range.</ChartEmptyState>
   const strikes = [...new Set(filtered.map((d) => d.strike))].sort((a, b) => a - b)
   const expirations = [...new Set(filtered.map((d) => d.expiration))].sort()
   const heatmapData = filtered.map((d) => [strikes.indexOf(d.strike), expirations.indexOf(d.expiration), d.gex >= 0 ? Math.sqrt(Math.abs(d.gex)) : -Math.sqrt(Math.abs(d.gex))])
@@ -35,12 +36,12 @@ export default function GEXHeatmap({ data, spot, futures }: GEXHeatmapProps) {
         return `<strong>$${strike.toFixed(2)}${futuresLabel}</strong> | ${expiration}<br/>GEX: ${rawGex.toFixed(4)}B`
       },
     },
-    grid: { left: 100, right: 20, top: 20, bottom: 60 },
+    grid: chartGrid({ left: 92, right: 16, top: 24, bottom: 68 }),
     xAxis: {
       type: 'category',
       data: strikes.map((strike) => futures ? `$${strike.toFixed(2)}\n(${futures.name} ${(strike * futures.ratio).toFixed(2)})` : `$${strike.toFixed(2)}`),
       ...categoryAxisStyle,
-      axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, rotate: 45, interval: Math.max(0, Math.floor(strikes.length / 20)) },
+      axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, rotate: 38, interval: chartAxisInterval(strikes.length, 10) },
       splitArea: { show: false },
     },
     yAxis: {

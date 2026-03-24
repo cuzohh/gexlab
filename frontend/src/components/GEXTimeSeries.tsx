@@ -1,7 +1,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { chartAxisInterval, chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface HistorySample {
   timestamp: string
@@ -62,9 +62,9 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
       },
     },
     grid: [
-      { left: 70, right: 24, top: 48, height: '38%' },
-      { left: 70, right: 24, top: '52%', height: '18%' },
-      { left: 70, right: 24, top: '76%', height: '16%' },
+      { containLabel: true, left: 66, right: 18, top: 48, height: '37%' },
+      { containLabel: true, left: 66, right: 18, top: '51%', height: '19%' },
+      { containLabel: true, left: 66, right: 18, top: '75%', height: '16%' },
     ],
     xAxis: [
       { type: 'category', boundaryGap: false, data: labels, axisLabel: { show: false }, axisLine: { lineStyle: { color: chartPalette.axis } } },
@@ -74,7 +74,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         gridIndex: 2,
         boundaryGap: false,
         data: labels,
-        axisLabel: { ...valueAxisStyle.axisLabel, interval: Math.max(0, Math.floor(labels.length / 8)) },
+        axisLabel: { ...valueAxisStyle.axisLabel, interval: chartAxisInterval(labels.length, 8) },
         axisLine: { lineStyle: { color: chartPalette.axis } },
       },
     ],

@@ -6,7 +6,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartAxisInterval, chartGrid, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface StrikeData {
   strike: number
@@ -36,6 +36,7 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
   if (!data || data.length === 0) return <ChartEmptyState>No data available for this view.</ChartEmptyState>
 
   const filtered = data.filter((d) => d.strike >= spot * 0.88 && d.strike <= spot * 1.12)
+  if (filtered.length === 0) return <ChartEmptyState>No cumulative GEX points are available within the current spot range.</ChartEmptyState>
   const cumData = filtered.reduce<number[]>((acc, item) => {
     acc.push((acc.at(-1) ?? 0) + item.net_gex)
     return acc
@@ -65,12 +66,12 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
         return `<strong>Strike $${label}</strong><br/>Cumulative GEX: ${value.toFixed(4)}B<br/><span style="color:${tone}">${state}</span>`
       },
     },
-    grid: { left: 70, right: 30, top: 40, bottom: 40 },
+    grid: chartGrid({ left: 72, right: 18, top: 40, bottom: 46 }),
     xAxis: {
       type: 'category',
       data: strikes,
       ...categoryAxisStyle,
-      axisLabel: { ...categoryAxisStyle.axisLabel, rotate: 45, fontSize: 9, interval: Math.max(0, Math.floor(filtered.length / 20)) },
+      axisLabel: { ...categoryAxisStyle.axisLabel, rotate: 38, fontSize: 9, interval: chartAxisInterval(filtered.length, 10) },
     },
     yAxis: {
       type: 'value',

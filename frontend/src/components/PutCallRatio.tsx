@@ -5,7 +5,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartAxisInterval, chartGrid, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface PCData { strike: number; call_oi: number; put_oi: number; pc_ratio: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -15,6 +15,7 @@ export default function PutCallRatio({ data, spot, futures }: Props) {
   if (!data || data.length === 0) return <ChartEmptyState>No put/call data available.</ChartEmptyState>
 
   const filtered = data.filter((d) => d.strike >= spot * 0.88 && d.strike <= spot * 1.12 && (d.call_oi > 0 || d.put_oi > 0))
+  if (filtered.length === 0) return <ChartEmptyState>No put/call readings are available within the current spot range.</ChartEmptyState>
   const strikes = filtered.map((d) => futures ? `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})` : d.strike.toFixed(2))
 
   const option: EChartsOption = {
@@ -32,8 +33,8 @@ export default function PutCallRatio({ data, spot, futures }: Props) {
       },
     },
     legend: { data: ['Call OI', 'Put OI', 'P/C Ratio'], ...legendStyle, top: 10, right: 20 },
-    grid: { left: 70, right: 70, top: 50, bottom: 30 },
-    xAxis: { type: 'category', data: strikes, ...categoryAxisStyle, axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, rotate: 45, interval: Math.max(0, Math.floor(filtered.length / 20)) } },
+    grid: chartGrid({ left: 68, right: 68, top: 50, bottom: 48 }),
+    xAxis: { type: 'category', data: strikes, ...categoryAxisStyle, axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, rotate: 38, interval: chartAxisInterval(filtered.length, 10) } },
     yAxis: [
       { type: 'value', name: 'Open Interest', ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : `${v}` } },
       { type: 'value', name: 'P/C Ratio', axisLabel: { ...valueAxisStyle.axisLabel, color: chartPalette.warning }, axisLine: { lineStyle: { color: chartPalette.warning } }, splitLine: { show: false } },

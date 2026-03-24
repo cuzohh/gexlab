@@ -6,7 +6,8 @@
 
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
-import { categoryAxisStyle, chartLinearGradient, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import ChartEmptyState from './ChartEmptyState'
+import { categoryAxisStyle, chartGrid, chartLinearGradient, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface StrikeData {
   strike: number
@@ -45,6 +46,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
   const lowerBound = spot * 0.85
   const upperBound = spot * 1.15
   const filtered = data.filter((d) => d.strike >= lowerBound && d.strike <= upperBound)
+  if (filtered.length === 0) return <ChartEmptyState>No GEX bars are available within the current spot range.</ChartEmptyState>
 
   const strikes = filtered.map((d) => {
     if (futures) {
@@ -117,12 +119,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
       top: 10,
       right: 20,
     },
-    grid: {
-      left: 80,
-      right: 50,
-      top: 50,
-      bottom: 30,
-    },
+    grid: chartGrid({ left: 88, right: 56, top: 52, bottom: 20 }),
     dataZoom: [
       {
         type: 'inside',

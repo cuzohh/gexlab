@@ -5,7 +5,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartLinearGradient, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartGrid, chartLinearGradient, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface DEXData { strike: number; call_dex: number; put_dex: number; net_dex: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -15,6 +15,7 @@ export default function DEXProfile({ data, spot, futures }: Props) {
   if (!data || data.length === 0) return <ChartEmptyState>No DEX data available.</ChartEmptyState>
 
   const filtered = data.filter((d) => d.strike >= spot * 0.85 && d.strike <= spot * 1.15)
+  if (filtered.length === 0) return <ChartEmptyState>No DEX bars are available within the current spot range.</ChartEmptyState>
   const strikes = filtered.map((d) => futures ? `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})` : d.strike.toFixed(2))
 
   const option: EChartsOption = {
@@ -35,7 +36,7 @@ export default function DEXProfile({ data, spot, futures }: Props) {
       },
     },
     legend: { data: ['Call DEX', 'Put DEX'], ...legendStyle, top: 10, right: 20 },
-    grid: { left: 80, right: 40, top: 50, bottom: 30 },
+    grid: chartGrid({ left: 84, right: 24, top: 50, bottom: 20 }),
     xAxis: { type: 'value', ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(2)}B` } },
     yAxis: { type: 'category', data: strikes, ...categoryAxisStyle },
     series: [

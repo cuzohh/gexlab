@@ -5,7 +5,7 @@
 import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
 import ChartEmptyState from './ChartEmptyState'
-import { categoryAxisStyle, chartLinearGradient, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
+import { categoryAxisStyle, chartGrid, chartLinearGradient, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface VannaData { strike: number; vanna_exposure: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
@@ -15,6 +15,7 @@ export default function VannaExposure({ data, spot, futures }: Props) {
   if (!data || data.length === 0) return <ChartEmptyState>No vanna data available.</ChartEmptyState>
 
   const filtered = data.filter((d) => d.strike >= spot * 0.88 && d.strike <= spot * 1.12 && d.vanna_exposure !== 0)
+  if (filtered.length === 0) return <ChartEmptyState>No vanna bars are available within the current spot range.</ChartEmptyState>
   const strikes = filtered.map((d) => futures ? `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})` : d.strike.toFixed(2))
 
   const option: EChartsOption = {
@@ -32,7 +33,7 @@ export default function VannaExposure({ data, spot, futures }: Props) {
         return `<strong>Strike $${label}</strong><br/>Vanna Exposure: ${value.toFixed(6)}B<br/><span style="color:${tone}">${state}</span>`
       },
     },
-    grid: { left: 80, right: 40, top: 30, bottom: 30 },
+    grid: chartGrid({ left: 84, right: 24, top: 30, bottom: 20 }),
     xAxis: { type: 'value', ...valueAxisStyle },
     yAxis: { type: 'category', data: strikes, ...categoryAxisStyle },
     series: [{
