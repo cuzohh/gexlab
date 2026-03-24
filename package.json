@@ -1,7 +1,7 @@
 {
   "name": "gexlab-desktop",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GEXLAB desktop app packaging and installer configuration",
   "author": "GEXLAB",
   "main": "desktop/main.cjs",
