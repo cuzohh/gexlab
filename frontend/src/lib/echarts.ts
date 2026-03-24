@@ -1,6 +1,7 @@
 import ReactEChartsCore from 'echarts-for-react/lib/core'
 import { BarChart, HeatmapChart, LineChart, ScatterChart } from 'echarts/charts'
 import {
+  DataZoomComponent,
   GraphicComponent,
   GridComponent,
   LegendComponent,
@@ -18,6 +19,7 @@ use([
   HeatmapChart,
   LineChart,
   ScatterChart,
+  DataZoomComponent,
   GraphicComponent,
   GridComponent,
   LegendComponent,

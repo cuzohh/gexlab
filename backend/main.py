@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.errors import InvalidTickerError, NoOptionsDataError, RateLimitError, UpstreamAPIError
 from api.futures_map import get_futures_translation
+from api.history_store import append_history_sample, load_history
 from api.options_chain import fetch_options_chain
 from api.yfinance_client import YFinanceClient
 
@@ -80,24 +81,33 @@ async def data_status():
     return {'api_connected': is_connected}
 
 
-def _build_gex_response(ticker: str, max_expirations: int) -> dict:
-    result = fetch_options_chain(ticker, max_expirations=max_expirations)
+def _build_gex_response(ticker: str, max_expirations: int, use_cache: bool = True) -> dict:
+    result = fetch_options_chain(ticker, max_expirations=max_expirations, use_cache=use_cache)
     futures = get_futures_translation(ticker, result.get('spot', 0))
     result['futures'] = futures
     return result
 
 
 @app.get('/api/gex/{ticker}')
-async def get_gex_data(ticker: str, max_expirations: int = Query(default=3, ge=1, le=10)):
+async def get_gex_data(
+    ticker: str,
+    max_expirations: int = Query(default=3, ge=1, le=10),
+    fresh: bool = Query(default=False),
+    track_history: bool = Query(default=False),
+):
     symbol = ticker.upper()
     started_at = perf_counter()
 
     try:
-        result = await run_in_threadpool(_build_gex_response, symbol, max_expirations)
+        result = await run_in_threadpool(_build_gex_response, symbol, max_expirations, not fresh)
+        if track_history:
+            await run_in_threadpool(append_history_sample, symbol, result)
         logger.info(
-            'gex_request_completed ticker=%s max_expirations=%s duration_ms=%.1f cache_hit=%s',
+            'gex_request_completed ticker=%s max_expirations=%s fresh=%s track_history=%s duration_ms=%.1f cache_hit=%s',
             symbol,
             max_expirations,
+            fresh,
+            track_history,
             (perf_counter() - started_at) * 1000,
             result.get('meta', {}).get('cache_hit'),
         )
@@ -109,3 +119,18 @@ async def get_gex_data(ticker: str, max_expirations: int = Query(default=3, ge=1
     except Exception as exc:
         logger.exception('gex_request_failed ticker=%s max_expirations=%s', symbol, max_expirations)
         raise HTTPException(status_code=500, detail='Internal server error while computing GEX.') from exc
+
+
+@app.get('/api/gex/{ticker}/history')
+async def get_gex_history(ticker: str, limit: int = Query(default=390, ge=1, le=1500)):
+    symbol = ticker.upper()
+    try:
+        samples = await run_in_threadpool(load_history, symbol, limit)
+        return {
+            'symbol': symbol,
+            'count': len(samples),
+            'samples': samples,
+        }
+    except Exception as exc:
+        logger.exception('gex_history_failed ticker=%s limit=%s', symbol, limit)
+        raise HTTPException(status_code=500, detail='Internal server error while loading GEX history.') from exc

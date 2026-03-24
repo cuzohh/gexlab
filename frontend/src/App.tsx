@@ -10,6 +10,7 @@ const UnusualFlowChart = lazy(() => import('./components/UnusualFlowChart'))
 const DEXProfile = lazy(() => import('./components/DEXProfile'))
 const GEXByExpiration = lazy(() => import('./components/GEXByExpiration'))
 const CumulativeGEX = lazy(() => import('./components/CumulativeGEX'))
+const GEXTimeSeries = lazy(() => import('./components/GEXTimeSeries'))
 const IVSkewChart = lazy(() => import('./components/IVSkewChart'))
 const PutCallRatio = lazy(() => import('./components/PutCallRatio'))
 const VannaExposure = lazy(() => import('./components/VannaExposure'))
@@ -63,6 +64,31 @@ interface ApiErrorPayload {
   retry_after_seconds?: number
 }
 
+interface HistorySample {
+  timestamp: string
+  spot: number
+  call_wall: number | null
+  put_wall: number | null
+  zero_gamma: number | null
+  max_pain: number | null
+  vol_trigger: number | null
+  net_gex: number
+  net_dex: number
+  total_volume: number
+  total_oi: number
+  avg_iv: number
+  wall_range_pct: number
+  zero_gamma_distance_pct: number
+  volume_oi_ratio: number
+  dex_to_gex_ratio: number
+}
+
+interface HistoryPayload {
+  symbol: string
+  count: number
+  samples: HistorySample[]
+}
+
 interface DEXStrike { strike: number; call_dex: number; put_dex: number; net_dex: number }
 interface ExpGEX { expiration: string; total_gex: number }
 interface IVPoint { strike: number; call_iv: number; put_iv: number }
@@ -92,7 +118,7 @@ const AUTO_REFRESH_INTERVAL = 60_000
 const isDesktop = Boolean(window.gexlabDesktop?.isDesktop)
 const WEBSITE_URL = import.meta.env.VITE_GEXLAB_WEBSITE_URL || 'https://github.com/cuzohh/gexlab#readme'
 
-type DashboardTab = 'bar' | 'heatmap' | 'topology' | 'exp' | 'cumulative' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'
+type DashboardTab = 'bar' | 'heatmap' | 'topology' | 'exp' | 'cumulative' | 'timeseries' | 'dex' | 'vanna' | 'flow' | 'iv' | 'pc' | 'oi'
 type ErrorKind = 'rate_limited' | 'generic' | null
 
 type TabItem = { key: DashboardTab; label: string } | { divider: string }
@@ -103,6 +129,7 @@ const tabs: TabItem[] = [
   { key: 'topology', label: 'Topology' },
   { key: 'exp', label: 'By Exp' },
   { key: 'cumulative', label: 'Cumulative' },
+  { key: 'timeseries', label: 'Time Series' },
   { divider: 'Greeks' },
   { key: 'dex', label: 'DEX' },
   { key: 'vanna', label: 'Vanna' },
@@ -129,6 +156,8 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState<string>('')
   const [backendStatus, setBackendStatus] = useState<string>('checking...')
   const [activeTab, setActiveTab] = useState<DashboardTab>('bar')
+  const [historyData, setHistoryData] = useState<HistorySample[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [countdown, setCountdown] = useState(60)
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null)
@@ -149,6 +178,25 @@ function App() {
       .then((res) => res.json())
       .then((payload) => setBackendStatus(payload.status ?? 'ok'))
       .catch(() => setBackendStatus('offline'))
+  }, [])
+
+  const fetchHistory = useCallback(async (symbol: string) => {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/gex/${symbol}/history?limit=390`)
+      const payload = (await res.json()) as HistoryPayload | ApiErrorPayload
+
+      if (!res.ok) {
+        setHistoryData([])
+        return
+      }
+
+      setHistoryData((payload as HistoryPayload).samples ?? [])
+    } catch {
+      setHistoryData([])
+    } finally {
+      setHistoryLoading(false)
+    }
   }, [])
 
   const applyApiError = useCallback((status: number, payload: ApiErrorPayload | null) => {
@@ -181,7 +229,17 @@ function App() {
     setErrorKind(null)
 
     try {
-      const res = await fetch(`${API_BASE}/api/gex/${symbol}`)
+      const query = new URLSearchParams()
+      if (activeTab === 'timeseries') {
+        query.set('fresh', 'true')
+        query.set('track_history', 'true')
+      }
+
+      const endpoint = query.toString()
+        ? `${API_BASE}/api/gex/${symbol}?${query.toString()}`
+        : `${API_BASE}/api/gex/${symbol}`
+
+      const res = await fetch(endpoint)
       const payload = (await res.json()) as GEXData | ApiErrorPayload
 
       if (!res.ok) {
@@ -190,6 +248,9 @@ function App() {
       }
 
       setData(payload as GEXData)
+      if (activeTab === 'timeseries') {
+        void fetchHistory(symbol)
+      }
       setLastUpdated(new Date().toLocaleTimeString())
       setCountdown(60)
       setRateLimitUntil(null)
@@ -204,7 +265,7 @@ function App() {
         setLoading(false)
       }
     }
-  }, [applyApiError, fetchBackendHealth, rateLimitUntil])
+  }, [activeTab, applyApiError, fetchBackendHealth, fetchHistory, rateLimitUntil])
 
   useEffect(() => {
     localStorage.setItem('gexlab_ticker', ticker)
@@ -213,6 +274,12 @@ function App() {
   useEffect(() => {
     fetchData(ticker)
   }, [ticker, fetchData])
+
+  useEffect(() => {
+    if (activeTab === 'timeseries') {
+      void fetchHistory(ticker)
+    }
+  }, [activeTab, fetchHistory, ticker])
 
   useEffect(() => {
     fetchBackendHealth()
@@ -275,6 +342,8 @@ function App() {
         return <GEXByExpiration data={data.gex_by_expiration} />
       case 'cumulative':
         return <CumulativeGEX data={data.gex_by_strike} spot={data.spot} futures={data.futures} />
+      case 'timeseries':
+        return <GEXTimeSeries data={historyData} loading={historyLoading} />
       case 'dex':
         return <DEXProfile data={data.dex_by_strike} spot={data.spot} futures={data.futures} />
       case 'vanna':
@@ -290,7 +359,7 @@ function App() {
       default:
         return null
     }
-  }, [activeTab, data])
+  }, [activeTab, data, historyData, historyLoading])
 
   const cacheLabel = data?.meta
     ? data.meta.cache_hit

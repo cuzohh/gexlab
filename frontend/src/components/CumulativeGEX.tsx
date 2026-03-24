@@ -62,7 +62,7 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
     },
     series: [{
       type: 'line', data: cumData, smooth: true, symbol: 'none',
-      lineStyle: { width: 2.5 },
+      lineStyle: { width: 4 },
       areaStyle: {
         color: {
           type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
@@ -77,9 +77,9 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
       markLine: {
         silent: true, animation: false,
         data: [
-          { yAxis: 0, lineStyle: { color: '#f59e0b', type: 'dashed' as const, width: 1.5 }, label: { formatter: 'ZERO GAMMA', color: '#f59e0b', fontSize: 10, fontWeight: 600, backgroundColor: 'rgba(10,10,12,0.85)', padding: [2, 6], borderRadius: 3 } },
+          { yAxis: 0, lineStyle: { color: '#f59e0b', type: 'dashed' as const, width: 3.5 }, label: { formatter: 'ZERO GAMMA', color: '#f59e0b', fontSize: 10, fontWeight: 600, backgroundColor: 'rgba(10,10,12,0.85)', padding: [2, 6], borderRadius: 3 } },
           ...(zeroCrossIdx >= 0 ? [{
-            xAxis: zeroCrossIdx, lineStyle: { color: '#f59e0b', type: 'dotted' as const, width: 1 },
+            xAxis: zeroCrossIdx, lineStyle: { color: '#f59e0b', type: 'dotted' as const, width: 3.5 },
             label: { show: false },
           }] : []),
         ],
@@ -95,4 +95,3 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
 
   return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
 }
-

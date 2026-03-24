@@ -83,10 +83,10 @@ def _build_empty_payload(spot: float, expirations: list[str]) -> dict[str, Any]:
     }
 
 
-def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3) -> dict[str, Any]:
+def fetch_options_chain(ticker_symbol: str, max_expirations: int = 3, use_cache: bool = True) -> dict[str, Any]:
     symbol = ticker_symbol.upper()
     key = _cache_key(symbol, max_expirations)
-    cached_entry = cache.get(key)
+    cached_entry = cache.get(key) if use_cache else None
 
     if cached_entry is not None:
         logger.info("options_chain cache_hit symbol=%s max_expirations=%s", symbol, max_expirations)

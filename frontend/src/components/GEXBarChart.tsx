@@ -76,7 +76,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
           padding: [2, 6],
           borderRadius: 3,
         },
-        lineStyle: { color, type: lineType, width: 1.5 },
+        lineStyle: { color, type: lineType, width: 3.5 },
       })
     }
   }
@@ -140,6 +140,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
           ]),
           borderRadius: [0, 3, 3, 0],
         },
+        barWidth: '70%',
         markLine: {
           symbol: 'none',
           animation: false,
@@ -159,6 +160,7 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
           ]),
           borderRadius: [3, 0, 0, 3],
         },
+        barWidth: '70%',
       },
     ],
   }

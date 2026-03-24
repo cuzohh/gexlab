@@ -46,7 +46,7 @@ function LevelRow({ label, value, spot, color, futures }: {
       borderBottom: '1px solid var(--border)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ width: '3px', height: '20px', borderRadius: '2px', backgroundColor: color }} />
+        <div style={{ width: '6px', height: '20px', borderRadius: '2px', backgroundColor: color }} />
         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 }}>{label}</span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', textAlign: 'right' }}>
