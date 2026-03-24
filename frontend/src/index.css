@@ -340,6 +340,7 @@ button {
 
 .sidebar {
   width: 292px;
+  max-width: 100%;
   height: 100%;
   background: var(--bg-surface);
   border-right: 1px solid var(--border);
@@ -401,8 +402,27 @@ button {
 
 .sidebar-section {
   padding: var(--space-md);
-  display: grid;
-  gap: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.ticker-selector-wrapper {
+  margin-top: -0.25rem;
+}
+
+#quick-ticker-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.25rem;
+}
+
+#quick-ticker-select:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent);
 }
 
 .sidebar-scroll-section {
@@ -429,6 +449,8 @@ button {
   justify-content: space-between;
   align-items: center;
   gap: 0.75rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .sidebar-footer-row + .sidebar-footer-row {
@@ -602,7 +624,8 @@ button {
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-ui);
   line-height: 1.15;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 
@@ -612,7 +635,9 @@ button {
   border-radius: 10px;
   border: 1px solid var(--border);
   overflow: hidden;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .segmented-control-button {
@@ -626,6 +651,8 @@ button {
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-ui);
   line-height: 1.15;
+  min-width: 0;
+  flex: 1 1 0;
 }
 
 .segmented-control-button[data-active='true'] {
@@ -643,6 +670,8 @@ button {
   font-family: var(--font-sans);
   font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .auto-toggle[data-active='true'] {
@@ -789,6 +818,7 @@ button {
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: clamp(1rem, 2vw, 2.5rem);
   padding: 1.25rem 2.5rem 1.45rem;
   border-bottom: 1px solid var(--border);
@@ -820,6 +850,7 @@ button {
 .shell-header {
   align-self: stretch;
   animation: contentLift 0.54s cubic-bezier(0.16, 1, 0.3, 1) both;
+  flex: 1 1 22rem;
 }
 
 .shell-header-primary {
@@ -959,15 +990,61 @@ button {
 .market-metrics {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 2rem;
   min-width: 0;
 }
 
+.sidebar-footer-row > .control-pill {
+  flex: 1 1 100%;
+  width: 100%;
+  justify-content: center;
+}
+
+.shell-header-secondary {
+  flex: 1 1 18rem;
+  margin-left: 0;
+  justify-content: flex-start;
+}
+
+@media (max-width: 1240px) {
+  .glass-header {
+    align-items: stretch;
+    padding-right: 1.5rem;
+  }
+
+  .shell-header-secondary {
+    width: 100%;
+  }
+
+  .market-metrics {
+    gap: 1rem 1.5rem;
+  }
+
+  .tab-strip-frame {
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  .tab-strip {
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .market-refresh-button {
+    order: 3;
+    width: 100%;
+  }
+}
+
 .market-refresh-button {
   align-self: flex-start;
-  min-width: 124px;
+  min-width: 0;
+  max-width: 100%;
   padding-inline: 18px;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .action-button:hover,
@@ -1032,8 +1109,10 @@ button {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-lg);
   padding: 0;
+  min-width: 0;
 }
 
 .mobile-tab-picker {
@@ -1105,7 +1184,7 @@ button {
   scrollbar-width: none;
   align-items: center;
   border-bottom: 1px solid color-mix(in srgb, var(--hero-line) 55%, var(--border));
-  flex: 1 1 auto;
+  flex: 1 1 30rem;
   min-width: 0;
 }
 

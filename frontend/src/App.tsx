@@ -821,24 +821,29 @@ function App() {
               )}
             </form>
 
-            <div className="ticker-group-list">
-              <div className="ticker-group">
-                <div className="ticker-chip-list" aria-label="Quick ticker picks">
-                  {quickTickers.map((groupTicker) => (
-                    <button
-                      type="button"
-                      key={groupTicker}
-                      onClick={() => {
-                        const nextTicker = sanitizeTicker(groupTicker)
-                        setInputTicker(nextTicker)
-                        setTicker(nextTicker)
-                      }}
-                      className="ticker-chip compact-control"
-                      data-active={ticker === groupTicker}
-                    >{groupTicker}</button>
-                  ))}
-                </div>
-              </div>
+            <div className="ticker-selector-wrapper">
+              <label htmlFor="quick-ticker-select" className="sr-only">Quick Picks</label>
+              <select
+                id="quick-ticker-select"
+                className="search-input compact-control"
+                value={quickTickers.includes(ticker) ? ticker : ''}
+                onChange={(e) => {
+                  const val = e.target.value
+                  if (val) {
+                    setInputTicker(val)
+                    setTicker(val)
+                  }
+                }}
+              >
+                <option value="" disabled>Featured Tickers...</option>
+                {tickerGroups.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.tickers.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
             </div>
 
             {errorKind === 'rate_limited' && !isDesktop && (
