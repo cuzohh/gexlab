@@ -14,8 +14,10 @@ export default function DesktopTitleBar({ ticker }: DesktopTitleBarProps) {
       return
     }
 
-    desktopBridge.windowControls.isMaximized().then(setMaximized)
-    return desktopBridge.windowControls.onMaximizedChanged(setMaximized)
+    if (desktopBridge.windowControls) {
+      desktopBridge.windowControls.isMaximized().then(setMaximized).catch(() => {})
+    }
+    return desktopBridge.windowControls?.onMaximizedChanged(setMaximized)
   }, [desktopBridge])
 
   if (!desktopBridge?.isDesktop) {
@@ -37,13 +39,13 @@ export default function DesktopTitleBar({ ticker }: DesktopTitleBarProps) {
         </div>
       </div>
       <div className="desktop-window-controls">
-        <button type="button" onClick={() => desktopBridge.windowControls.minimize()} aria-label="Minimize window">
+        <button type="button" onClick={() => desktopBridge.windowControls?.minimize()} aria-label="Minimize window">
           <span />
         </button>
-        <button type="button" onClick={() => desktopBridge.windowControls.toggleMaximize()} aria-label={maximized ? 'Restore window' : 'Maximize window'}>
+        <button type="button" onClick={() => desktopBridge.windowControls?.toggleMaximize()} aria-label={maximized ? 'Restore window' : 'Maximize window'}>
           <span className={maximized ? 'is-maximized' : ''} />
         </button>
-        <button type="button" className="desktop-window-close" onClick={() => desktopBridge.windowControls.close()} aria-label="Close window">
+        <button type="button" className="desktop-window-close" onClick={() => desktopBridge.windowControls?.close()} aria-label="Close window">
           <span />
         </button>
       </div>

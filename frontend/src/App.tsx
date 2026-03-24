@@ -147,8 +147,12 @@ const tickerGroups = [
 ]
 
 function App() {
-  const [ticker, setTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
-  const [inputTicker, setInputTicker] = useState(() => localStorage.getItem('gexlab_ticker') || 'SPY')
+  const [ticker, setTicker] = useState(() => {
+    try { return localStorage.getItem('gexlab_ticker') || 'SPY' } catch { return 'SPY' }
+  })
+  const [inputTicker, setInputTicker] = useState(() => {
+    try { return localStorage.getItem('gexlab_ticker') || 'SPY' } catch { return 'SPY' }
+  })
   const [data, setData] = useState<GEXData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -268,7 +272,7 @@ function App() {
   }, [activeTab, applyApiError, fetchBackendHealth, fetchHistory, rateLimitUntil])
 
   useEffect(() => {
-    localStorage.setItem('gexlab_ticker', ticker)
+    try { localStorage.setItem('gexlab_ticker', ticker) } catch { /* ignore */ }
   }, [ticker])
 
   useEffect(() => {

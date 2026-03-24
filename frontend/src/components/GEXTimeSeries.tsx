@@ -164,7 +164,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         type: 'line',
         data: spot,
         symbol: 'none',
-        lineStyle: { color: '#ededf0', width: 2 },
+        lineStyle: { color: '#ededf0', width: 4 },
         areaStyle: { color: 'rgba(237, 237, 240, 0.05)' },
         smooth: 0.15,
       },
@@ -174,7 +174,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         data: callWall,
         symbol: 'none',
         step: 'end',
-        lineStyle: { color: '#10b981', width: 2 },
+        lineStyle: { color: '#10b981', width: 3.5 },
       },
       {
         name: 'Put Wall',
@@ -182,7 +182,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         data: putWall,
         symbol: 'none',
         step: 'end',
-        lineStyle: { color: '#ef4444', width: 2 },
+        lineStyle: { color: '#ef4444', width: 3.5 },
       },
       {
         name: 'Zero Gamma',
@@ -190,7 +190,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         data: zeroGamma,
         symbol: 'none',
         step: 'end',
-        lineStyle: { color: '#f59e0b', width: 1.75, type: 'dashed' },
+        lineStyle: { color: '#f59e0b', width: 3, type: 'dashed' },
       },
       {
         name: 'Vol Trigger',
@@ -208,7 +208,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         data: netGex,
         symbol: 'none',
         smooth: 0.2,
-        lineStyle: { color: '#10b981', width: 2 },
+        lineStyle: { color: '#10b981', width: 3.5 },
         areaStyle: { color: 'rgba(16, 185, 129, 0.08)' },
       },
       {
@@ -219,7 +219,7 @@ export default function GEXTimeSeries({ data, loading = false }: Props) {
         data: netDex,
         symbol: 'none',
         smooth: 0.2,
-        lineStyle: { color: '#60a5fa', width: 2 },
+        lineStyle: { color: '#60a5fa', width: 3.5 },
       },
       {
         name: 'Wall Range %',
