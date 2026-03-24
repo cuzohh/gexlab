@@ -1,3 +1,4 @@
+import { createElement } from 'react'
 import ReactEChartsCore from 'echarts-for-react/lib/core'
 import { BarChart, HeatmapChart, LineChart, ScatterChart } from 'echarts/charts'
 import {
@@ -31,4 +32,21 @@ use([
 
 export { echarts }
 export type { EChartsOption }
-export const ReactECharts = ReactEChartsCore
+
+const MissingChartWrapper = () => createElement(
+  'div',
+  {
+    style: {
+      height: '100%',
+      width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      color: 'var(--text-dim)',
+      paddingTop: '3rem',
+    },
+  },
+  'Chart module failed to load.',
+)
+
+export const ReactECharts = (ReactEChartsCore ?? MissingChartWrapper) as typeof ReactEChartsCore
