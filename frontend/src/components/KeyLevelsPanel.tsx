@@ -28,44 +28,34 @@ function LevelRow({ label, value, spot, color, futures }: {
   label: string
   value: number | null
   spot: number
-  color: string
+  color: 'positive' | 'negative' | 'warning' | 'accent' | 'accent-alt' | 'neutral'
   futures?: FuturesData | null
 }) {
-  if (!value) return null
+  if (value === null || !Number.isFinite(value)) return null
 
-  const distance = ((value - spot) / spot * 100).toFixed(2)
-  const sign = parseFloat(distance) >= 0 ? '+' : ''
-  const futuresPrice = futures ? (value * futures.ratio).toFixed(2) : null
+  const hasValidSpot = Number.isFinite(spot) && spot !== 0
+  const distance = hasValidSpot ? ((value - spot) / spot * 100).toFixed(2) : null
+  const distanceNumber = distance === null ? null : Number(distance)
+  const sign = distanceNumber !== null && distanceNumber >= 0 ? '+' : ''
+  const futuresPrice = futures && Number.isFinite(futures.ratio) ? (value * futures.ratio).toFixed(2) : null
 
   return (
-    <div style={{
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      padding: '0.55rem 0',
-      borderBottom: '1px solid var(--border)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ width: '6px', height: '20px', borderRadius: '2px', backgroundColor: color }} />
-        <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 }}>{label}</span>
+    <div className="key-level-row" data-tone={color}>
+      <div className="key-level-label">
+        <div className="key-level-swatch" />
+        <span className="key-level-name">{label}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', textAlign: 'right' }}>
+      <div className="key-level-values">
         <div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color }}>${value.toFixed(2)}</div>
+          <div className="key-level-price">${value.toFixed(2)}</div>
           {futuresPrice && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', color: 'var(--text-dim)', marginTop: '1px' }}>
+            <div className="key-level-futures">
               {futures!.name} {futuresPrice}
             </div>
           )}
         </div>
-        <span style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.65rem',
-          color: parseFloat(distance) >= 0 ? 'var(--positive)' : 'var(--negative)',
-          opacity: 0.7,
-          minWidth: '45px',
-        }}>
-          {sign}{distance}%
+        <span className="key-level-distance" data-direction={distanceNumber === null || distanceNumber >= 0 ? 'up' : 'down'}>
+          {distanceNumber === null ? '--' : `${sign}${distance}%`}
         </span>
       </div>
     </div>
@@ -75,12 +65,12 @@ function LevelRow({ label, value, spot, color, futures }: {
 export default function KeyLevelsPanel({ keyLevels, spot, futures }: KeyLevelsPanelProps) {
   return (
     <div>
-      <LevelRow label="CALL WALL"   value={keyLevels.call_wall}   spot={spot} color="#10b981" futures={futures} />
-      <LevelRow label="PUT WALL"    value={keyLevels.put_wall}    spot={spot} color="#ef4444" futures={futures} />
-      <LevelRow label="ZERO GAMMA"  value={keyLevels.zero_gamma}  spot={spot} color="#f59e0b" futures={futures} />
-      <LevelRow label="MAX PAIN"    value={keyLevels.max_pain}    spot={spot} color="#5e6ad2" futures={futures} />
-      <LevelRow label="VOL TRIGGER" value={keyLevels.vol_trigger} spot={spot} color="#8b5cf6" futures={futures} />
-      <LevelRow label="SPOT"        value={spot}                  spot={spot} color="#ededf0" futures={futures} />
+      <LevelRow label="CALL WALL"   value={keyLevels.call_wall}   spot={spot} color="positive" futures={futures} />
+      <LevelRow label="PUT WALL"    value={keyLevels.put_wall}    spot={spot} color="negative" futures={futures} />
+      <LevelRow label="ZERO GAMMA"  value={keyLevels.zero_gamma}  spot={spot} color="warning" futures={futures} />
+      <LevelRow label="MAX PAIN"    value={keyLevels.max_pain}    spot={spot} color="accent" futures={futures} />
+      <LevelRow label="VOL TRIGGER" value={keyLevels.vol_trigger} spot={spot} color="accent-alt" futures={futures} />
+      <LevelRow label="SPOT"        value={spot}                  spot={spot} color="neutral" futures={futures} />
     </div>
   )
 }

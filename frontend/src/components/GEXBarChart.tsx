@@ -1,12 +1,12 @@
 /**
- * GEX Bar Chart — Horizontal bar chart showing Call GEX vs Put GEX by strike.
- * 
+ * GEX Bar Chart - Horizontal bar chart showing Call GEX vs Put GEX by strike.
  * Green bars extend right (positive call GEX), red bars extend left (negative put GEX).
  * Key level overlays rendered as static horizontal reference lines.
  */
 
-import { ReactECharts, echarts } from '../lib/echarts'
+import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
+import { categoryAxisStyle, chartLinearGradient, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface StrikeData {
   strike: number
@@ -44,88 +44,116 @@ interface GEXBarChartProps {
 export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarChartProps) {
   const lowerBound = spot * 0.85
   const upperBound = spot * 1.15
-  const filtered = data.filter(d => d.strike >= lowerBound && d.strike <= upperBound)
+  const filtered = data.filter((d) => d.strike >= lowerBound && d.strike <= upperBound)
 
-  const strikes = filtered.map(d => {
+  const strikes = filtered.map((d) => {
     if (futures) {
-      const fPrice = (d.strike * futures.ratio).toFixed(2)
-      return `${d.strike.toFixed(2)} (${fPrice})`
+      const futuresPrice = (d.strike * futures.ratio).toFixed(2)
+      return `${d.strike.toFixed(2)} (${futuresPrice})`
     }
     return d.strike.toFixed(2)
   })
-  const callGex = filtered.map(d => d.call_gex)
-  const putGex = filtered.map(d => d.put_gex)
 
-  // Build static mark lines for key levels
-  const markLines: any[] = []
+  const callGex = filtered.map((d) => d.call_gex)
+  const putGex = filtered.map((d) => d.put_gex)
+  const markLines: Array<Record<string, unknown>> = []
 
   const addMarkLine = (level: number | null, label: string, color: string, lineType: string) => {
     if (!level) return
-    const idx = filtered.findIndex(d => d.strike >= level)
-    if (idx >= 0) {
-      markLines.push({
-        yAxis: idx,
-        label: {
-          show: true,
-          formatter: `${label} $${level.toFixed(2)}`,
-          position: 'insideEndBottom',
-          fontSize: 10,
-          fontWeight: 600,
-          color: color,
-          backgroundColor: 'rgba(10, 10, 12, 0.85)',
-          padding: [2, 6],
-          borderRadius: 3,
-        },
-        lineStyle: { color, type: lineType, width: 3.5 },
-      })
-    }
+    const index = filtered.findIndex((d) => d.strike >= level)
+    if (index < 0) return
+
+    markLines.push({
+      yAxis: index,
+      label: {
+        show: true,
+        formatter: `${label} $${level.toFixed(2)}`,
+        position: 'insideEndBottom',
+        fontSize: 10,
+        fontWeight: 600,
+        color,
+        backgroundColor: chartPalette.surface,
+        padding: [2, 6],
+        borderRadius: 3,
+      },
+      lineStyle: { color, type: lineType, width: 3.5 },
+    })
   }
 
-  addMarkLine(spot, 'SPOT', '#ededf0', 'solid')
-  addMarkLine(keyLevels.zero_gamma, 'ZERO γ', '#f59e0b', 'dashed')
-  addMarkLine(keyLevels.call_wall, 'CALL WALL', '#10b981', 'dotted')
-  addMarkLine(keyLevels.put_wall, 'PUT WALL', '#ef4444', 'dotted')
+  addMarkLine(spot, 'SPOT', chartPalette.ivory, 'solid')
+  addMarkLine(keyLevels.zero_gamma, 'ZERO GAMMA', chartPalette.warning, 'dashed')
+  addMarkLine(keyLevels.call_wall, 'CALL WALL', chartPalette.positive, 'dotted')
+  addMarkLine(keyLevels.put_wall, 'PUT WALL', chartPalette.negative, 'dotted')
+
+  const spotIndex = filtered.findIndex((d) => d.strike >= spot)
+  const safeSpotIndex = spotIndex >= 0 ? spotIndex : Math.floor(filtered.length / 2)
+  const displayRange = 15
 
   const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: '#16161a',
-      borderColor: '#26262f',
-      textStyle: { color: '#ededf0', fontFamily: 'Inter' },
-      formatter: (params: any) => {
-        const strikeLabel = params[0]?.axisValue || ''
-        let html = `<strong>Strike $${strikeLabel}</strong><br/>`
-        params.forEach((p: any) => {
-          html += `${p.marker} ${p.seriesName}: ${p.value?.toFixed(4)}B<br/>`
+      ...tooltipStyle,
+      formatter: (params: unknown) => {
+        const items = tooltipItems(params)
+        const strikeLabel = items[0]?.name || ''
+        let html = `<div><strong>Strike $${strikeLabel}</strong><br/>`
+        let net = 0
+
+        items.forEach((item) => {
+          const value = typeof item.value === 'number' ? item.value : 0
+          net += value
+          html += `${item.marker ?? ''} ${item.seriesName ?? ''}: ${value.toFixed(4)}B<br/>`
         })
+
+        html += `<div style="margin-top: 4px; padding-top: 4px; border-top: 1px solid ${chartPalette.tooltipBorder};"><strong>Net: ${net > 0 ? '+' : ''}${net.toFixed(4)}B</strong></div></div>`
         return html
       },
     },
     legend: {
       data: ['Call GEX', 'Put GEX'],
-      textStyle: { color: '#8a8a93', fontFamily: 'Inter' },
+      ...legendStyle,
       top: 10,
       right: 20,
     },
     grid: {
       left: 80,
-      right: 40,
+      right: 50,
       top: 50,
       bottom: 30,
     },
+    dataZoom: [
+      {
+        type: 'inside',
+        yAxisIndex: 0,
+        startValue: Math.max(0, safeSpotIndex - displayRange),
+        endValue: Math.min(filtered.length - 1, safeSpotIndex + displayRange),
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+      },
+      {
+        type: 'slider',
+        yAxisIndex: 0,
+        right: 10,
+        width: 12,
+        fillerColor: chartPalette.accentSoft,
+        borderColor: 'transparent',
+        handleSize: '100%',
+        showDetail: false,
+        textStyle: { color: 'transparent' },
+      },
+    ],
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 10, formatter: (v: number) => `${v.toFixed(2)}B` },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { lineStyle: { color: '#1a1a22' } },
+      ...valueAxisStyle,
+      axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(2)}B` },
     },
     yAxis: {
       type: 'category',
       data: strikes,
-      axisLabel: { color: '#8a8a93', fontFamily: 'JetBrains Mono', fontSize: 10 },
-      axisLine: { lineStyle: { color: '#26262f' } },
+      ...categoryAxisStyle,
     },
     series: [
       {
@@ -134,13 +162,13 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
         stack: 'gex',
         data: callGex,
         itemStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-            { offset: 0, color: 'rgba(16, 185, 129, 0.3)' },
-            { offset: 1, color: 'rgba(16, 185, 129, 0.9)' },
+          color: chartLinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: chartPalette.positiveSoft },
+            { offset: 1, color: chartPalette.positive },
           ]),
           borderRadius: [0, 3, 3, 0],
         },
-        barWidth: '70%',
+        barWidth: '94%',
         markLine: {
           symbol: 'none',
           animation: false,
@@ -154,23 +182,24 @@ export default function GEXBarChart({ data, spot, keyLevels, futures }: GEXBarCh
         stack: 'gex',
         data: putGex,
         itemStyle: {
-          color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
-            { offset: 0, color: 'rgba(239, 68, 68, 0.3)' },
-            { offset: 1, color: 'rgba(239, 68, 68, 0.9)' },
+          color: chartLinearGradient(1, 0, 0, 0, [
+            { offset: 0, color: chartPalette.negativeSoft },
+            { offset: 1, color: chartPalette.negative },
           ]),
           borderRadius: [3, 0, 0, 3],
         },
-        barWidth: '70%',
+        barWidth: '94%',
       },
     ],
   }
 
   return (
     <ReactECharts
+      className="chart-canvas"
+      ariaLabel={`Gamma exposure profile bar chart centered around spot ${spot.toFixed(2)}.`}
+      fallbackText={`Horizontal bar chart showing call and put gamma exposure by strike around spot ${spot.toFixed(2)}.`}
       option={option}
-      style={{ height: '100%', width: '100%' }}
       notMerge={false}
     />
   )
 }
-

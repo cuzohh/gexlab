@@ -1,17 +1,11 @@
 /**
- * Unusual Flow Bubble Chart — Surfaces strikes with abnormally high
- * volume or OI concentration relative to the chain.
- * 
- * X-axis: Strike price
- * Y-axis: Avg IV (%)
- * Bubble size: Volume (bigger = more flow)
- * Color: Green = net positive GEX (call-heavy), Red = net negative (put-heavy)
- * 
- * Highlights outlier strikes where volume > 2σ above average.
+ * Unusual Flow Bubble Chart - Surfaces strikes with abnormally high volume or OI concentration.
  */
 
-import { ReactECharts } from '../lib/echarts'
+import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
+import ChartEmptyState from './ChartEmptyState'
+import { chartMetricText, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface StrikeData {
   strike: number
@@ -37,131 +31,68 @@ interface UnusualFlowChartProps {
   futures?: FuturesData | null
 }
 
+interface BubblePoint {
+  value: [number, number, number]
+  itemStyle: { color: string; borderColor: string; borderWidth: number }
+  _raw: StrikeData
+  _isAnomaly: boolean
+}
+
 export default function UnusualFlowChart({ data, spot, futures }: UnusualFlowChartProps) {
-  if (!data || data.length === 0) {
-    return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No flow data available</div>
-  }
+  if (!data || data.length === 0) return <ChartEmptyState>No flow data available.</ChartEmptyState>
 
-  // Filter to ±15% of spot
-  const lower = spot * 0.85
-  const upper = spot * 1.15
-  const filtered = data.filter(d => d.strike >= lower && d.strike <= upper && d.total_volume > 0)
+  const filtered = data.filter((d) => d.strike >= spot * 0.85 && d.strike <= spot * 1.15 && d.total_volume > 0)
+  const volumes = filtered.map((d) => d.total_volume)
+  const meanVolume = volumes.reduce((sum, value) => sum + value, 0) / volumes.length
+  const stdVolume = Math.sqrt(volumes.reduce((sum, value) => sum + (value - meanVolume) ** 2, 0) / volumes.length)
+  const anomalyThreshold = meanVolume + 1.5 * stdVolume
+  const maxVolume = Math.max(...volumes)
 
-  // Calculate anomaly threshold: mean + 2σ for volume
-  const volumes = filtered.map(d => d.total_volume)
-  const meanVol = volumes.reduce((a, b) => a + b, 0) / volumes.length
-  const stdVol = Math.sqrt(volumes.reduce((a, b) => a + (b - meanVol) ** 2, 0) / volumes.length)
-  const anomalyThreshold = meanVol + 1.5 * stdVol
-
-  // Scale bubble sizes (normalize volume to 5-60 range)
-  const maxVol = Math.max(...volumes)
-
-  const bubbleData = filtered.map(d => {
-    const isAnomaly = d.total_volume > anomalyThreshold
-    const size = Math.max(5, (d.total_volume / maxVol) * 55)
-
+  const bubbleData = filtered.map((entry) => {
+    const isAnomaly = entry.total_volume > anomalyThreshold
+    const size = Math.max(5, (entry.total_volume / maxVolume) * 55)
+    const positive = entry.net_gex >= 0
     return {
-      value: [d.strike, d.avg_iv, size],
+      value: [entry.strike, entry.avg_iv, size],
       itemStyle: {
-        color: d.net_gex >= 0
-          ? (isAnomaly ? 'rgba(16, 185, 129, 0.9)' : 'rgba(16, 185, 129, 0.3)')
-          : (isAnomaly ? 'rgba(239, 68, 68, 0.9)' : 'rgba(239, 68, 68, 0.3)'),
-        borderColor: isAnomaly
-          ? (d.net_gex >= 0 ? '#10b981' : '#ef4444')
-          : 'transparent',
+        color: positive ? (isAnomaly ? chartPalette.positive : chartPalette.positiveSoft) : (isAnomaly ? chartPalette.negative : chartPalette.negativeSoft),
+        borderColor: isAnomaly ? (positive ? chartPalette.positive : chartPalette.negative) : 'transparent',
         borderWidth: isAnomaly ? 2 : 0,
       },
-      _raw: d,
+      _raw: entry,
       _isAnomaly: isAnomaly,
     }
   })
 
-  const anomalyCount = bubbleData.filter(d => d._isAnomaly).length
+  const anomalyCount = bubbleData.filter((entry) => entry._isAnomaly).length
 
   const option: EChartsOption = {
     backgroundColor: 'transparent',
     tooltip: {
-      backgroundColor: '#16161a',
-      borderColor: '#26262f',
-      textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
-      formatter: (params: any) => {
-        const raw = params.data._raw as StrikeData
-        const tag = params.data._isAnomaly ? '<span style="color:#f59e0b">⚡ UNUSUAL</span><br/>' : ''
-        const fStr = futures ? ` (${futures.name} ${(raw.strike * futures.ratio).toFixed(2)})` : ''
-        return `${tag}<strong>$${raw.strike.toFixed(2)}${fStr}</strong><br/>` +
-          `IV: ${raw.avg_iv.toFixed(1)}%<br/>` +
-          `Volume: ${raw.total_volume.toLocaleString()}<br/>` +
-          `OI: ${raw.total_oi.toLocaleString()}<br/>` +
-          `Net GEX: ${raw.net_gex.toFixed(4)}B<br/>` +
-          `<span style="color:${raw.net_gex >= 0 ? '#10b981' : '#ef4444'}">${raw.net_gex >= 0 ? 'CALL HEAVY' : 'PUT HEAVY'}</span>`
+      ...tooltipStyle,
+      formatter: (params: unknown) => {
+        const [item] = tooltipItems(params)
+        const point = item?.data as BubblePoint | undefined
+        const raw = point?._raw
+        if (!raw) return ''
+        const tag = point._isAnomaly ? `<span style="color:${chartPalette.warning}">UNUSUAL</span><br/>` : ''
+        const futuresLabel = futures ? ` (${futures.name} ${(raw.strike * futures.ratio).toFixed(2)})` : ''
+        const flowLabel = raw.net_gex >= 0 ? 'CALL HEAVY' : 'PUT HEAVY'
+        const flowColor = raw.net_gex >= 0 ? chartPalette.positive : chartPalette.negative
+        return `${tag}<strong>$${raw.strike.toFixed(2)}${futuresLabel}</strong><br/>IV: ${raw.avg_iv.toFixed(1)}%<br/>Volume: ${raw.total_volume.toLocaleString()}<br/>OI: ${raw.total_oi.toLocaleString()}<br/>Net GEX: ${raw.net_gex.toFixed(4)}B<br/><span style="color:${flowColor}">${flowLabel}</span>`
       },
     },
-    grid: {
-      left: 70,
-      right: 40,
-      top: 40,
-      bottom: 50,
-    },
-    xAxis: {
-      type: 'value' as const,
-      name: 'Strike',
-      nameTextStyle: { color: '#5c5c66', fontSize: 11 },
-      axisLabel: { 
-        color: '#5c5c66', 
-        fontFamily: 'JetBrains Mono', 
-        fontSize: 10, 
-        formatter: (v: number) => {
-          if (futures) return `$${v.toFixed(2)}\n(${futures.name} ${(v * futures.ratio).toFixed(2)})`
-          return `$${v.toFixed(2)}`
-        }
-      },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { lineStyle: { color: '#1a1a22' } },
-    },
-    yAxis: {
-      type: 'value' as const,
-      name: 'Avg IV %',
-      nameTextStyle: { color: '#5c5c66', fontSize: 11 },
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 10, formatter: (v: number) => `${v.toFixed(0)}%` },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { lineStyle: { color: '#1a1a22' } },
-    },
-    series: [
-      {
-        type: 'scatter',
-        data: bubbleData,
-        symbolSize: (val: number[]) => val[2],
-        emphasis: {
-          scale: 1.3,
-          itemStyle: {
-            shadowBlur: 15,
-            shadowColor: 'rgba(94, 106, 210, 0.5)',
-          },
-        },
-      },
-    ],
-    graphic: [
-      {
-        type: 'text',
-        right: 20,
-        top: 10,
-        style: {
-          text: `${anomalyCount} unusual strike${anomalyCount !== 1 ? 's' : ''} detected`,
-          fill: anomalyCount > 0 ? '#f59e0b' : '#5c5c66',
-          fontSize: 12,
-          fontFamily: 'Inter',
-          fontWeight: 500,
-        },
-      },
-    ],
+    grid: { left: 70, right: 40, top: 40, bottom: 50 },
+    xAxis: { type: 'value', name: 'Strike', nameTextStyle: { color: chartPalette.textDim, fontSize: 11 }, ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => futures ? `$${v.toFixed(2)}\n(${futures.name} ${(v * futures.ratio).toFixed(2)})` : `$${v.toFixed(2)}` } },
+    yAxis: { type: 'value', name: 'Avg IV %', nameTextStyle: { color: chartPalette.textDim, fontSize: 11 }, ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(0)}%` } },
+    series: [{
+      type: 'scatter',
+      data: bubbleData,
+      symbolSize: (value: number[]) => value[2],
+      emphasis: { scale: 1.3, itemStyle: { shadowBlur: 15, shadowColor: chartPalette.accentSoft } },
+    }],
+    graphic: [{ right: 20, top: 10, ...chartMetricText(`${anomalyCount} unusual strike${anomalyCount !== 1 ? 's' : ''} detected`, anomalyCount > 0) }],
   }
 
-  return (
-    <ReactECharts
-      option={option}
-      style={{ height: '100%', width: '100%' }}
-      notMerge={false}
-    />
-  )
+  return <ReactECharts className="chart-canvas" ariaLabel={`Unusual flow scatter chart around spot ${spot.toFixed(2)}.`} fallbackText={`Scatter chart highlighting unusual flow and volume-open-interest relationships around spot ${spot.toFixed(2)}.`} option={option} notMerge={false} />
 }
-

@@ -1,38 +1,53 @@
 /**
- * Cumulative GEX — Line chart showing running sum of GEX across strikes.
+ * Cumulative GEX - Line chart showing running sum of GEX across strikes.
  * The point where the line crosses zero is the Gamma Flip / Zero Gamma level.
  */
 
-import { ReactECharts } from '../lib/echarts'
+import { ReactECharts, tooltipItems } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
+import ChartEmptyState from './ChartEmptyState'
+import { categoryAxisStyle, chartPalette, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface StrikeData {
-  strike: number; call_gex: number; put_gex: number; net_gex: number
-  total_oi: number; total_volume: number; avg_iv: number
+  strike: number
+  call_gex: number
+  put_gex: number
+  net_gex: number
+  total_oi: number
+  total_volume: number
+  avg_iv: number
 }
-interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
-interface Props { data: StrikeData[]; spot: number; futures?: FuturesData | null }
+
+interface FuturesData {
+  symbol: string
+  name: string
+  full_name: string
+  futures_price: number
+  ratio: number
+}
+
+interface Props {
+  data: StrikeData[]
+  spot: number
+  futures?: FuturesData | null
+}
 
 export default function CumulativeGEX({ data, spot, futures }: Props) {
-  if (!data || data.length === 0) return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No data</div>
+  if (!data || data.length === 0) return <ChartEmptyState>No data available for this view.</ChartEmptyState>
 
-  const lower = spot * 0.88, upper = spot * 1.12
-  const filtered = data.filter(d => d.strike >= lower && d.strike <= upper)
+  const filtered = data.filter((d) => d.strike >= spot * 0.88 && d.strike <= spot * 1.12)
+  const cumData = filtered.reduce<number[]>((acc, item) => {
+    acc.push((acc.at(-1) ?? 0) + item.net_gex)
+    return acc
+  }, [])
 
-  // Build cumulative sum
-  let cum = 0
-  const cumData = filtered.map(d => { cum += d.net_gex; return cum })
+  const strikes = filtered.map((d) => futures ? `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})` : d.strike.toFixed(2))
 
-  const strikes = filtered.map(d => {
-    if (futures) return `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})`
-    return d.strike.toFixed(2)
-  })
-
-  // Find zero crossing index
-  let zeroCrossIdx = -1
-  for (let i = 1; i < cumData.length; i++) {
-    if ((cumData[i - 1] <= 0 && cumData[i] >= 0) || (cumData[i - 1] >= 0 && cumData[i] <= 0)) {
-      zeroCrossIdx = i; break
+  let zeroCrossIndex = -1
+  for (let index = 1; index < cumData.length; index += 1) {
+    if ((cumData[index - 1] <= 0 && cumData[index] >= 0) || (cumData[index - 1] >= 0 && cumData[index] <= 0)) {
+      zeroCrossIndex = index
+      break
     }
   }
 
@@ -40,58 +55,83 @@ export default function CumulativeGEX({ data, spot, futures }: Props) {
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'axis',
-      backgroundColor: '#16161a', borderColor: '#26262f',
-      textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
-      formatter: (params: any) => {
-        const label = params[0]?.axisValue || ''
-        const val = params[0]?.value || 0
-        return `<strong>Strike $${label}</strong><br/>Cumulative GEX: ${val.toFixed(4)}B<br/>${val >= 0 ? '<span style="color:#10b981">POSITIVE GAMMA</span>' : '<span style="color:#ef4444">NEGATIVE GAMMA</span>'}`
+      ...tooltipStyle,
+      formatter: (params: unknown) => {
+        const items = tooltipItems(params)
+        const label = items[0]?.name || ''
+        const value = typeof items[0]?.value === 'number' ? items[0].value : 0
+        const tone = value >= 0 ? chartPalette.positive : chartPalette.negative
+        const state = value >= 0 ? 'POSITIVE GAMMA' : 'NEGATIVE GAMMA'
+        return `<strong>Strike $${label}</strong><br/>Cumulative GEX: ${value.toFixed(4)}B<br/><span style="color:${tone}">${state}</span>`
       },
     },
     grid: { left: 70, right: 30, top: 40, bottom: 40 },
     xAxis: {
-      type: 'category' as const, data: strikes,
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 9, rotate: 45, interval: Math.max(0, Math.floor(filtered.length / 20)) },
-      axisLine: { lineStyle: { color: '#26262f' } },
+      type: 'category',
+      data: strikes,
+      ...categoryAxisStyle,
+      axisLabel: { ...categoryAxisStyle.axisLabel, rotate: 45, fontSize: 9, interval: Math.max(0, Math.floor(filtered.length / 20)) },
     },
     yAxis: {
-      type: 'value' as const,
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 10, formatter: (v: number) => `${v.toFixed(2)}B` },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { lineStyle: { color: '#1a1a22' } },
+      type: 'value',
+      ...valueAxisStyle,
+      axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(2)}B` },
     },
     series: [{
-      type: 'line', data: cumData, smooth: true, symbol: 'none',
+      type: 'line',
+      data: cumData,
+      smooth: true,
+      symbol: 'none',
       lineStyle: { width: 4 },
       areaStyle: {
         color: {
-          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
           colorStops: [
-            { offset: 0, color: 'rgba(16, 185, 129, 0.15)' },
+            { offset: 0, color: chartPalette.positiveSoft },
             { offset: 0.5, color: 'transparent' },
-            { offset: 1, color: 'rgba(239, 68, 68, 0.15)' },
+            { offset: 1, color: chartPalette.negativeSoft },
           ],
         },
       },
-      itemStyle: { color: '#5e6ad2' },
+      itemStyle: { color: chartPalette.accent },
       markLine: {
-        silent: true, animation: false,
+        silent: true,
+        animation: false,
         data: [
-          { yAxis: 0, lineStyle: { color: '#f59e0b', type: 'dashed' as const, width: 3.5 }, label: { formatter: 'ZERO GAMMA', color: '#f59e0b', fontSize: 10, fontWeight: 600, backgroundColor: 'rgba(10,10,12,0.85)', padding: [2, 6], borderRadius: 3 } },
-          ...(zeroCrossIdx >= 0 ? [{
-            xAxis: zeroCrossIdx, lineStyle: { color: '#f59e0b', type: 'dotted' as const, width: 3.5 },
+          {
+            yAxis: 0,
+            lineStyle: { color: chartPalette.warning, type: 'dashed', width: 3.5 },
+            label: {
+              formatter: 'ZERO GAMMA',
+              color: chartPalette.warning,
+              fontSize: 10,
+              fontWeight: 600,
+              backgroundColor: chartPalette.surface,
+              padding: [2, 6],
+              borderRadius: 3,
+            },
+          },
+          ...(zeroCrossIndex >= 0 ? [{
+            xAxis: zeroCrossIndex,
+            lineStyle: { color: chartPalette.warning, type: 'dotted' as const, width: 3.5 },
             label: { show: false },
           }] : []),
         ],
       },
     }],
     visualMap: {
-      show: false, dimension: 1, pieces: [
-        { lte: 0, color: '#ef4444' },
-        { gt: 0, color: '#10b981' },
+      show: false,
+      dimension: 1,
+      pieces: [
+        { lte: 0, color: chartPalette.negative },
+        { gt: 0, color: chartPalette.positive },
       ],
     },
   }
 
-  return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
+  return <ReactECharts className="chart-canvas" ariaLabel={`Cumulative gamma exposure chart around spot ${spot.toFixed(2)}.`} fallbackText={`Line chart showing the running cumulative gamma exposure around spot ${spot.toFixed(2)}.`} option={option} notMerge={false} />
 }

@@ -1,109 +1,141 @@
 /**
- * GEX Topology — 3D Surface representation of Gamma Exposure.
- * X: Strike, Y: Expiration, Z: GEX Magnitude.
- * Requires echarts-gl plugin.
+ * GEX Topology - layered strike profiles by expiration.
  */
 
-import ReactECharts from 'echarts-for-react'
-import 'echarts-gl'
+import { ReactECharts, type EChartsOption, tooltipItems } from '../lib/echarts'
+import ChartEmptyState from './ChartEmptyState'
+import { categoryAxisStyle, chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface HeatmapPoint { strike: number; expiration: string; gex: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
 interface Props { data: HeatmapPoint[]; spot: number; futures?: FuturesData | null }
 
+const MAX_EXPIRATIONS = 6
+const topologySeriesColors = [
+  chartPalette.ivory,
+  chartPalette.accent,
+  chartPalette.accentAlt,
+  chartPalette.warning,
+  chartPalette.positive,
+  chartPalette.textMuted,
+] as const
+
 export default function GEXTopology({ data, spot, futures }: Props) {
-  if (!data || data.length === 0) return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No topology data</div>
+  if (!data || data.length === 0) return <ChartEmptyState>No topology data available.</ChartEmptyState>
 
-  // Filter strikes to ±10% of spot
-  const lower = spot * 0.90, upper = spot * 1.10
-  const filtered = data.filter(d => d.strike >= lower && d.strike <= upper)
+  const filtered = data.filter((d) => d.strike >= spot * 0.9 && d.strike <= spot * 1.1)
+  if (filtered.length === 0) return <ChartEmptyState>No topology points are available within the current spot range.</ChartEmptyState>
 
-  const rawStrikes = [...new Set(filtered.map(d => d.strike))].sort((a, b) => a - b)
-  const expirations = [...new Set(filtered.map(d => d.expiration))].sort()
+  const expirations = [...new Set(filtered.map((d) => d.expiration))].sort().slice(0, MAX_EXPIRATIONS)
+  if (expirations.length === 0) return <ChartEmptyState>No expiration curves are available yet.</ChartEmptyState>
 
-  const strikes = rawStrikes.map(s => {
-    if (futures) return `${s.toFixed(2)}\n(${(s * futures.ratio).toFixed(0)})`
-    return s.toFixed(2)
+  const strikes = [...new Set(filtered.map((d) => d.strike))].sort((a, b) => a - b)
+  if (strikes.length < 2) return <ChartEmptyState>Not enough strike detail is available to draw the topology view.</ChartEmptyState>
+
+  const strikeLabels = strikes.map((strike) => (
+    futures ? `$${strike.toFixed(2)}\n(${futures.name} ${(strike * futures.ratio).toFixed(0)})` : `$${strike.toFixed(2)}`
+  ))
+  const spotIndex = strikes.reduce((closestIndex, strike, index) => (
+    Math.abs(strike - spot) < Math.abs(strikes[closestIndex] - spot) ? index : closestIndex
+  ), 0)
+  const maxAbsGex = Math.max(...filtered.map((point) => Math.abs(point.gex)), 0.001)
+  const interval = Math.max(0, Math.floor(strikes.length / 12))
+
+  const series = expirations.map((expiration, index) => {
+    const pointsByStrike = new Map(
+      filtered
+        .filter((point) => point.expiration === expiration)
+        .map((point) => [point.strike, point.gex]),
+    )
+
+    return {
+      name: expiration,
+      type: 'line' as const,
+      smooth: 0.22,
+      symbol: 'none' as const,
+      connectNulls: false,
+      emphasis: { focus: 'series' as const },
+      lineStyle: {
+        color: topologySeriesColors[index] ?? chartPalette.textMuted,
+        width: index === 0 ? 3.2 : 2.2,
+        opacity: Math.max(0.44, 1 - index * 0.1),
+      },
+      data: strikes.map((strike) => pointsByStrike.get(strike) ?? null),
+      markLine: index === 0
+        ? {
+            symbol: 'none' as const,
+            lineStyle: { color: chartPalette.warning, type: 'dashed' as const, width: 1.2 },
+            label: {
+              formatter: 'SPOT',
+              color: chartPalette.warning,
+              fontSize: 10,
+              fontWeight: 600,
+            },
+            data: [{ xAxis: spotIndex }],
+          }
+        : undefined,
+    }
   })
 
-  // echarts-gl 3D surface expects data as [xIndex, yIndex, zValue]
-  // Provide raw GEX values for Z to avoid distortion, since visualMap handles coloring
-  const surfaceData = filtered.map(d => {
-    const xIdx = rawStrikes.indexOf(d.strike)
-    const yIdx = expirations.indexOf(d.expiration)
-    return [xIdx, yIdx, d.gex]
-  })
-
-  // Find abs max for symmetrical color scaling
-  const absMax = Math.max(...surfaceData.map(d => Math.abs(d[2] as number)), 0.001)
-
-  const option = {
+  const option: EChartsOption = {
     backgroundColor: 'transparent',
+    animation: false,
+    legend: {
+      ...legendStyle,
+      top: 8,
+      left: 14,
+      itemGap: 14,
+      data: expirations,
+      textStyle: { ...legendStyle.textStyle, fontSize: 11 },
+    },
     tooltip: {
-      backgroundColor: '#16161a', borderColor: '#26262f',
-      textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
-      formatter: (params: any) => {
-        const x = rawStrikes[params.value[0]]
-        const y = expirations[params.value[1]]
-        const z = params.value[2]
-        const fStr = futures ? ` (${futures.name} ${(x * futures.ratio).toFixed(2)})` : ''
-        return `<strong>$${x.toFixed(2)}${fStr}</strong> | ${y}<br/>GEX: ${z.toFixed(4)}B`
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      ...tooltipStyle,
+      formatter: (params: unknown) => {
+        const points = tooltipItems(params)
+        const strikeIndex = Number(points[0]?.axisValue ?? 0)
+        const strike = strikes[strikeIndex] ?? strikes[0]
+        const futuresLabel = futures ? ` (${futures.name} ${(strike * futures.ratio).toFixed(2)})` : ''
+
+        return [
+          `<strong>$${strike.toFixed(2)}${futuresLabel}</strong>`,
+          ...points.map((point) => {
+            const value = typeof point.value === 'number' ? point.value : Number(point.value ?? 0)
+            return `${point.marker ?? ''}${point.seriesName ?? 'Expiration'}: ${value.toFixed(4)}B`
+          }),
+        ].join('<br/>')
       },
     },
-    visualMap: {
-      min: -absMax, max: absMax,
-      calculable: false, show: false,
-      inRange: {
-        color: [
-          '#dc2626',   // deep red
-          '#1a1a22',   // neutral dark
-          '#10b981',   // bright green
-        ],
-      },
+    grid: { left: 74, right: 22, top: 54, bottom: 54 },
+    xAxis: {
+      type: 'category',
+      data: strikeLabels,
+      ...categoryAxisStyle,
+      boundaryGap: false,
+      axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, interval, rotate: 38 },
     },
-    xAxis3D: {
-      type: 'category', data: strikes,
-      name: 'Strike', nameTextStyle: { color: '#5c5c66' },
-      axisLabel: { color: '#8a8a93', fontFamily: 'JetBrains Mono', fontSize: 9, interval: Math.floor(strikes.length / 10) },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { show: false },
-    },
-    yAxis3D: {
-      type: 'category', data: expirations,
-      name: 'Expiration', nameTextStyle: { color: '#5c5c66' },
-      axisLabel: { color: '#8a8a93', fontFamily: 'JetBrains Mono', fontSize: 9 },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { show: false },
-    },
-    zAxis3D: {
+    yAxis: {
       type: 'value',
-      name: 'GEX', nameTextStyle: { color: '#5c5c66' },
-      axisLabel: { color: '#8a8a93', fontFamily: 'JetBrains Mono', fontSize: 9, formatter: (v: number) => `${v.toFixed(0)}B` },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { show: false },
+      name: 'GEX',
+      ...valueAxisStyle,
+      axisLabel: { ...valueAxisStyle.axisLabel, formatter: (value: number) => `${value.toFixed(2)}B` },
     },
-    grid3D: {
-      boxWidth: 200, boxDepth: 120, boxHeight: 60,
-      viewControl: {
-        projection: 'perspective',
-        alpha: 35,    // vertical tilt
-        beta: 45,     // horizontal rotation
-        distance: 280,
-      },
-      light: {
-        main: { intensity: 1.2, shadow: true },
-        ambient: { intensity: 0.3 },
-      },
-    },
-    series: [{
-      type: 'surface',
-      wireframe: { show: true, lineStyle: { color: 'rgba(255,255,255,0.1)', width: 1 } },
-      shading: 'lambert', // adds 3D lighting highlights
-      data: surfaceData,
+    graphic: [{
+      left: 74,
+      top: 16,
+      ...chartMetricText(`Nearest ${expirations.length} expirations | Peak ${maxAbsGex.toFixed(2)}B`),
     }],
+    series,
   }
 
-  // notMerge=true is usually safer for echarts-gl 3D components on update
-  return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={true} />
+  return (
+    <ReactECharts
+      className="chart-canvas"
+      ariaLabel={`Gamma topology chart around spot ${spot.toFixed(2)} across the nearest ${expirations.length} expirations.`}
+      fallbackText={`Layered line chart showing gamma exposure by strike for the nearest ${expirations.length} expirations around spot ${spot.toFixed(2)}.`}
+      option={option}
+      notMerge={false}
+    />
+  )
 }
-

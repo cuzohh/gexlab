@@ -1,69 +1,35 @@
 /**
- * IV Skew — Implied Volatility smile/skew across strikes.
- * Compares call IV vs put IV to reveal market sentiment.
+ * IV Skew - Implied Volatility smile/skew across strikes.
  */
 
 import { ReactECharts } from '../lib/echarts'
 import type { EChartsOption } from '../lib/echarts'
+import ChartEmptyState from './ChartEmptyState'
+import { categoryAxisStyle, chartMetricText, chartPalette, legendStyle, tooltipStyle, valueAxisStyle } from '../lib/chartTheme'
 
 interface IVData { strike: number; call_iv: number; put_iv: number }
 interface FuturesData { symbol: string; name: string; full_name: string; futures_price: number; ratio: number }
 interface Props { data: IVData[]; spot: number; futures?: FuturesData | null }
 
 export default function IVSkewChart({ data, spot, futures }: Props) {
-  if (!data || data.length === 0) return <div style={{ color: 'var(--text-dim)', textAlign: 'center', paddingTop: '3rem' }}>No IV data</div>
+  if (!data || data.length === 0) return <ChartEmptyState>No IV data available.</ChartEmptyState>
 
-  const lower = spot * 0.88, upper = spot * 1.12
-  const filtered = data.filter(d => d.strike >= lower && d.strike <= upper && (d.call_iv > 0 || d.put_iv > 0))
-
-  const strikes = filtered.map(d => {
-    if (futures) return `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})`
-    return d.strike.toFixed(2)
-  })
+  const filtered = data.filter((d) => d.strike >= spot * 0.88 && d.strike <= spot * 1.12 && (d.call_iv > 0 || d.put_iv > 0))
+  const strikes = filtered.map((d) => futures ? `${d.strike.toFixed(2)} (${(d.strike * futures.ratio).toFixed(2)})` : d.strike.toFixed(2))
 
   const option: EChartsOption = {
     backgroundColor: 'transparent',
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: '#16161a', borderColor: '#26262f',
-      textStyle: { color: '#ededf0', fontFamily: 'Inter', fontSize: 12 },
-    },
-    legend: { data: ['Call IV', 'Put IV'], textStyle: { color: '#8a8a93', fontFamily: 'Inter' }, top: 10, right: 20 },
+    tooltip: { trigger: 'axis', ...tooltipStyle },
+    legend: { data: ['Call IV', 'Put IV'], ...legendStyle, top: 10, right: 20 },
     grid: { left: 60, right: 30, top: 50, bottom: 30 },
-    xAxis: {
-      type: 'category' as const, data: strikes,
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 9, rotate: 45, interval: Math.max(0, Math.floor(filtered.length / 20)) },
-      axisLine: { lineStyle: { color: '#26262f' } },
-    },
-    yAxis: {
-      type: 'value' as const, name: 'IV %',
-      axisLabel: { color: '#5c5c66', fontFamily: 'JetBrains Mono', fontSize: 10, formatter: (v: number) => `${v.toFixed(0)}%` },
-      axisLine: { lineStyle: { color: '#26262f' } },
-      splitLine: { lineStyle: { color: '#1a1a22' } },
-    },
+    xAxis: { type: 'category', data: strikes, ...categoryAxisStyle, axisLabel: { ...categoryAxisStyle.axisLabel, color: chartPalette.textDim, fontSize: 9, rotate: 45, interval: Math.max(0, Math.floor(filtered.length / 20)) } },
+    yAxis: { type: 'value', name: 'IV %', ...valueAxisStyle, axisLabel: { ...valueAxisStyle.axisLabel, formatter: (v: number) => `${v.toFixed(0)}%` } },
     series: [
-      {
-        name: 'Call IV', type: 'line', data: filtered.map(d => d.call_iv), smooth: true,
-        lineStyle: { color: '#10b981', width: 2 },
-        itemStyle: { color: '#10b981' },
-        areaStyle: { color: 'rgba(16,185,129,0.08)' },
-        symbol: 'none',
-      },
-      {
-        name: 'Put IV', type: 'line', data: filtered.map(d => d.put_iv), smooth: true,
-        lineStyle: { color: '#ef4444', width: 2 },
-        itemStyle: { color: '#ef4444' },
-        areaStyle: { color: 'rgba(239,68,68,0.08)' },
-        symbol: 'none',
-      },
+      { name: 'Call IV', type: 'line', data: filtered.map((d) => d.call_iv), smooth: true, lineStyle: { color: chartPalette.positive, width: 2 }, itemStyle: { color: chartPalette.positive }, areaStyle: { color: chartPalette.positiveSoft }, symbol: 'none' },
+      { name: 'Put IV', type: 'line', data: filtered.map((d) => d.put_iv), smooth: true, lineStyle: { color: chartPalette.negative, width: 2 }, itemStyle: { color: chartPalette.negative }, areaStyle: { color: chartPalette.negativeSoft }, symbol: 'none' },
     ],
-    // Spot line
-    graphic: [{
-      type: 'text', right: 20, top: 10,
-      style: { text: `Spot: $${spot.toFixed(2)}`, fill: '#8a8a93', fontSize: 11, fontFamily: 'JetBrains Mono' },
-    }],
+    graphic: [{ right: 20, top: 10, ...chartMetricText(`Spot: $${spot.toFixed(2)}`) }],
   }
 
-  return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} notMerge={false} />
+  return <ReactECharts className="chart-canvas" ariaLabel={`Implied volatility skew chart around spot ${spot.toFixed(2)}.`} fallbackText={`Line chart showing call and put implied volatility by strike around spot ${spot.toFixed(2)}.`} option={option} notMerge={false} />
 }
-

@@ -17,7 +17,13 @@ export default function DesktopTitleBar({ ticker }: DesktopTitleBarProps) {
     if (desktopBridge.windowControls) {
       desktopBridge.windowControls.isMaximized().then(setMaximized).catch(() => {})
     }
-    return desktopBridge.windowControls?.onMaximizedChanged(setMaximized)
+    
+    const cleanup = desktopBridge.windowControls?.onMaximizedChanged?.(setMaximized)
+    return () => {
+      if (typeof cleanup === 'function') {
+        cleanup()
+      }
+    }
   }, [desktopBridge])
 
   if (!desktopBridge?.isDesktop) {
