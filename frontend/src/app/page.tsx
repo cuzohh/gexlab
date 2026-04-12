@@ -5,7 +5,22 @@ import { useState, useEffect } from 'react';
 export default function Home() {
   const [status, setStatus] = useState<{ status: string; service: string; polling: boolean } | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleCopy = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/metrics/bridge');
+      const data = await res.json();
+      if (data.payload) {
+        await navigator.clipboard.writeText(data.payload);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (err) {
+      console.error('Failed to copy bridge payload');
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -91,7 +106,19 @@ export default function Home() {
         {/* Level Intelligence */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-8">
-            <h2 className="text-zinc-400 text-xs font-semibold uppercase tracking-[0.2em] mb-8">Level Intelligence</h2>
+            <div className="flex justify-between items-center mb-8">
+              <h2 className="text-zinc-400 text-xs font-semibold uppercase tracking-[0.2em]">Level Intelligence</h2>
+              <button 
+                onClick={handleCopy}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  copied 
+                    ? 'bg-emerald-500 text-black scale-95' 
+                    : 'bg-white text-black hover:bg-zinc-200'
+                }`}
+              >
+                {copied ? '✓ COPIED' : 'COPY FOR TRADINGVIEW'}
+              </button>
+            </div>
             <div className="space-y-6">
               <LevelRow 
                 label="Gamma Flip" 

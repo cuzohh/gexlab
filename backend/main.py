@@ -6,6 +6,7 @@ from .services.ingestion import GexIngestionService
 from .services.basis import BasisService
 from .services.analytics.service import GexAnalyticsService
 from .services.analytics.levels import LevelIntelligenceService
+from .services.analytics.bridge import BridgeService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -32,6 +33,7 @@ state = {
 ingestion_service = GexIngestionService("SPY")
 analytics_service = GexAnalyticsService()
 levels_service = LevelIntelligenceService()
+bridge_service = BridgeService()
 
 async def update_data_loop():
     """Background loop to refresh market data."""
@@ -90,6 +92,16 @@ async def get_raw_metrics():
 async def get_analytics_metrics():
     """Returns the aggregated GEX/DEX/Vanna exposures."""
     return state["analytics"]
+
+@app.get("/api/metrics/bridge")
+async def get_bridge_payload():
+    """Returns the compressed JSON string for TradingView copy-paste."""
+    if state["analytics"]:
+        return {
+            "payload": bridge_service.generate_tv_payload(state["analytics"]),
+            "timestamp": state["analytics"].get("summary", {}).get("timestamp")
+        }
+    return {"payload": "", "error": "No data available"}
 
 if __name__ == "__main__":
     import uvicorn
