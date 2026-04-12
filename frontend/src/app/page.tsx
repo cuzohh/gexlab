@@ -88,6 +88,54 @@ export default function Home() {
           </div>
         </section>
 
+        {/* Level Intelligence */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-zinc-900/30 border border-zinc-800 rounded-2xl p-8">
+            <h2 className="text-zinc-400 text-xs font-semibold uppercase tracking-[0.2em] mb-8">Level Intelligence</h2>
+            <div className="space-y-6">
+              <LevelRow 
+                label="Gamma Flip" 
+                value={analytics?.levels?.gammaFlip} 
+                sub="Sub-strike interpolated" 
+                color="text-emerald-400"
+                glow 
+              />
+              <LevelRow 
+                label="Call Wall" 
+                value={analytics?.levels?.callWall} 
+                sub="Max Upside Resistance" 
+                color="text-blue-400" 
+              />
+              <LevelRow 
+                label="Put Wall" 
+                value={analytics?.levels?.putWall} 
+                sub="Major Floor Support" 
+                color="text-orange-500" 
+              />
+              <LevelRow 
+                label="Max Pain" 
+                value={analytics?.levels?.maxPain} 
+                sub="Option Value Minimum" 
+                color="text-zinc-400" 
+              />
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/10 border border-zinc-800/50 rounded-2xl p-8 flex flex-col justify-center">
+             <div className="text-center">
+                <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2">Current Regime</p>
+                <div className={`text-5xl font-bold tracking-tighter ${analytics?.summary?.totalNetGex > 0 ? 'text-blue-400' : 'text-orange-400'}`}>
+                   {analytics?.summary?.totalNetGex > 0 ? 'STABLE' : 'VOLATILE'}
+                </div>
+                <p className="text-zinc-600 text-sm mt-4 italic">
+                  {analytics?.summary?.totalNetGex > 0 
+                    ? "Dealers are LONG Gamma. Expected environment: Pinned, mean-reverting." 
+                    : "Dealers are SHORT Gamma. Expected environment: Expansion, trend-following."}
+                </p>
+             </div>
+          </div>
+        </section>
+
         {/* Core Engine Status */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-12 border-t border-zinc-900">
           <div className="bg-zinc-950 p-6 rounded-2xl border border-zinc-900">
@@ -137,6 +185,22 @@ function ExposureCard({ title, value, description, unit }: any) {
         {unit && <span className="text-zinc-600 text-[10px] font-mono">{unit}</span>}
       </div>
       <p className="text-[10px] text-zinc-600 mt-4 group-hover:text-zinc-400 transition-colors uppercase tracking-wider">{description}</p>
+    </div>
+  );
+}
+
+function LevelRow({ label, value, sub, color, glow }: any) {
+  return (
+    <div className="flex justify-between items-center group">
+      <div>
+        <p className="text-zinc-500 text-[10px] uppercase font-bold tracking-widest">{label}</p>
+        <p className="text-zinc-600 text-[10px]">{sub}</p>
+      </div>
+      <div className="text-right">
+        <p className={`text-2xl font-mono font-bold tracking-tighter ${color} ${glow ? 'drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]' : ''}`}>
+          {value ? value.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '---'}
+        </p>
+      </div>
     </div>
   );
 }

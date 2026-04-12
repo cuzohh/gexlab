@@ -5,6 +5,7 @@ import logging
 from .services.ingestion import GexIngestionService
 from .services.basis import BasisService
 from .services.analytics.service import GexAnalyticsService
+from .services.analytics.levels import LevelIntelligenceService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
@@ -30,6 +31,7 @@ state = {
 
 ingestion_service = GexIngestionService("SPY")
 analytics_service = GexAnalyticsService()
+levels_service = LevelIntelligenceService()
 
 async def update_data_loop():
     """Background loop to refresh market data."""
@@ -45,10 +47,15 @@ async def update_data_loop():
             basis_data = BasisService.get_futures_basis("SPY")
             state["basis"] = basis_data
 
-            # 3. Running Analytics
+            # 3. Running Analytics & Levels
             if raw_data.get("data"):
                 logger.info("Running quant analytics suite...")
                 analytics = analytics_service.process_chain(raw_data)
+                
+                logger.info("Extracting level intelligence...")
+                levels = levels_service.get_market_levels(analytics, raw_data)
+                analytics["levels"] = levels
+                
                 state["analytics"] = analytics
             
             logger.info("Background update successful.")
