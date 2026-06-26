@@ -10,17 +10,20 @@ import {
   Tooltip,
   ResponsiveContainer,
   Area,
-  AreaChart
+  AreaChart,
+  ReferenceLine
 } from 'recharts';
+import type { StrikeAnalytics } from '../types/analytics';
 
 interface IvSkewChartProps {
-  data: any[];
+  data: StrikeAnalytics[];
+  highlightedStrike?: number | null;
 }
 
-export default function IvSkewChart({ data }: IvSkewChartProps) {
+export default function IvSkewChart({ data, highlightedStrike }: IvSkewChartProps) {
   if (!data || data.length === 0) return <div className="text-zinc-600">No data available</div>;
 
-  const chartData = data
+  const chartData = [...data]
     .sort((a, b) => a.strike - b.strike)
     .map(s => ({
       strike: s.strike,
@@ -37,25 +40,26 @@ export default function IvSkewChart({ data }: IvSkewChartProps) {
               <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(152,135,110,0.25)" vertical={false} />
           <XAxis 
             dataKey="strike" 
-            stroke="#52525b" 
+            stroke="#7d705e" 
             fontSize={10} 
             tickLine={false} 
             axisLine={false} 
           />
           <YAxis 
-            stroke="#52525b" 
+            stroke="#7d705e" 
             fontSize={10} 
             tickLine={false} 
             axisLine={false}
             domain={['auto', 'auto']}
           />
           <Tooltip 
-            contentStyle={{ backgroundColor: '#18181b', border: '1px solid #27272a', borderRadius: '8px' }}
+            contentStyle={{ backgroundColor: 'rgba(255,250,242,0.96)', border: '1px solid #e5ddcf', borderRadius: '8px', color: '#5d513f' }}
             itemStyle={{ color: '#8b5cf6', fontSize: '12px' }}
           />
+          {typeof highlightedStrike === 'number' && <ReferenceLine x={highlightedStrike} stroke="#b8860b" strokeDasharray="4 4" />}
           <Area 
             type="monotone" 
             dataKey="iv" 

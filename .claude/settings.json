@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Read(//c/Users/pranav/.claude/skills/humanizer/**)",
+      "Bash(claude plugin *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npx skills *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\pranav\\.claude"
+    ]
+  }
+}

@@ -3,8 +3,8 @@ import pandas as pd
 import yfinance as yf
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
-from .engine import GreeksEngine
+from typing import Dict, Any
+from services.analytics.engine import GreeksEngine
 
 logger = logging.getLogger("analytics_service")
 
@@ -18,7 +18,7 @@ class GexAnalyticsService:
             irx = yf.Ticker("^IRX")
             rate = irx.fast_info['lastPrice'] / 100.0 # Convert 4.5 to 0.045
             return rate if rate > 0 else 0.045
-        except:
+        except Exception:
             return 0.045 # Default to 4.5% if fetch fails
 
     def process_chain(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -27,7 +27,7 @@ class GexAnalyticsService:
         """
         df_raw = pd.DataFrame(raw_data.get("data", []))
         if df_raw.empty:
-            return {}
+            return None
 
         spot = raw_data.get("spotPrice", 0.0)
         r = self.get_risk_free_rate()
@@ -50,18 +50,15 @@ class GexAnalyticsService:
         flags = df_raw['type'].map({'call': 'c', 'put': 'p'}).values
 
         # 1. Calculate Standard Greeks
-        # Since vectorized_black_scholes expects flags as a string or uniform array, 
-        # we split it or use the underlying vectorized calls
-        # For simplicity, we'll calculate all as calls and all as puts then mask
-        greeks_c = self.engine.calculate_basic_greeks(S, K, T, r, sigma, "c")
-        greeks_p = self.engine.calculate_basic_greeks(S, K, T, r, sigma, "p")
+        greeks = self.engine.calculate_basic_greeks(S, K, T, r, sigma, flags)
         
-        # Masking by type
+        delta = greeks['delta']
+        gamma = greeks['gamma']
+        vega = greeks['vega']
+        theta = greeks['theta']
+
+        # Attribution mask for dealer positioning
         is_call = (flags == 'c')
-        delta = np.where(is_call, greeks_c['delta'], greeks_p['delta'])
-        gamma = np.where(is_call, greeks_c['gamma'], greeks_p['gamma'])
-        vega = np.where(is_call, greeks_c['vega'], greeks_p['vega'])
-        theta = np.where(is_call, greeks_c['theta'], greeks_p['theta'])
         
         # 2. Calculate Higher Order Greeks
         higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma)

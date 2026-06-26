@@ -1,0 +1,68 @@
+//@version=6
+indicator("GexLab v2 | DTE Levels", overlay=true, shorttitle="GexLab DTE")
+
+// --- Instructions ---
+// 1. Copy the Bridge Payload from your GexLab dashboard.
+// 2. Paste it into the input below.
+
+// --- Inputs ---
+payload = input.string("", "GexLab Bridge Payload", tooltip="Paste the JSON string copied from the GexLab dashboard")
+showLabels = input.bool(true, "Show Labels")
+labelOffset = input.int(8, "Label Offset (Bars)", minval=1, maxval=100)
+lineLookback = input.int(250, "Line Lookback (Bars)", minval=25, maxval=1000)
+lineForward = input.int(30, "Line Forward (Bars)", minval=5, maxval=200)
+
+dteGroup = "DTE Buckets"
+showD0 = input.bool(true, "0DTE", group=dteGroup)
+showD1 = input.bool(true, "1DTE", group=dteGroup)
+
+styleGroup = "Style"
+lineWidth = input.int(1, "Line Width", minval=1, maxval=4, group=styleGroup)
+callColor = input.color(color.new(#3b82f6, 0), "Call Color", group=styleGroup)
+putColor = input.color(color.new(#f97316, 0), "Put Color", group=styleGroup)
+vtColor = input.color(color.new(#d4af37, 0), "Volume Trigger Color", group=styleGroup)
+
+// --- JSON Parsing ---
+getValue(json, key) =>
+    pattern = '"' + key + '":'
+    pos = str.pos(json, pattern)
+    if not na(pos)
+        startPos = pos + str.length(pattern)
+        tail = str.substring(json, startPos, str.length(json))
+        commaPos = str.pos(tail, ",")
+        bracePos = str.pos(tail, "}")
+        endOffset = na(commaPos) ? bracePos : na(bracePos) ? commaPos : math.min(commaPos, bracePos)
+        raw = str.trim(na(endOffset) ? tail : str.substring(tail, 0, endOffset))
+        raw == "null" ? na : str.tonumber(raw)
+    else
+        na
+
+// --- Extract Levels ---
+d0CallWall = getValue(payload, "d0cw")
+d0PutWall = getValue(payload, "d0pw")
+d0VolTrigger = getValue(payload, "d0vt")
+d1CallWall = getValue(payload, "d1cw")
+d1PutWall = getValue(payload, "d1pw")
+d1VolTrigger = getValue(payload, "d1vt")
+
+// --- Drawing Helpers ---
+drawLevel(price, labelText, lineColor, labelColor, style, width, enabled, textColor, xOffset) =>
+    if enabled and not na(price)
+        line.new(bar_index - lineLookback, price, bar_index + lineForward, price, color=lineColor, width=width, style=style)
+        if showLabels
+            label.new(bar_index + xOffset, price, labelText + " " + str.tostring(price, "#.00"), color=labelColor, style=label.style_label_left, textcolor=textColor, size=size.small)
+
+drawDtePack(bucketLabel, alpha, enabled, callVal, putVal, vtVal, xOffset) =>
+    if enabled
+        drawLevel(callVal, bucketLabel + " CALL WALL", color.new(callColor, alpha), color.new(callColor, alpha), line.style_solid, lineWidth, true, color.white, xOffset)
+        drawLevel(putVal, bucketLabel + " PUT WALL", color.new(putColor, alpha), color.new(putColor, alpha), line.style_solid, lineWidth, true, color.white, xOffset)
+        drawLevel(vtVal, bucketLabel + " VOL TRIGGER", color.new(vtColor, alpha), color.new(vtColor, alpha), line.style_dashed, lineWidth, true, color.black, xOffset)
+
+if barstate.islast
+    for existingLine in line.all
+        line.delete(existingLine)
+    for existingLabel in label.all
+        label.delete(existingLabel)
+
+    drawDtePack("0DTE", 0, showD0, d0CallWall, d0PutWall, d0VolTrigger, labelOffset)
+    drawDtePack("1DTE", 20, showD1, d1CallWall, d1PutWall, d1VolTrigger, labelOffset + 20)

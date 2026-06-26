@@ -1,53 +1,96 @@
 'use client';
 
 import React from 'react';
+import type { RawContract } from '../types/analytics';
 
-interface OptionChainTableProps {
-  data: any[];
+function formatStrikeLabel(value: number) {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-export default function OptionChainTable({ data }: OptionChainTableProps) {
-  if (!data || data.length === 0) return null;
+interface OptionChainTableProps {
+  data: RawContract[];
+  mode?: 'ledger' | 'chain';
+  highlightedStrike?: number | null;
+  pinnedStrike?: number | null;
+  onHoverStrike?: (strike: number | null) => void;
+  onPinStrike?: (strike: number | null) => void;
+}
+
+export default function OptionChainTable({
+  data,
+  mode = 'ledger',
+  highlightedStrike,
+  pinnedStrike,
+  onHoverStrike,
+  onPinStrike,
+}: OptionChainTableProps) {
+  if (!data || data.length === 0) return (
+     <div className="p-20 text-center text-[12px] tracking-wide text-[#86868B] dark:text-[#a79b8b]">
+        Awaiting contract data from engine...
+     </div>
+  );
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 rounded-xl overflow-x-auto">
-      <table className="w-full text-left text-[10px] font-mono border-collapse">
-        <thead>
-          <tr className="bg-zinc-900/50 text-zinc-500 uppercase tracking-tighter border-b border-zinc-800">
-            <th className="px-4 py-3">Expiry</th>
-            <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3">Strike</th>
-            <th className="px-4 py-3 text-right">Delta</th>
-            <th className="px-4 py-3 text-right">Gamma</th>
-            <th className="px-4 py-3 text-right">Vanna</th>
-            <th className="px-4 py-3 text-right">IV</th>
-            <th className="px-4 py-3 text-right">GEX</th>
-            <th className="px-4 py-3 text-right">OI</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.slice(0, 100).map((row, i) => (
-            <tr key={i} className="border-b border-zinc-900/50 hover:bg-zinc-900 transition-colors">
-              <td className="px-4 py-2 text-zinc-400">{row.expiry}</td>
-              <td className={`px-4 py-2 font-bold ${row.type === 'call' ? 'text-blue-500' : 'text-orange-500'}`}>
-                {row.type.toUpperCase()}
-              </td>
-              <td className="px-4 py-2 text-white font-bold">{row.strike}</td>
-              <td className="px-4 py-2 text-right text-zinc-400">{row.delta?.toFixed(3)}</td>
-              <td className="px-4 py-2 text-right text-zinc-400">{row.gamma?.toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-zinc-400">{row.vanna?.toFixed(4)}</td>
-              <td className="px-4 py-2 text-right text-purple-400">{(row.iv * 100).toFixed(1)}%</td>
-              <td className={`px-4 py-2 text-right font-bold ${row.gex >= 0 ? 'text-blue-400' : 'text-orange-400'}`}>
-                {(row.gex / 1e6).toFixed(2)}M
-              </td>
-              <td className="px-4 py-2 text-right text-zinc-500">{row.openInterest?.toLocaleString()}</td>
+    <div className="overflow-hidden rounded-[2.5rem] border border-[#E5E5E7] bg-white shadow-sm dark:border-white/10 dark:bg-[#171b22]">
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-[11px] font-sans border-collapse">
+          <thead>
+            <tr className="bg-[#F5F5F7] text-[#86868B] uppercase tracking-[0.2em] font-bold dark:bg-white/6 dark:text-[#b5ab9c]">
+              <th className="px-6 py-4">Expiry</th>
+              <th className="px-6 py-4">Type</th>
+              <th className="px-6 py-4">Strike</th>
+              <th className="px-6 py-4 text-right">Delta</th>
+              <th className="px-6 py-4 text-right">Gamma</th>
+              <th className="px-6 py-4 text-right">Vega</th>
+              <th className="px-6 py-4 text-right">Vanna</th>
+              <th className="px-6 py-4 text-right">Charm</th>
+              <th className="px-6 py-4 text-right">IV</th>
+              <th className="px-6 py-4 text-right">Net GEX</th>
+              {mode === 'chain' && <th className="px-6 py-4 text-right">Volume</th>}
+              <th className="px-6 py-4 text-right">OI</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.slice(0, 100).map((row, i) => {
+              const isSelected = row.strike === highlightedStrike;
+              const isPinned = row.strike === pinnedStrike;
+              return (
+              <tr
+                key={i}
+                onMouseEnter={() => onHoverStrike?.(row.strike)}
+                onMouseLeave={() => onHoverStrike?.(null)}
+                onClick={() => onPinStrike?.(isPinned ? null : row.strike)}
+                className={`group cursor-pointer border-b border-[#F5F5F7] transition-colors hover:bg-[#FAFAFA] dark:border-white/6 dark:hover:bg-white/6 ${isSelected ? 'bg-[#fbf6eb] dark:bg-[#2a2214]' : ''}`}
+              >
+                <td className="px-6 py-3.5 font-medium text-[#86868B] dark:text-[#a89d8f]">{row.expiry}</td>
+                <td className="px-6 py-3.5">
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tighter ${row.type === 'call' ? 'bg-[#F0F7FF] text-blue-600' : 'bg-[#FFF5ED] text-orange-600'}`}>
+                    {row.type}
+                  </span>
+                </td>
+                <td className="px-6 py-3.5 font-bold tracking-tight tabular-nums text-[#1D1D1F] dark:text-[#f5efe3]">{formatStrikeLabel(row.strike)}</td>
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{typeof row.delta === 'number' ? row.delta.toFixed(3) : '--'}</td>
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{typeof row.gamma === 'number' ? row.gamma.toFixed(4) : '--'}</td>
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{typeof row.vega === 'number' ? row.vega.toFixed(3) : '--'}</td>
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{typeof row.vanna === 'number' ? row.vanna.toFixed(4) : '--'}</td>
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{typeof row.charm === 'number' ? row.charm.toFixed(4) : '--'}</td>
+                <td className="px-6 py-3.5 text-right font-bold tabular-nums text-[#D4AF37]">{typeof row.iv === 'number' ? `${(row.iv * 100).toFixed(1)}%` : '--'}</td>
+                <td className={`px-6 py-3.5 text-right font-bold tabular-nums ${typeof row.gex === 'number' && row.gex >= 0 ? 'text-blue-500' : 'text-orange-500'}`}>
+                  {typeof row.gex === 'number' ? `${(row.gex / 1e6).toFixed(2)}M` : '--'}
+                </td>
+                {mode === 'chain' && <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{row.volume?.toLocaleString() ?? '--'}</td>}
+                <td className="px-6 py-3.5 text-right font-medium tabular-nums text-[#86868B] dark:text-[#a89d8f]">{row.openInterest?.toLocaleString()}</td>
+              </tr>
+            )})}
+          </tbody>
+        </table>
+      </div>
       {data.length > 100 && (
-         <div className="p-4 text-center text-[10px] text-zinc-600 italic">
-            Displaying first 100 of {data.length} contracts...
+         <div className="bg-[#F5F5F7]/30 p-6 text-center text-[10px] font-bold uppercase tracking-widest text-[#86868B] dark:bg-white/5 dark:text-[#a89d8f]">
+            Displaying top 100 of {data.length} active contracts
          </div>
       )}
     </div>

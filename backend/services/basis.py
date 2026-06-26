@@ -24,11 +24,11 @@ class BasisService:
         try:
             # Fetch ETF price
             etf = yf.Ticker(etf_symbol)
-            etf_price = etf.fast_info['last_price']
+            etf_price = etf.fast_info.get('lastPrice') or etf.fast_info.get('last_price') or 0.0
             
             # Fetch Future price
             future = yf.Ticker(future_ticker)
-            future_price = future.fast_info['last_price']
+            future_price = future.fast_info.get('lastPrice') or future.fast_info.get('last_price') or 0.0
             
             # Calculation
             # Note: For S&P, ES is usually 10x SPY + Basis. 

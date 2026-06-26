@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-06-25T20:13:44.112340+00:00",
+  "events": [
+    {
+      "date": "2026-06-15",
+      "label": "CPI",
+      "source": "BLS",
+      "category": "macro",
+      "impact": "high",
+      "note": "Latest CPI release from BLS public API.",
+      "releaseTimeEt": "08:30 ET",
+      "expected": null,
+      "actual": "335.123",
+      "previous": "333.020"
+    },
+    {
+      "date": "2026-06-15",
+      "label": "PPI",
+      "source": "BLS",
+      "category": "macro",
+      "impact": "medium",
+      "note": "Latest PPI release from BLS public API.",
+      "releaseTimeEt": "08:30 ET",
+      "expected": null,
+      "actual": "158.012",
+      "previous": "156.395"
+    },
+    {
+      "date": "2026-06-15",
+      "label": "Unemployment",
+      "source": "BLS",
+      "category": "macro",
+      "impact": "high",
+      "note": "Latest unemployment rate release from BLS public API.",
+      "releaseTimeEt": "08:30 ET",
+      "expected": null,
+      "actual": "4.3",
+      "previous": "4.3"
+    }
+  ]
+}

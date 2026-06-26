@@ -1,16 +1,49 @@
 import numpy as np
 from scipy.stats import norm
-import py_vollib_vectorized
-from typing import Dict, Any
+
 
 class GreeksEngine:
     @staticmethod
-    def calculate_basic_greeks(S, K, T, r, sigma, flag):
+    def calculate_basic_greeks(S, K, T, r, sigma, flags):
         """
-        Calculate standard Greeks (Delta, Gamma, Vega, Theta) using py_vollib_vectorized.
+        Calculate standard Black-Scholes Greeks analytically.
+        Supports scalar or array-like inputs and call/put flags ('c'/'p').
         """
-        greeks = py_vollib_vectorized.vectorized_black_scholes(flag, S, K, T, r, sigma, return_as='dict')
-        return greeks
+        S = np.asarray(S, dtype=float)
+        K = np.asarray(K, dtype=float)
+        T = np.asarray(T, dtype=float)
+        sigma = np.asarray(sigma, dtype=float)
+        flags = np.asarray(flags)
+
+        # Guardrails for near-expiry and bad IV inputs.
+        T = np.maximum(T, 1e-8)
+        sigma = np.maximum(sigma, 1e-8)
+        sqrt_t = np.sqrt(T)
+
+        d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * sqrt_t)
+        d2 = d1 - sigma * sqrt_t
+        pdf_d1 = norm.pdf(d1)
+
+        is_call = flags == 'c'
+        delta = np.where(is_call, norm.cdf(d1), norm.cdf(d1) - 1.0)
+        gamma = pdf_d1 / (S * sigma * sqrt_t)
+        vega = S * pdf_d1 * sqrt_t
+        theta_call = (
+            -(S * pdf_d1 * sigma) / (2.0 * sqrt_t)
+            - r * K * np.exp(-r * T) * norm.cdf(d2)
+        )
+        theta_put = (
+            -(S * pdf_d1 * sigma) / (2.0 * sqrt_t)
+            + r * K * np.exp(-r * T) * norm.cdf(-d2)
+        )
+        theta = np.where(is_call, theta_call, theta_put)
+
+        return {
+            "delta": delta,
+            "gamma": gamma,
+            "vega": vega,
+            "theta": theta,
+        }
 
     @staticmethod
     def calculate_higher_order_greeks(S, K, T, r, q, sigma):
@@ -18,6 +51,9 @@ class GreeksEngine:
         Calculate higher-order Greeks (Vanna, Charm, Vomma) analytically.
         Inputs are numpy arrays.
         """
+        T = np.maximum(T, 1e-8)
+        sigma = np.maximum(sigma, 1e-8)
+        
         # Calculate d1 and d2
         d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)

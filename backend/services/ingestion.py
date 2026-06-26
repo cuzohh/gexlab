@@ -2,7 +2,7 @@ import yfinance as yf
 import pandas as pd
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 logging.basicConfig(level=logging.INFO)
@@ -86,14 +86,23 @@ class GexIngestionService:
         return result
 
     def get_spot_price(self) -> float:
-        """Fetch the current spot price of the underlying."""
+        """Fetch the current spot price with multiple fallbacks for weekends."""
         try:
-            # fast_info is reliable for live-ish price
-            return self.ticker.fast_info['lastPrice']
-        except:
-            # Fallback to history for last close if fast_info fails
+            # Method 1: Fast Info (Best for live)
+            price = self.ticker.fast_info.get('lastPrice')
+            if price and price > 0:
+                return price
+            
+            # Method 2: History (Best for weekends)
             hist = self.ticker.history(period="1d")
-            return hist['Close'].iloc[-1] if not hist.empty else 0.0
+            if not hist.empty:
+                return hist['Close'].iloc[-1]
+            
+            # Method 3: Standard Info (Slow fallback)
+            return self.ticker.info.get('regularMarketPrice') or self.ticker.info.get('previousClose') or 0.0
+        except Exception as e:
+            logger.error(f"Error fetching price for {self.ticker_symbol}: {e}")
+            return 0.0
 
 if __name__ == "__main__":
     service = GexIngestionService("SPY")

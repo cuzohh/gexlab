@@ -3,3 +3,5 @@ uvicorn
 yfinance
 pandas
 httpx
+numpy
+scipy
