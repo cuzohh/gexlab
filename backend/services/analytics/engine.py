@@ -56,14 +56,15 @@ class GreeksEngine:
         }
 
     @staticmethod
-    def calculate_higher_order_greeks(S, K, T, r, q, sigma, _precomputed=None):
+    def calculate_higher_order_greeks(S, K, T, r, q, sigma, flags=None, _precomputed=None):
         """
-        Calculate higher-order Greeks (Vanna, Charm, Vomma) analytically.
+        Calculate higher-order Greeks (Vanna, Charm, Vomma, Speed, Zomma) analytically.
         Pass _precomputed=basic_greeks_result to reuse d1/d2/sqrt_t/pdf_d1
         already computed by calculate_basic_greeks (avoids ~30% duplicate work).
         """
         T = np.maximum(T, 1e-8)
         sigma = np.maximum(sigma, 1e-8)
+        flags = np.asarray(flags) if flags is not None else None
 
         if _precomputed is not None:
             d1     = _precomputed["_d1"]
@@ -79,7 +80,14 @@ class GreeksEngine:
             pdf_d1 = norm.pdf(d1)
 
         vanna      = -exp_qt * pdf_d1 * d2 / sigma
-        charm_core = pdf_d1 * (d2 / (2 * T) - (r - q) / (sigma * sqrt_t))
+        charm_common = exp_qt * pdf_d1 * (d2 / (2 * T) - (r - q) / (sigma * sqrt_t))
+        if flags is None:
+            charm = charm_common
+        else:
+            is_call = flags == 'c'
+            charm_call = q * exp_qt * norm.cdf(d1) + charm_common
+            charm_put = -q * exp_qt * norm.cdf(-d1) + charm_common
+            charm = np.where(is_call, charm_call, charm_put)
         vega       = S * exp_qt * pdf_d1 * sqrt_t
         vomma      = vega * d1 * d2 / sigma
 
@@ -95,7 +103,7 @@ class GreeksEngine:
 
         return {
             "vanna": vanna,
-            "charm": charm_core,
+            "charm": charm,
             "vomma": vomma,
             "speed": speed,
             "zomma": zomma,
@@ -115,7 +123,7 @@ if __name__ == "__main__":
     
     engine = GreeksEngine()
     basic = engine.calculate_basic_greeks(S, K, T, r, sigma, "c")
-    higher = engine.calculate_higher_order_greeks(S, K, T, r, q, sigma)
+    higher = engine.calculate_higher_order_greeks(S, K, T, r, q, sigma, "c")
     
     print(f"Delta: {basic['delta']}")
     print(f"Vanna: {higher['vanna']}")

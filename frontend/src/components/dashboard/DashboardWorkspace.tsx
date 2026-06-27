@@ -2194,8 +2194,12 @@ function deriveGreekLevelsFromRows(rows: Array<{ strike: number; value: number }
     .sort((a, b) => a.strike - b.strike);
   if (!sortedRows.length) return null;
 
-  const positive = [...sortedRows].sort((a, b) => b.value - a.value)[0];
-  const negative = [...sortedRows].sort((a, b) => a.value - b.value)[0];
+  const upsideRows = spot > 0 ? sortedRows.filter((row) => row.strike >= spot) : sortedRows;
+  const downsideRows = spot > 0 ? sortedRows.filter((row) => row.strike <= spot) : sortedRows;
+  const callWall = [...(upsideRows.length ? upsideRows : sortedRows)]
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))[0];
+  const putWall = [...(downsideRows.length ? downsideRows : sortedRows)]
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))[0];
   const crossings: number[] = [];
   for (let index = 1; index < sortedRows.length; index += 1) {
     const left = sortedRows[index - 1];
@@ -2215,8 +2219,8 @@ function deriveGreekLevelsFromRows(rows: Array<{ strike: number; value: number }
 
   return {
     flip,
-    callWall: positive?.strike,
-    putWall: negative?.strike,
+    callWall: callWall?.strike,
+    putWall: putWall?.strike,
   };
 }
 

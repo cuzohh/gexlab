@@ -82,7 +82,11 @@ class AnalyticsPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(analytics["summary"]["riskFreeRate"], 0.045)
 
         first_row = analytics["raw"][0]
-        for key in ("delta", "gamma", "vega", "theta", "vanna", "charm", "lambda", "gex", "dex", "lex", "vex", "chex", "iv"):
+        for key in (
+            "delta", "gamma", "vega", "theta",
+            "vanna", "charm", "speed", "zomma", "vomma", "lambda",
+            "gex", "dex", "lex", "vex", "chex", "spex", "zomex", "vomex", "iv",
+        ):
             self.assertIn(key, first_row)
 
     def test_market_levels_can_be_derived_from_analytics(self) -> None:
@@ -112,6 +116,35 @@ class AnalyticsPipelineTests(unittest.TestCase):
         self.assertIn("callWall", levels["byDte"][0])
         self.assertIn("dex", levels["byDte"][0])
         self.assertIn("derived", levels["byDte"][0])
+
+    def test_gamma_walls_are_directional_around_spot(self) -> None:
+        walls = self.levels.identify_walls(
+            [
+                {"strike": 480.0, "gex": 5000.0},
+                {"strike": 490.0, "gex": -8000.0},
+                {"strike": 510.0, "gex": 1200.0},
+                {"strike": 520.0, "gex": -9000.0},
+            ],
+            spot_price=500.0,
+        )
+
+        self.assertEqual(walls["callWall"], 510.0)
+        self.assertEqual(walls["putWall"], 490.0)
+
+    def test_greek_walls_are_directional_around_spot(self) -> None:
+        walls = self.levels._identify_metric_walls(
+            [
+                {"strike": 480.0, "vex": 10000.0},
+                {"strike": 490.0, "vex": -9000.0},
+                {"strike": 510.0, "vex": 1200.0},
+                {"strike": 520.0, "vex": -2000.0},
+            ],
+            "vex",
+            spot_price=500.0,
+        )
+
+        self.assertEqual(walls["callWall"], 520.0)
+        self.assertEqual(walls["putWall"], 480.0)
 
 
 if __name__ == "__main__":

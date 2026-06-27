@@ -40,22 +40,45 @@ class LevelIntelligenceService:
         return flip_prices[0]
 
     @staticmethod
-    def _identify_metric_walls(agg_strikes: List[Dict[str, Any]], metric_key: str) -> Dict[str, Any]:
+    def _identify_metric_walls(
+        agg_strikes: List[Dict[str, Any]],
+        metric_key: str,
+        spot_price: float = 0.0,
+    ) -> Dict[str, Any]:
         df = pd.DataFrame(agg_strikes)
         if df.empty or metric_key not in df.columns:
             return {"callWall": None, "putWall": None, "majorWalls": None}
 
-        positive = df.sort_values(metric_key, ascending=False).head(3)
-        negative = df.sort_values(metric_key, ascending=True).head(3)
-        call_wall = None if positive.empty else float(positive.iloc[0]["strike"])
-        put_wall = None if negative.empty else float(negative.iloc[0]["strike"])
+        df = df.copy()
+        df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
+        df[metric_key] = pd.to_numeric(df[metric_key], errors="coerce").fillna(0.0)
+        df = df[df["strike"].notna()]
+        if df.empty:
+            return {"callWall": None, "putWall": None, "majorWalls": None}
+
+        if spot_price > 0:
+            upside = df[df["strike"] >= spot_price]
+            downside = df[df["strike"] <= spot_price]
+        else:
+            upside = df
+            downside = df
+
+        if upside.empty:
+            upside = df
+        if downside.empty:
+            downside = df
+
+        upside_ranked = upside.assign(_abs=upside[metric_key].abs()).sort_values("_abs", ascending=False)
+        downside_ranked = downside.assign(_abs=downside[metric_key].abs()).sort_values("_abs", ascending=False)
+        call_wall = None if upside_ranked.empty else float(upside_ranked.iloc[0]["strike"])
+        put_wall = None if downside_ranked.empty else float(downside_ranked.iloc[0]["strike"])
 
         return {
             "callWall": call_wall,
             "putWall": put_wall,
             "majorWalls": {
-                "calls": positive[["strike", metric_key]].rename(columns={metric_key: "gex"}).to_dict(orient="records"),
-                "puts": negative[["strike", metric_key]].rename(columns={metric_key: "gex"}).to_dict(orient="records"),
+                "calls": upside_ranked.head(3)[["strike", metric_key]].rename(columns={metric_key: "gex"}).to_dict(orient="records"),
+                "puts": downside_ranked.head(3)[["strike", metric_key]].rename(columns={metric_key: "gex"}).to_dict(orient="records"),
             },
         }
 
@@ -229,7 +252,7 @@ class LevelIntelligenceService:
             }
 
         flip = LevelIntelligenceService.calculate_gamma_flip(agg_strikes, spot_price)
-        walls = LevelIntelligenceService.identify_walls(agg_strikes)
+        walls = LevelIntelligenceService.identify_walls(agg_strikes, spot_price)
         max_pain = LevelIntelligenceService.calculate_max_pain(raw_list)
 
         df_agg = pd.DataFrame(agg_strikes)
@@ -237,7 +260,7 @@ class LevelIntelligenceService:
         def _greek_levels(metric: str) -> Dict[str, Any]:
             return {
                 "flip": LevelIntelligenceService._calculate_flip_for_metric(agg_strikes, metric, spot_price),
-                **LevelIntelligenceService._identify_metric_walls(agg_strikes, metric),
+                **LevelIntelligenceService._identify_metric_walls(agg_strikes, metric, spot_price),
             }
 
         dex_levels   = _greek_levels("dex")
@@ -317,7 +340,7 @@ class LevelIntelligenceService:
         return flip_prices[0]
 
     @staticmethod
-    def identify_walls(agg_strikes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def identify_walls(agg_strikes: List[Dict[str, Any]], spot_price: float = 0.0) -> Dict[str, Any]:
         """
         Identify major GEX walls and secondary levels.
         """
@@ -325,21 +348,48 @@ class LevelIntelligenceService:
         if df.empty or 'gex' not in df.columns or df['gex'].isna().all():
             return {}
 
-        # Use .loc because idxmax/idxmin return labels
-        call_wall_strike = df.loc[df['gex'].idxmax(), 'strike']
-        call_wall_mag = df.loc[df['gex'].idxmax(), 'gex']
-        
-        put_wall_strike = df.loc[df['gex'].idxmin(), 'strike']
-        put_wall_mag = df.loc[df['gex'].idxmin(), 'gex']
+        df = df.copy()
+        df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
+        df["gex"] = pd.to_numeric(df["gex"], errors="coerce").fillna(0.0)
+        df = df[df["strike"].notna()]
+        if df.empty:
+            return {}
 
-        top_calls = df.sort_values('gex', ascending=False).head(3)
-        top_puts = df.sort_values('gex', ascending=True).head(3)
+        if spot_price > 0:
+            upside = df[df["strike"] >= spot_price]
+            downside = df[df["strike"] <= spot_price]
+        else:
+            upside = df
+            downside = df
+
+        if upside.empty:
+            upside = df
+        if downside.empty:
+            downside = df
+
+        positive_upside = upside[upside["gex"] > 0]
+        negative_downside = downside[downside["gex"] < 0]
+
+        if positive_upside.empty:
+            top_calls = upside.assign(_abs=upside["gex"].abs()).sort_values("_abs", ascending=False).head(3)
+        else:
+            top_calls = positive_upside.sort_values("gex", ascending=False).head(3)
+
+        if negative_downside.empty:
+            top_puts = downside.assign(_abs=downside["gex"].abs()).sort_values("_abs", ascending=False).head(3)
+        else:
+            top_puts = negative_downside.sort_values("gex", ascending=True).head(3)
+
+        call_wall_strike = top_calls.iloc[0]["strike"] if not top_calls.empty else None
+        call_wall_mag = top_calls.iloc[0]["gex"] if not top_calls.empty else None
+        put_wall_strike = top_puts.iloc[0]["strike"] if not top_puts.empty else None
+        put_wall_mag = top_puts.iloc[0]["gex"] if not top_puts.empty else None
 
         return {
-            "callWall": float(call_wall_strike),
-            "callWallMag": float(call_wall_mag),
-            "putWall": float(put_wall_strike),
-            "putWallMag": float(put_wall_mag),
+            "callWall": float(call_wall_strike) if call_wall_strike is not None else None,
+            "callWallMag": float(call_wall_mag) if call_wall_mag is not None else None,
+            "putWall": float(put_wall_strike) if put_wall_strike is not None else None,
+            "putWallMag": float(put_wall_mag) if put_wall_mag is not None else None,
             "majorWalls": {
                 "calls": top_calls[['strike', 'gex']].to_dict(orient="records"),
                 "puts": top_puts[['strike', 'gex']].to_dict(orient="records")

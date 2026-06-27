@@ -79,7 +79,7 @@ class GexAnalyticsService:
         is_call = (flags == 'c')
 
         # 2. Calculate Higher Order Greeks — reuse d1/d2/sqrt_t already in greeks
-        higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma, _precomputed=greeks)
+        higher = self.engine.calculate_higher_order_greeks(S, K, T, r, q, sigma, flags, _precomputed=greeks)
         
         # 3. Calculate Dealer Exposures (EX)
         # Exposure = Greek * OpenInterest * Multiplier * SpotPrice (for GEX)
