@@ -365,10 +365,10 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
     if (isLive && !showingOvernightFallback) {
       payload = (await fetchCombinedBridge()).pine;
     } else {
-      const bridgeTargetDate = showingOvernightFallback
-        ? getTodayEtDate()
-        : getBridgeTargetDate(selectedDate, eodTargetDate) ?? getTodayEtDate();
       const snapshotDate = getBridgeSnapshotDate(selectedDate, eodTargetDate, availableDates);
+      const bridgeTargetDate = showingOvernightFallback
+        ? getNextTradingDate(snapshotDate ?? getTodayEtDate())
+        : getBridgeTargetDate(selectedDate, eodTargetDate) ?? getTodayEtDate();
       payload = await buildSavedFuturesBridgePayload(
         ticker,
         sourceAnalytics,
@@ -848,8 +848,8 @@ function renderView({
               <RelevantLevelCard label="Speed CW" value={formatCurrency(displayAnalytics.levels?.speed?.callWall)} detail="Fastest upside gamma acceleration zone." />
               <RelevantLevelCard label="Speed PW" value={formatCurrency(displayAnalytics.levels?.speed?.putWall)} detail="Fastest downside gamma acceleration zone." />
               <RelevantLevelCard label="Zomma Flip" value={formatCurrency(displayAnalytics.levels?.zomma?.flip)} detail="Zomma zero-cross — vol-sensitive gamma reversal." />
-              <RelevantLevelCard label="Vomma CW" value={formatCurrency(displayAnalytics.levels?.vomma?.callWall)} detail="Peak vol-convexity above spot." />
-              <RelevantLevelCard label="Vomma PW" value={formatCurrency(displayAnalytics.levels?.vomma?.putWall)} detail="Peak vol-convexity below spot." />
+              <RelevantLevelCard label="Zomma CW" value={formatCurrency(displayAnalytics.levels?.zomma?.callWall)} detail="Peak vol-sensitive gamma above spot." />
+              <RelevantLevelCard label="Zomma PW" value={formatCurrency(displayAnalytics.levels?.zomma?.putWall)} detail="Peak vol-sensitive gamma below spot." />
             </div>
             <div className="mt-5 rounded-[1.5rem] border border-[#eadfcf] bg-[#fcf8f1] px-4 py-4 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">Workflow</p>
@@ -2110,10 +2110,12 @@ function buildFuturesBridgeSection(
   targetDate: string | null
 ) {
   const byDte = analytics?.levels?.byDte ?? [];
+  const sortedBuckets = byDte
+    .filter((row) => normalizeDateString(row.expiry))
+    .sort((a, b) => normalizeDateString(a.expiry).localeCompare(normalizeDateString(b.expiry)));
   const selectedBuckets = targetDate
-    ? byDte
+    ? sortedBuckets
         .filter((row) => normalizeDateString(row.expiry) >= targetDate)
-        .sort((a, b) => normalizeDateString(a.expiry).localeCompare(normalizeDateString(b.expiry)))
         .slice(0, 2)
     : [
         byDte.find((row) => row.dte === 0),
@@ -2123,6 +2125,10 @@ function buildFuturesBridgeSection(
   const d1 = selectedBuckets[1];
   const targetExpiries = [d0?.expiry, d1?.expiry].map(normalizeDateString).filter(Boolean);
   const lambdaBands = deriveLambdaBands(analytics, targetExpiries) ?? analytics?.levels?.lambda?.bands;
+  const vanna = withDerivedGreekLevels(analytics, analytics?.levels?.vanna, 'vex');
+  const charm = withDerivedGreekLevels(analytics, analytics?.levels?.charm, 'chex');
+  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex');
+  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex');
   const rawValues = [
     d0?.callWall,
     d0?.putWall,
@@ -2130,22 +2136,22 @@ function buildFuturesBridgeSection(
     d1?.callWall,
     d1?.putWall,
     d1?.gammaFlip,
-    analytics?.levels?.vanna?.flip,
-    analytics?.levels?.vanna?.callWall,
-    analytics?.levels?.vanna?.putWall,
-    analytics?.levels?.charm?.flip,
-    analytics?.levels?.charm?.callWall,
-    analytics?.levels?.charm?.putWall,
+    vanna?.flip,
+    vanna?.callWall,
+    vanna?.putWall,
+    charm?.flip,
+    charm?.callWall,
+    charm?.putWall,
     lambdaBands?.up1,
     lambdaBands?.down1,
     lambdaBands?.up2,
     lambdaBands?.down2,
-    analytics?.levels?.speed?.flip,
-    analytics?.levels?.speed?.callWall,
-    analytics?.levels?.speed?.putWall,
-    analytics?.levels?.zomma?.flip,
-    analytics?.levels?.zomma?.callWall,
-    analytics?.levels?.zomma?.putWall,
+    speed?.flip,
+    speed?.callWall,
+    speed?.putWall,
+    zomma?.flip,
+    zomma?.callWall,
+    zomma?.putWall,
   ];
   if (!rawValues.some((value) => typeof value === 'number' && value !== 0)) return '';
   const multiplier = ticker === 'QQQ' ? 40 : 10;
@@ -2162,6 +2168,56 @@ function buildFuturesBridgeSection(
   };
 
   return rawValues.map(convert).join(',');
+}
+
+type BridgeGreekMetric = 'vex' | 'chex' | 'spex' | 'zomex';
+
+function withDerivedGreekLevels(
+  analytics: AnalyticsResponse | null,
+  levels: { flip?: number; callWall?: number; putWall?: number } | undefined,
+  metric: BridgeGreekMetric
+) {
+  const derived = deriveGreekLevelsFromStrikes(analytics, metric);
+  return {
+    flip: levels?.flip ?? derived?.flip,
+    callWall: levels?.callWall ?? derived?.callWall,
+    putWall: levels?.putWall ?? derived?.putWall,
+  };
+}
+
+function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metric: BridgeGreekMetric) {
+  const rows = (analytics?.strikes ?? [])
+    .filter((row) => typeof row.strike === 'number' && typeof row[metric] === 'number')
+    .map((row) => ({ strike: row.strike, value: row[metric] as number }))
+    .filter((row) => Number.isFinite(row.value) && row.value !== 0)
+    .sort((a, b) => a.strike - b.strike);
+  if (!rows.length) return null;
+
+  const positive = [...rows].sort((a, b) => b.value - a.value)[0];
+  const negative = [...rows].sort((a, b) => a.value - b.value)[0];
+  const crossings: number[] = [];
+  for (let index = 1; index < rows.length; index += 1) {
+    const left = rows[index - 1];
+    const right = rows[index];
+    if (Math.sign(left.value) === Math.sign(right.value)) continue;
+    const denominator = right.value - left.value;
+    crossings.push(
+      denominator === 0
+        ? right.strike
+        : left.strike + ((0 - left.value) * (right.strike - left.strike)) / denominator
+    );
+  }
+
+  const spot = analytics?.summary?.spotPrice ?? 0;
+  const flip = crossings.length
+    ? (spot > 0 ? crossings.sort((a, b) => Math.abs(a - spot) - Math.abs(b - spot))[0] : crossings[0])
+    : undefined;
+
+  return {
+    flip,
+    callWall: positive?.strike,
+    putWall: negative?.strike,
+  };
 }
 
 function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: string[] = []) {
@@ -2202,9 +2258,9 @@ function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: 
 }
 
 function getBridgeTargetDate(selectedDate: string, eodTargetDate: string | null) {
-  if (selectedDate === 'eod') return getTodayEtDate();
+  if (selectedDate === 'eod') return getNextTradingDate(eodTargetDate ?? getTodayEtDate());
   if (selectedDate === 'live') return null;
-  return addCalendarDays(selectedDate, 1) ?? eodTargetDate ?? getTodayEtDate();
+  return getNextTradingDate(selectedDate);
 }
 
 function getBridgeSnapshotDate(selectedDate: string, eodTargetDate: string | null, availableDates: string[]) {
@@ -2222,6 +2278,21 @@ function addCalendarDays(dateString: string, days: number) {
   if (Number.isNaN(date.getTime())) return null;
   date.setDate(date.getDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function getNextTradingDate(dateString: string) {
+  let next = addCalendarDays(dateString, 1) ?? getTodayEtDate();
+  while (isWeekendDate(next)) {
+    next = addCalendarDays(next, 1) ?? next;
+  }
+  return next;
+}
+
+function isWeekendDate(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return false;
+  const day = date.getDay();
+  return day === 0 || day === 6;
 }
 
 function daysBetween(startDate: string, endDate: string) {
