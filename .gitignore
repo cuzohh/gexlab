@@ -172,3 +172,8 @@ init_output.json
 init_plan_output.json
 init_discuss_output.json
 init_execute_output.json
+init_*_output.json
+
+# Runtime market data/cache artifacts
+data/snapshots/
+data/macro_events/latest.json
