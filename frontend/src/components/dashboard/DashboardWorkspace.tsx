@@ -2127,8 +2127,8 @@ function buildFuturesBridgeSection(
   const lambdaBands = deriveLambdaBands(analytics, targetExpiries) ?? analytics?.levels?.lambda?.bands;
   const vanna = withDerivedGreekLevels(analytics, analytics?.levels?.vanna, 'vex');
   const charm = withDerivedGreekLevels(analytics, analytics?.levels?.charm, 'chex');
-  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex', ticker);
-  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex', ticker);
+  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex');
+  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex');
   const rawValues = [
     d0?.callWall,
     d0?.putWall,
@@ -2175,10 +2175,9 @@ type BridgeGreekMetric = 'vex' | 'chex' | 'spex' | 'zomex';
 function withDerivedGreekLevels(
   analytics: AnalyticsResponse | null,
   levels: { flip?: number; callWall?: number; putWall?: number } | undefined,
-  metric: BridgeGreekMetric,
-  ticker?: 'SPY' | 'QQQ'
+  metric: BridgeGreekMetric
 ) {
-  const derived = deriveGreekLevelsFromStrikes(analytics, metric) ?? deriveGreekLevelsFromRaw(analytics, metric, ticker);
+  const derived = deriveGreekLevelsFromStrikes(analytics, metric) ?? deriveGreekLevelsFromRaw(analytics, metric);
   const pick = (value: number | undefined, fallback: number | undefined) =>
     typeof value === 'number' && value !== 0 ? value : fallback;
   return {
@@ -2231,42 +2230,18 @@ function deriveGreekLevelsFromStrikes(analytics: AnalyticsResponse | null, metri
   return deriveGreekLevelsFromRows(rows, analytics?.summary?.spotPrice ?? 0);
 }
 
-function deriveGreekLevelsFromRaw(
-  analytics: AnalyticsResponse | null,
-  metric: BridgeGreekMetric,
-  ticker: 'SPY' | 'QQQ' = 'QQQ'
-) {
+function deriveGreekLevelsFromRaw(analytics: AnalyticsResponse | null, metric: BridgeGreekMetric) {
   if (metric !== 'spex' && metric !== 'zomex') return null;
   const spot = analytics?.summary?.spotPrice ?? 0;
   const raw = analytics?.raw ?? [];
   if (spot <= 0 || !raw.length) return null;
 
-  const reference = normalizeDateString(analytics?.summary?.timestamp) || getTodayEtDate();
-  const r = analytics?.summary?.riskFreeRate ?? 0.045;
-  const q = ticker === 'QQQ' ? 0.006 : 0.015;
   const byStrike = new Map<number, number>();
-
   for (const row of raw) {
     const strike = row.strike;
-    const oi = row.openInterest ?? 0;
-    const sigma = Math.max(row.iv ?? row.impliedVolatility ?? 0.2, 0.01);
-    const expiry = normalizeDateString(row.expiry);
-    if (!strike || !oi || !expiry) continue;
-
-    const t = Math.max(daysBetween(reference, expiry), 1) / 365;
-    const sqrtT = Math.sqrt(t);
-    const d1 = (Math.log(spot / strike) + (r - q + 0.5 * sigma * sigma) * t) / (sigma * sqrtT);
-    const d2 = d1 - sigma * sqrtT;
-    const gamma = typeof row.gamma === 'number'
-      ? row.gamma
-      : (Math.exp(-q * t) * normalPdf(d1)) / (spot * sigma * sqrtT);
-    const speed = -(gamma / spot) * (d1 / (sigma * sqrtT) + 1);
-    const zomma = gamma * (d1 * d2 - 1) / sigma;
-    const unsignedExposure = metric === 'spex'
-      ? oi * speed * 100 * spot * spot
-      : oi * zomma * 100 * spot * spot * 0.01;
-    const signedExposure = row.type === 'call' ? unsignedExposure : -unsignedExposure;
-    byStrike.set(strike, (byStrike.get(strike) ?? 0) + signedExposure);
+    const value = row[metric];
+    if (!strike || typeof value !== 'number') continue;
+    byStrike.set(strike, (byStrike.get(strike) ?? 0) + value);
   }
 
   return deriveGreekLevelsFromRows(
@@ -2275,11 +2250,7 @@ function deriveGreekLevelsFromRaw(
   );
 }
 
-function normalPdf(value: number) {
-  return Math.exp(-0.5 * value * value) / Math.sqrt(2 * Math.PI);
-}
-
-function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: string[] = []) {
+function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: string[] = []): { up1: number; down1: number; up2: number; down2: number } | null {
   const spot = analytics?.summary?.spotPrice ?? 0;
   const rows = analytics?.raw ?? [];
   if (!spot || !rows.length) return null;
@@ -2304,7 +2275,10 @@ function deriveLambdaBands(analytics: AnalyticsResponse | null, targetExpiries: 
   });
 
   const totalWeight = weightedRows.reduce((sum, row) => sum + row.weight, 0);
-  if (!totalWeight) return null;
+  if (!totalWeight) {
+    // Thin OI for front expiries — retry with full chain.
+    return targetExpiries.length ? deriveLambdaBands(analytics, []) : null;
+  }
   const weightedIv = weightedRows.reduce((sum, row) => sum + row.iv * row.weight, 0) / totalWeight;
   const weightedDte = weightedRows.reduce((sum, row) => sum + row.dte * row.weight, 0) / totalWeight;
   const sigmaMove = spot * weightedIv * Math.sqrt(weightedDte / 252);
@@ -2339,6 +2313,22 @@ function addCalendarDays(dateString: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+// NYSE observed holidays (YYYY-MM-DD). Keep in sync with useMarketData.ts.
+const NYSE_HOLIDAYS_SET = new Set([
+  // 2025
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18',
+  '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01',
+  '2025-11-27', '2025-12-25',
+  // 2026 (Jul 4 falls Saturday → observed Fri Jul 3)
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03',
+  '2026-05-25', '2026-06-19', '2026-07-03', '2026-09-07',
+  '2026-11-26', '2026-12-25',
+  // 2027
+  '2027-01-01', '2027-01-18', '2027-02-15', '2027-03-26',
+  '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06',
+  '2027-11-25', '2027-12-24',
+]);
+
 function getNextTradingDate(dateString: string) {
   let next = addCalendarDays(dateString, 1) ?? getTodayEtDate();
   while (isWeekendDate(next)) {
@@ -2351,7 +2341,7 @@ function isWeekendDate(dateString: string) {
   const date = new Date(`${dateString}T00:00:00`);
   if (Number.isNaN(date.getTime())) return false;
   const day = date.getDay();
-  return day === 0 || day === 6;
+  return day === 0 || day === 6 || NYSE_HOLIDAYS_SET.has(dateString);
 }
 
 function daysBetween(startDate: string, endDate: string) {

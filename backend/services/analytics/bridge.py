@@ -241,9 +241,12 @@ class BridgeService:
             for row in (d0, d1)
             if isinstance(row, dict) and row.get("expiry")
         }
-        lambda_bands = BridgeService._derive_lambda_bands(analytics_data, target_expiries)
+        lambda_bands = ((levels.get("lambda") or {}).get("bands") or {})
         if not lambda_bands:
-            lambda_bands = ((levels.get("lambda") or {}).get("bands") or {})
+            # target_expiries empty (no front rows) → pass None to use full chain.
+            lambda_bands = BridgeService._derive_lambda_bands(
+                analytics_data, target_expiries if target_expiries else None
+            ) or {}
         values = [
             fmt(d0.get("callWall")),
             fmt(d0.get("putWall")),

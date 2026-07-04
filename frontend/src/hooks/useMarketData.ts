@@ -23,7 +23,31 @@ const POLL_INTERVAL_MS = 15000;
 const STALE_AFTER_MS = 45000;
 const AGE_TICK_MS = 5000;
 
+// NYSE observed holidays (YYYY-MM-DD). Update annually.
+const NYSE_HOLIDAYS = new Set([
+  // 2025
+  '2025-01-01', '2025-01-20', '2025-02-17', '2025-04-18',
+  '2025-05-26', '2025-06-19', '2025-07-04', '2025-09-01',
+  '2025-11-27', '2025-12-25',
+  // 2026 (Jul 4 falls Saturday → observed Fri Jul 3)
+  '2026-01-01', '2026-01-19', '2026-02-16', '2026-04-03',
+  '2026-05-25', '2026-06-19', '2026-07-03', '2026-09-07',
+  '2026-11-26', '2026-12-25',
+  // 2027
+  '2027-01-01', '2027-01-18', '2027-02-15', '2027-03-26',
+  '2027-05-31', '2027-06-18', '2027-07-05', '2027-09-06',
+  '2027-11-25', '2027-12-24',
+]);
+
+function isNonTradingDay(): boolean {
+  const etDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const dayOfWeek = new Date(`${etDate}T00:00:00`).getDay();
+  return dayOfWeek === 0 || dayOfWeek === 6 || NYSE_HOLIDAYS.has(etDate);
+}
+
 function getSessionMode(): string {
+  if (isNonTradingDay()) return 'Market Closed';
+
   const parts = new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: 'numeric',
@@ -50,6 +74,7 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
   const [ageMs, setAgeMs] = useState<number | null>(null);
   const [pollingPaused, setPollingPaused] = useState(false);
   const mountedRef = useRef(true);
+  const hasDataRef = useRef(false);
   // Ref so the ageTimer interval always reads the latest timestamp without
   // needing to re-register the interval on every analytics update.
   const lastUpdatedRef = useRef<string | null>(null);
@@ -75,6 +100,7 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
       if (healthResult) setHealth(healthResult);
       setAnalytics(analyticsData);
       setBasis(basisMetrics.basis?.[ticker] ?? null);
+      hasDataRef.current = true;
       setError(null);
       setStatus('ready');
       setAgeMs(analyticsData.summary?.timestamp ? Date.now() - new Date(analyticsData.summary.timestamp).getTime() : null);
@@ -99,17 +125,21 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
     mountedRef.current = true;
     void refresh();
 
-    const shouldPause = getSessionMode() === 'Overnight Session';
+    const mode = getSessionMode();
+    const shouldPause = mode === 'Overnight Session' || mode === 'Market Closed';
     setPollingPaused(shouldPause);
 
-    if (shouldPause && !analytics) {
+    // Only go idle before 4am — no data worth showing yet.
+    // On weekends/holidays keep loading EOD data from last session.
+    if (mode === 'Overnight Session' && !analytics) {
       setStatus('idle');
     }
 
     const poll = window.setInterval(() => {
-      const nextPause = getSessionMode() === 'Overnight Session';
+      const nextMode = getSessionMode();
+      const nextPause = nextMode === 'Overnight Session' || nextMode === 'Market Closed';
       setPollingPaused(nextPause);
-      if (!nextPause) {
+      if (!nextPause || !hasDataRef.current) {
         void refresh();
       }
     }, POLL_INTERVAL_MS);
