@@ -163,7 +163,7 @@ f_draw_zones() =>
             bar_ms = int(math.max(1, nz(time - time[1], 60000)))
             if label_mode == "Combined"
                 array.push(zone_labels, label.new(x=bar_index + 26, y=anchor, text=txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=txt_col, size=size.small, textalign=text.align_left))
-            else if component_size > 0
+            if label_mode == "Colored Pieces" and component_size > 0
                 for j = 0 to component_size - 1
                     if array.get(component_zone, j) == i
                         label_text = label_cursor == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
