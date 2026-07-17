@@ -29,9 +29,10 @@ logger = logging.getLogger("main")
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global _bg_task
     for ticker in TICKERS:
         _state_locks[ticker] = asyncio.Lock()
-    asyncio.create_task(update_data_loop())
+    _bg_task = asyncio.create_task(update_data_loop())
     yield
 
 
@@ -61,6 +62,8 @@ state = {
 
 # Per-ticker locks ensure API handlers never read a partially-updated state dict.
 _state_locks: dict[str, asyncio.Lock] = {}
+# Strong reference prevents the background task from being garbage-collected.
+_bg_task: asyncio.Task | None = None
 
 ingestion_services = {t: GexIngestionService(t) for t in TICKERS}
 analytics_service = GexAnalyticsService()

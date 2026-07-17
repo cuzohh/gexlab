@@ -53,26 +53,35 @@ class GexAnalyticsService:
         ticker = raw_data.get("symbol", "SPY").upper()
         q = 0.006 if ticker == "QQQ" else 0.015
         
+        # Drop rows with unrecognised type before computing any arrays so all
+        # vectors stay aligned with df_raw throughout.
+        _type_flags = df_raw['type'].str.lower().map({'call': 'c', 'put': 'p'})
+        df_raw = df_raw[_type_flags.notna()].copy()
+        flags = _type_flags[_type_flags.notna()].values
+
         # Prepare inputs for engine
         S = np.full(len(df_raw), spot)
         K = df_raw['strike'].values
-        
+
         # Calculate Time to Expiration (T) in years.
         # Use 4pm ET on the expiry date as the contract's expiry moment so that
         # 0DTE contracts don't go negative intraday (which would make gamma explode).
+        # Avoid .dt accessor on object-dtype Series by computing T per-row in Python.
         now_et = datetime.now(_ET)
-        df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry']).apply(
-            lambda d: datetime(d.year, d.month, d.day, 16, 0, tzinfo=_ET)
-        )
-        T = (df_raw['expiry_dt'] - now_et).dt.total_seconds() / (365 * 24 * 3600)
-        T = np.maximum(T, 1 / (365 * 24))  # floor at 1 hour to keep gamma finite
-        
+        _secs_per_year = 365 * 24 * 3600
+
+        def _expiry_to_T(expiry_str: str) -> float:
+            d = pd.to_datetime(expiry_str)
+            expiry_close = datetime(d.year, d.month, d.day, 16, 0, tzinfo=_ET)
+            secs = (expiry_close - now_et).total_seconds()
+            return max(secs, 3600) / _secs_per_year
+
+        T = df_raw['expiry'].apply(_expiry_to_T).values
+
         # Implied Volatility — fill NaN with a neutral 20% default before flooring
         # so a single missing IV doesn't propagate NaN through all Greeks.
         sigma = df_raw['impliedVolatility'].fillna(0.2).values
         sigma = np.maximum(sigma, 0.01)
-        
-        flags = df_raw['type'].map({'call': 'c', 'put': 'p'}).values
 
         # 1. Calculate Standard Greeks
         greeks = self.engine.calculate_basic_greeks(S, K, T, r, sigma, flags, q=q)
@@ -131,7 +140,7 @@ class GexAnalyticsService:
         df_raw['chex'] = np.where(is_call, chex_all, -chex_all)
 
         # Speed Exposure (SPEX) — rate of gamma change per $1 spot move; gamma instability zones
-        spex_all = oi * higher['speed'] * 100 * spot * spot
+        spex_all = oi * higher['speed'] * 100 * spot * spot * 0.01
         df_raw['spex'] = np.where(is_call, spex_all, -spex_all)
 
         # Zomma Exposure (ZOMEX) — gamma sensitivity to vol; activates on vol spikes
@@ -190,7 +199,7 @@ class GexAnalyticsService:
                 "totalNetDex": total_dex,
                 "spotPrice": spot,
                 "riskFreeRate": r,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now(_ET).isoformat()
             },
             "strikes": agg.to_dict(orient="records"),
             "surface": surface,

@@ -461,12 +461,13 @@ class LevelIntelligenceService:
 
         reference_timestamp = pd.to_datetime(
             raw_data.get("timestamp") or analytics_data.get("summary", {}).get("timestamp"),
-            errors="coerce"
+            errors="coerce",
+            utc=True,
         )
         if pd.isna(reference_timestamp):
-            reference_date = pd.Timestamp.utcnow().normalize()
+            reference_date = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
         else:
-            reference_date = reference_timestamp.normalize()
+            reference_date = reference_timestamp.tz_convert("America/New_York").normalize().tz_localize(None)
 
         df_raw = df_raw.loc[valid_expiry].copy()
         df_raw["dte"] = (df_raw["expiry_dt"] - reference_date).dt.days
@@ -493,7 +494,7 @@ class LevelIntelligenceService:
                 .agg(agg_spec)
                 .reset_index()
             )
-            expiry_value = dte_df["expiry"].iloc[0]
+            expiry_value = dte_df["expiry"].min()
             dte_levels = self._summarize_levels(agg.to_dict(orient="records"), dte_df.to_dict(orient="records"), spot_price)
             dte_levels["dte"] = int(dte)
             dte_levels["expiry"] = str(expiry_value)

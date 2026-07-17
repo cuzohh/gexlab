@@ -22,13 +22,19 @@ class BasisService:
             return {"etf_price": 0.0, "future_price": 0.0, "basis": 0.0}
 
         try:
-            # Fetch ETF price
+            # Fetch ETF price (fast_info is a FastInfo object, not a dict — use subscript)
             etf = yf.Ticker(etf_symbol)
-            etf_price = etf.fast_info.get('lastPrice') or etf.fast_info.get('last_price') or 0.0
-            
+            try:
+                etf_price = float(etf.fast_info['lastPrice'] or 0.0)
+            except (KeyError, TypeError):
+                etf_price = 0.0
+
             # Fetch Future price
             future = yf.Ticker(future_ticker)
-            future_price = future.fast_info.get('lastPrice') or future.fast_info.get('last_price') or 0.0
+            try:
+                future_price = float(future.fast_info['lastPrice'] or 0.0)
+            except (KeyError, TypeError):
+                future_price = 0.0
             
             # Calculation
             # Note: For S&P, ES is usually 10x SPY + Basis. 
