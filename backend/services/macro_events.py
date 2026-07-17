@@ -138,13 +138,13 @@ class MacroEventsService:
                 continue
 
             html = response.text
-            for start, end in re.findall(r"FOMC Meeting.*?([A-Z][a-z]+)\s+(\d{1,2})\s*-\s*(\d{1,2})", html):
-                key = f"{year}-{month_name}-{start}-{end}"
+            for month_match, start, end in re.findall(r"FOMC Meeting.*?([A-Z][a-z]+)\s+(\d{1,2})\s*-\s*(\d{1,2})", html):
+                key = f"{year}-{month_match}-{start}-{end}"
                 if key in seen:
                     continue
                 seen.add(key)
                 try:
-                    month_index = datetime.strptime(start, "%B").month
+                    month_index = datetime.strptime(month_match, "%B").month
                 except ValueError:
                     try:
                         month_index = datetime.strptime(month_name, "%B").month

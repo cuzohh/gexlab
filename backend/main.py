@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -26,12 +27,20 @@ from models import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("main")
 
-app = FastAPI(title="GexLab v2 API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    for ticker in TICKERS:
+        _state_locks[ticker] = asyncio.Lock()
+    asyncio.create_task(update_data_loop())
+    yield
 
+
+app = FastAPI(title="GexLab v2 API", lifespan=lifespan)
+
+# allow_credentials must not be used with allow_origins=["*"] (Fetch spec forbids it).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -153,11 +162,13 @@ async def update_data_loop():
 
                 # Write all keys together after all async work is done so API
                 # handlers never observe a partially-updated state.
-                async with _state_locks[ticker]:
-                    state["data"][ticker]["raw"] = raw_data
-                    state["data"][ticker]["basis"] = basis_data
-                    if analytics is not None:
-                        state["data"][ticker]["analytics"] = analytics
+                # Skip the write if fetch returned empty — preserve last good state.
+                if raw_data.get("data"):
+                    async with _state_locks[ticker]:
+                        state["data"][ticker]["raw"] = raw_data
+                        state["data"][ticker]["basis"] = basis_data
+                        if analytics is not None:
+                            state["data"][ticker]["analytics"] = analytics
 
                 snapshot_date = get_eod_snapshot_date()
                 if should_save_eod_snapshot(ticker, snapshot_date):
@@ -183,14 +194,6 @@ async def update_data_loop():
         await asyncio.sleep(30)
 
 
-@app.on_event("startup")
-async def startup_event():
-    # Locks must be created inside the running event loop.
-    for ticker in TICKERS:
-        _state_locks[ticker] = asyncio.Lock()
-    asyncio.create_task(update_data_loop())
-
-
 @app.get("/", response_model=RootResponse)
 async def root() -> RootResponse:
     return {"message": "GexLab v2 API is running. Visit /api/health for status."}
@@ -208,13 +211,12 @@ async def health_check() -> HealthResponse:
 @app.get("/api/metrics/raw", response_model=RawMetricsResponse)
 async def get_raw_metrics() -> RawMetricsResponse:
     result = {}
+    basis = {}
     for ticker in TICKERS:
         async with _state_locks[ticker]:
             result[ticker] = state["data"][ticker]["raw"]
-    return {
-        "metrics": result,
-        "basis": {ticker: state["data"][ticker]["basis"] for ticker in TICKERS},
-    }
+            basis[ticker] = state["data"][ticker]["basis"]
+    return {"metrics": result, "basis": basis}
 
 
 @app.get("/api/metrics/basis")

@@ -62,7 +62,7 @@ class GexIngestionService:
                 full_data.append(pd.concat([calls, puts]))
                 
                 # Rate limiting to avoid Yahoo IP block
-                time.sleep(0.5) 
+                time.sleep(0.2)
             except Exception as e:
                 logger.error(f"Failed to fetch chain for {expiry}: {e}")
 

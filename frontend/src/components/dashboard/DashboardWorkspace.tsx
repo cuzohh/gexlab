@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ArrowUp, Check, Copy, Download, Radio, RefreshCw, Waves } from 'lucide-react';
 import GexStrikeChart from '../GexStrikeChart';
@@ -66,6 +66,8 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [datesLoading, setDatesLoading] = useState(true);
+  const selectedDateRef = useRef(selectedDate);
+  selectedDateRef.current = selectedDate;
   const [macroEvents, setMacroEvents] = useState<MacroEvent[]>([]);
   const { health, analytics, basis, error, status, ageMs, pollingPaused, refresh } = useMarketData(ticker);
 
@@ -124,7 +126,8 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
         const response = await fetchSnapshotDates(ticker);
         if (cancelled) return;
         setAvailableDates(response.dates);
-        if (selectedDate !== 'live' && selectedDate !== 'eod' && !response.dates.includes(selectedDate)) {
+        const cur = selectedDateRef.current;
+        if (cur !== 'live' && cur !== 'eod' && !response.dates.includes(cur)) {
           setSelectedDate('eod');
         }
       } catch (err) {
@@ -141,7 +144,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
     return () => {
       cancelled = true;
     };
-  }, [ticker, selectedDate]);
+  }, [ticker]);
 
   // Resolve EOD to the most recent snapshot strictly before today (America/New_York).
   // Falls back to availableDates[0] only when no prior-day data exists yet.
@@ -271,9 +274,11 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
     };
 
     void loadMacroEvents();
+    const interval = window.setInterval(() => { void loadMacroEvents(); }, 6 * 60 * 60 * 1000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -360,28 +365,32 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   }
 
   const handleBridgeCopy = async () => {
-    let payload = '';
+    try {
+      let payload = '';
 
-    if (isLive && !showingOvernightFallback) {
-      payload = (await fetchCombinedBridge()).pine;
-    } else {
-      const snapshotDate = getBridgeSnapshotDate(selectedDate, eodTargetDate, availableDates);
-      const bridgeTargetDate = showingOvernightFallback
-        ? getNextTradingDate(snapshotDate ?? getTodayEtDate())
-        : getBridgeTargetDate(selectedDate, eodTargetDate) ?? getTodayEtDate();
-      payload = await buildSavedFuturesBridgePayload(
-        ticker,
-        sourceAnalytics,
-        sourceBasis,
-        bridgeTargetDate,
-        snapshotDate
-      );
+      if (isLive && !showingOvernightFallback) {
+        payload = (await fetchCombinedBridge()).pine;
+      } else {
+        const snapshotDate = getBridgeSnapshotDate(selectedDate, eodTargetDate, availableDates);
+        const bridgeTargetDate = showingOvernightFallback
+          ? getNextTradingDate(snapshotDate ?? getTodayEtDate())
+          : getBridgeTargetDate(selectedDate, eodTargetDate) ?? getTodayEtDate();
+        payload = await buildSavedFuturesBridgePayload(
+          ticker,
+          sourceAnalytics,
+          sourceBasis,
+          bridgeTargetDate,
+          snapshotDate
+        );
+      }
+
+      if (!payload) return;
+      await copyToClipboard(payload);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
     }
-
-    if (!payload) return;
-    await copyToClipboard(payload);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
   };
 
   const handleSnapshotCopy = async () => {

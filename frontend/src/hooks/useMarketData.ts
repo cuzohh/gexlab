@@ -107,7 +107,7 @@ export function useMarketData(ticker: Ticker): UseMarketDataResult {
     } catch (err) {
       if (!mountedRef.current) return;
 
-      const isNetworkError = err instanceof TypeError && err.message === 'Failed to fetch';
+      const isNetworkError = err instanceof TypeError;
       const is503 = err instanceof ApiError && err.status === 503;
 
       if (isNetworkError || is503) {

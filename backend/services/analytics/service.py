@@ -4,7 +4,10 @@ import yfinance as yf
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, Any
+from zoneinfo import ZoneInfo
 from services.analytics.engine import GreeksEngine
+
+_ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger("analytics_service")
 
@@ -54,11 +57,15 @@ class GexAnalyticsService:
         S = np.full(len(df_raw), spot)
         K = df_raw['strike'].values
         
-        # Calculate Time to Expiration (T) in years
-        now = datetime.now()
-        df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry'])
-        T = (df_raw['expiry_dt'] - now).dt.total_seconds() / (365 * 24 * 3600)
-        T = np.maximum(T, 1e-5) # Prevent division by zero for expired contracts
+        # Calculate Time to Expiration (T) in years.
+        # Use 4pm ET on the expiry date as the contract's expiry moment so that
+        # 0DTE contracts don't go negative intraday (which would make gamma explode).
+        now_et = datetime.now(_ET)
+        df_raw['expiry_dt'] = pd.to_datetime(df_raw['expiry']).apply(
+            lambda d: datetime(d.year, d.month, d.day, 16, 0, tzinfo=_ET)
+        )
+        T = (df_raw['expiry_dt'] - now_et).dt.total_seconds() / (365 * 24 * 3600)
+        T = np.maximum(T, 1 / (365 * 24))  # floor at 1 hour to keep gamma finite
         
         # Implied Volatility — fill NaN with a neutral 20% default before flooring
         # so a single missing IV doesn't propagate NaN through all Greeks.

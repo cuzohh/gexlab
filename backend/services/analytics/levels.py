@@ -1,6 +1,10 @@
 import numpy as np
 import pandas as pd
+from datetime import datetime
 from typing import Dict, Any, List
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
 
 class LevelIntelligenceService:
     @staticmethod
@@ -15,8 +19,13 @@ class LevelIntelligenceService:
             return None
 
         signs = np.sign(series)
-        sign_changes = signs.diff().fillna(0)
-        crossings = df[sign_changes != 0]
+        non_zero_mask = signs != 0
+        df_nz = df[non_zero_mask].reset_index(drop=True)
+        series_nz = series[non_zero_mask].reset_index(drop=True)
+        if df_nz.empty:
+            return None
+        sign_changes = np.sign(series_nz).diff().fillna(0)
+        crossings = df_nz[sign_changes != 0]
 
         if crossings.empty:
             return None
@@ -24,10 +33,10 @@ class LevelIntelligenceService:
         flip_prices = []
         for idx in crossings.index:
             if idx == 0:
-                flip_prices.append(float(df.iloc[0]["strike"]))
+                flip_prices.append(float(df_nz.iloc[0]["strike"]))
                 continue
-            left = df.iloc[idx - 1]
-            right = df.iloc[idx]
+            left = df_nz.iloc[idx - 1]
+            right = df_nz.iloc[idx]
             lv = left[metric_key]
             rv = right[metric_key]
             if rv == lv:
@@ -209,7 +218,7 @@ class LevelIntelligenceService:
         weights = pd.to_numeric(df["lex"], errors="coerce").abs().fillna(0.0)
         iv = pd.to_numeric(df["iv"], errors="coerce").clip(lower=0.01, upper=3.0)
         expiry = pd.to_datetime(df["expiry"], errors="coerce")
-        reference = pd.Timestamp.utcnow().tz_localize(None).normalize()
+        reference = pd.Timestamp(datetime.now(_ET).date())
         dte = (expiry.dt.tz_localize(None).dt.normalize() - reference).dt.days.clip(lower=1, upper=30)
         valid = (weights > 0) & iv.notna() & dte.notna()
         if not valid.any():
@@ -323,14 +332,19 @@ class LevelIntelligenceService:
             return None
 
         df['sign'] = np.sign(df['gex'])
-        df['sign_change'] = df['sign'].diff().fillna(0)
-        crossings = df[df['sign_change'] != 0]
+        # Drop exact-zero rows before diff so 0 doesn't register as a crossing.
+        non_zero = df[df['sign'] != 0].copy()
+        if non_zero.empty:
+            return None
+        non_zero = non_zero.reset_index(drop=True)
+        non_zero['sign_change'] = non_zero['sign'].diff().fillna(0)
+        crossings = non_zero[non_zero['sign_change'] != 0]
 
         if crossings.empty:
             return None
 
         flip_prices = [
-            LevelIntelligenceService._interpolate_crossing(df, idx)
+            LevelIntelligenceService._interpolate_crossing(non_zero, idx)
             for idx in crossings.index
         ]
 
