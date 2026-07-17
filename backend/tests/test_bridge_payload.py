@@ -165,6 +165,12 @@ class BridgePayloadTests(unittest.TestCase):
 
     def test_generate_futures_levels_csv_appends_delta_levels_for_confluence(self) -> None:
         analytics = {
+            "strikes": [
+                {"strike": 515.0, "dex": 700.0},
+                {"strike": 520.0, "dex": 600.0},
+                {"strike": 485.0, "dex": -700.0},
+                {"strike": 480.0, "dex": -600.0},
+            ],
             "levels": {
                 "byDte": [
                     {"dte": 0, "gammaFlip": 499.0, "callWall": 509.0, "putWall": 491.0},
@@ -193,6 +199,34 @@ class BridgePayloadTests(unittest.TestCase):
         self.assertEqual(
             BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
             "20360,19640,19960,20480,19520,19920,20600,0,0,0,0,19400,0,0,0,0,20600,20800,0,19400,19200,0",
+        )
+
+    def test_generate_futures_levels_csv_delta_slots_are_signed_not_upside_downside(self) -> None:
+        analytics = {
+            "levels": {
+                "byDte": [
+                    {"dte": 0, "gammaFlip": 499.0, "callWall": 509.0, "putWall": 491.0},
+                    {"dte": 1, "gammaFlip": 498.0, "callWall": 512.0, "putWall": 488.0},
+                ],
+                "dex": {
+                    "majorWalls": {
+                        "calls": [{"strike": 520.0, "gex": -999.0}],
+                        "puts": [{"strike": 480.0, "gex": 999.0}],
+                    }
+                },
+            },
+            "strikes": [
+                {"strike": 520.0, "dex": -999.0},
+                {"strike": 515.0, "dex": 700.0},
+                {"strike": 480.0, "dex": 999.0},
+                {"strike": 485.0, "dex": -700.0},
+            ],
+        }
+        basis = {"etf_price": 500.0, "future_price": 20000.0, "basis": 0.0}
+
+        self.assertEqual(
+            BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
+            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0,19200,20600,0,20800,19400,0",
         )
 
     def test_generate_greek_levels_csv_uses_zomma_walls(self) -> None:

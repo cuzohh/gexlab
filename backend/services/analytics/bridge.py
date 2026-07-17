@@ -276,9 +276,50 @@ class BridgeService:
             strike = top_neg[i]["strike"] if i < len(top_neg) else None
             values.append(fmt(strike))
 
-        dex_walls = (((levels.get("dex") or {}).get("majorWalls") or {}))
-        dex_calls = dex_walls.get("calls") or []
-        dex_puts = dex_walls.get("puts") or []
+        def top_signed_metric(metric_key: str) -> tuple[list[Dict[str, Any]], list[Dict[str, Any]]]:
+            rows = analytics_data.get("strikes", []) or []
+            parsed = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    strike = float(row.get("strike"))
+                    metric = float(row.get(metric_key) or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if strike == 0 or metric == 0:
+                    continue
+                parsed.append({"strike": strike, metric_key: metric})
+            positive = sorted(
+                (row for row in parsed if row[metric_key] > 0),
+                key=lambda row: row[metric_key],
+                reverse=True,
+            )
+            negative = sorted(
+                (row for row in parsed if row[metric_key] < 0),
+                key=lambda row: row[metric_key],
+            )
+            return positive, negative
+
+        dex_calls, dex_puts = top_signed_metric("dex")
+        if not dex_calls and not dex_puts:
+            dex_walls = (((levels.get("dex") or {}).get("majorWalls") or {}))
+
+            def signed_wall_rows(rows: list[Dict[str, Any]], sign: int) -> list[Dict[str, Any]]:
+                signed = []
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    try:
+                        metric = float(row.get("gex") or 0.0)
+                    except (TypeError, ValueError):
+                        continue
+                    if (sign > 0 and metric > 0) or (sign < 0 and metric < 0):
+                        signed.append(row)
+                return signed
+
+            dex_calls = signed_wall_rows(dex_walls.get("calls") or [], 1)
+            dex_puts = signed_wall_rows(dex_walls.get("puts") or [], -1)
         for i in range(3):
             strike = dex_calls[i]["strike"] if i < len(dex_calls) else None
             values.append(fmt(strike))
