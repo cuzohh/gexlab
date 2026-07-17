@@ -223,7 +223,7 @@ class BridgeService:
     ) -> str:
         """
         Futures-ready compact level pack:
-        d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d,sf,scw,spw,zf,zcw,zpw
+        d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,gp1,gp2,gp3,gp4,gp5,gn1,gn2,gn3,gn4,gn5,dc1,dc2,dc3,dp1,dp2,dp3
         """
         levels = analytics_data.get("levels", {}) or {}
 
@@ -234,21 +234,6 @@ class BridgeService:
             return f"{converted:.2f}".rstrip("0").rstrip(".")
 
         d0, d1 = (BridgeService._front_expiry_rows(analytics_data) + [{}, {}])[:2]
-        vanna = levels.get("vanna", {}) or {}
-        charm = levels.get("charm", {}) or {}
-        speed = levels.get("speed", {}) or {}
-        zomma = levels.get("zomma", {}) or {}
-        target_expiries = {
-            str(row.get("expiry"))[:10]
-            for row in (d0, d1)
-            if isinstance(row, dict) and row.get("expiry")
-        }
-        lambda_bands = ((levels.get("lambda") or {}).get("bands") or {})
-        if not lambda_bands:
-            # target_expiries empty (no front rows) → pass None to use full chain.
-            lambda_bands = BridgeService._derive_lambda_bands(
-                analytics_data, target_expiries if target_expiries else None
-            ) or {}
         values = [
             fmt(d0.get("callWall")),
             fmt(d0.get("putWall")),
@@ -256,23 +241,51 @@ class BridgeService:
             fmt(d1.get("callWall")),
             fmt(d1.get("putWall")),
             fmt(d1.get("gammaFlip")),
-            fmt(vanna.get("flip")),
-            fmt(vanna.get("callWall")),
-            fmt(vanna.get("putWall")),
-            fmt(charm.get("flip")),
-            fmt(charm.get("callWall")),
-            fmt(charm.get("putWall")),
-            fmt(lambda_bands.get("up1")),
-            fmt(lambda_bands.get("down1")),
-            fmt(lambda_bands.get("up2")),
-            fmt(lambda_bands.get("down2")),
-            fmt(speed.get("flip")),
-            fmt(speed.get("callWall")),
-            fmt(speed.get("putWall")),
-            fmt(zomma.get("flip")),
-            fmt(zomma.get("callWall")),
-            fmt(zomma.get("putWall")),
         ]
+
+        top_gex = levels.get("topGex", {}) or {}
+        plotted_walls = {
+            BridgeService._convert_to_futures_price(value, basis_data, ticker)
+            for value in (
+                d0.get("callWall"),
+                d0.get("putWall"),
+                d1.get("callWall"),
+                d1.get("putWall"),
+                levels.get("callWall"),
+                levels.get("putWall"),
+            )
+        }
+        plotted_walls.discard(None)
+
+        def unplotted(rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+            filtered = []
+            for row in rows:
+                strike = row.get("strike") if isinstance(row, dict) else None
+                converted = BridgeService._convert_to_futures_price(strike, basis_data, ticker)
+                if converted is None or converted in plotted_walls:
+                    continue
+                filtered.append(row)
+            return filtered
+
+        top_pos = unplotted(top_gex.get("positive") or [])
+        top_neg = unplotted(top_gex.get("negative") or [])
+        for i in range(5):
+            strike = top_pos[i]["strike"] if i < len(top_pos) else None
+            values.append(fmt(strike))
+        for i in range(5):
+            strike = top_neg[i]["strike"] if i < len(top_neg) else None
+            values.append(fmt(strike))
+
+        dex_walls = (((levels.get("dex") or {}).get("majorWalls") or {}))
+        dex_calls = dex_walls.get("calls") or []
+        dex_puts = dex_walls.get("puts") or []
+        for i in range(3):
+            strike = dex_calls[i]["strike"] if i < len(dex_calls) else None
+            values.append(fmt(strike))
+        for i in range(3):
+            strike = dex_puts[i]["strike"] if i < len(dex_puts) else None
+            values.append(fmt(strike))
+
         return ",".join(values)
 
     @staticmethod
@@ -346,3 +359,4 @@ class BridgeService:
         ]
 
         return ",".join(values)
+

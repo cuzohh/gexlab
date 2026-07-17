@@ -264,7 +264,7 @@ async def get_combined_bridge():
     """
     Returns legacy ETF CSVs plus the default futures-ready Pine payload.
     Pine format: es_csv|nq_csv.
-    Each section: d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,vf,vcw,vpw,cf,ccw,cpw,l1u,l1d,l2u,l2d,sf,scw,spw,zf,zcw,zpw.
+    Each section: d0cw,d0pw,d0vt,d1cw,d1pw,d1vt,gp1,gp2,gp3,gp4,gp5,gn1,gn2,gn3,gn4,gn5,dc1,dc2,dc3,dp1,dp2,dp3.
     """
     spy_csv = ""
     qqq_csv = ""
@@ -292,7 +292,7 @@ async def get_combined_bridge():
                 nq_csv     = bridge_service.generate_futures_levels_csv(analytics, basis, ticker)
                 timestamp  = analytics.get("summary", {}).get("timestamp") or timestamp
 
-    # Pine format: es_csv|nq_csv. Each section has walls/VT plus vanna/charm levels.
+    # Pine format: es_csv|nq_csv. Each section has walls/VT plus strongest gamma and delta levels.
     pine_string = f"{es_csv}|{nq_csv}"
     return {
         "spy": spy_csv, "qqq": qqq_csv,
