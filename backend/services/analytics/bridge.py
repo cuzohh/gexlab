@@ -1,6 +1,6 @@
 import json
 import math
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Dict, Any
 from zoneinfo import ZoneInfo
 
@@ -98,13 +98,37 @@ class BridgeService:
         return datetime.now(_MARKET_TIMEZONE).date()
 
     @staticmethod
+    def _next_weekday(day: date) -> date:
+        next_day = day + timedelta(days=1)
+        while next_day.weekday() >= 5:
+            next_day += timedelta(days=1)
+        return next_day
+
+    @staticmethod
+    def _front_expiry_reference_date(analytics_data: Dict[str, Any]) -> date:
+        timestamp = (analytics_data.get("summary", {}) or {}).get("timestamp")
+        if isinstance(timestamp, str):
+            try:
+                parsed = datetime.fromisoformat(timestamp)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=_MARKET_TIMEZONE)
+                parsed_et = parsed.astimezone(_MARKET_TIMEZONE)
+                reference = parsed_et.date()
+                if parsed_et.time() >= time(16, 0):
+                    return BridgeService._next_weekday(reference)
+                return reference
+            except ValueError:
+                pass
+        return BridgeService._reference_date(analytics_data)
+
+    @staticmethod
     def _front_expiry_rows(analytics_data: Dict[str, Any]) -> list[Dict[str, Any]]:
         levels = analytics_data.get("levels", {}) or {}
         rows = [
             row for row in (levels.get("byDte", []) or [])
             if isinstance(row, dict)
         ]
-        reference_date = BridgeService._reference_date(analytics_data)
+        reference_date = BridgeService._front_expiry_reference_date(analytics_data)
 
         dated_rows = []
         for row in rows:

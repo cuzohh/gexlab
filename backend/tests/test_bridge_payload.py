@@ -78,6 +78,24 @@ class BridgePayloadTests(unittest.TestCase):
             "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
         )
 
+    def test_generate_futures_levels_csv_rolls_friday_eod_to_monday_front_expiry(self) -> None:
+        analytics = {
+            "summary": {"timestamp": "2026-06-26T16:05:00-04:00"},
+            "levels": {
+                "byDte": [
+                    {"expiry": "2026-06-26", "dte": 0, "gammaFlip": 490.0, "callWall": 500.0, "putWall": 480.0},
+                    {"expiry": "2026-06-29", "dte": 1, "gammaFlip": 499.0, "callWall": 509.0, "putWall": 491.0},
+                    {"expiry": "2026-06-30", "dte": 2, "gammaFlip": 498.0, "callWall": 512.0, "putWall": 488.0},
+                ],
+            },
+        }
+        basis = {"etf_price": 500.0, "future_price": 20000.0, "basis": 0.0}
+
+        self.assertEqual(
+            BridgeService.generate_futures_levels_csv(analytics, basis, "QQQ"),
+            "20360,19640,19960,20480,19520,19920,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        )
+
     def test_generate_futures_levels_csv_converts_spy_to_es(self) -> None:
         analytics = {
             "levels": {
