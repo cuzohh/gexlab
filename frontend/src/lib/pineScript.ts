@@ -14,7 +14,8 @@ show_delta = input.bool(true, "Δ Levels", group="Levels")
 delta_count = input.int(3, "Δ Levels Per Side (0-3)", minval=0, maxval=3, group="Levels")
 show_boxes = input.bool(true, "Boxes", group="Style")
 box_half_override = input.float(0.0, "Box Half-Width, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
-merge_override = input.float(0.0, "Merge Distance, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
+merge_preset = input.string("Normal", "Merge Sensitivity", options=["Tight", "Normal", "Wide", "Custom"], group="Style")
+merge_override = input.float(0.0, "Custom Merge Distance, Points", minval=0.0, step=0.25, group="Style")
 label_spacing_mult = input.int(2, "Label Spacing Multiplier", minval=1, maxval=5, group="Style")
 
 symbol_text = str.upper(syminfo.ticker)
@@ -22,7 +23,8 @@ is_nq = str.contains(symbol_text, "NQ")
 section_idx = is_nq ? 1 : 0
 auto_half_points = is_nq ? 20.0 : 5.0
 box_half_points = box_half_override > 0 ? box_half_override : auto_half_points
-merge_points = merge_override > 0 ? merge_override : box_half_points * 2.0
+merge_mult = merge_preset == "Tight" ? 1.0 : merge_preset == "Wide" ? 3.0 : 2.0
+merge_points = merge_preset == "Custom" and merge_override > 0 ? merge_override : box_half_points * merge_mult
 
 f_parse(idx) =>
     sections = str.split(pine_data, "|")
@@ -106,7 +108,7 @@ f_add_component(zone_idx, txt, col) =>
         array.push(component_text, txt)
         array.push(component_color, col)
 
-f_add_zone(price, txt, col) =>
+f_add_zone(price, txt, col, show_when_merged) =>
     if not na(price)
         merged = false
         zone_size = array.size(zone_anchor)
@@ -120,10 +122,12 @@ f_add_zone(price, txt, col) =>
                     array.set(zone_min, i, math.min(array.get(zone_min, i), price))
                     array.set(zone_max, i, math.max(array.get(zone_max, i), price))
                     existing = array.get(zone_text, i)
-                    array.set(zone_text, i, str.contains(existing, txt) ? existing : existing + " / " + txt)
+                    if show_when_merged
+                        array.set(zone_text, i, str.contains(existing, txt) ? existing : existing + " / " + txt)
                     array.set(zone_color, i, #f59e0b)
                     array.set(zone_count, i, new_count)
-                    f_add_component(i, txt, col)
+                    if show_when_merged
+                        f_add_component(i, txt, col)
                     merged := true
                     break
         if not merged
@@ -166,27 +170,27 @@ f_draw_zones() =>
 if barstate.islast
     f_clear_drawings()
     f_clear_zones()
-    f_add_zone(d0cw, "0DTE Γ CW", #15803d)
-    f_add_zone(d0pw, "0DTE Γ PW", #b91c1c)
-    f_add_zone(d0vt, "0DTE Γ VT", #b45309)
-    f_add_zone(d1cw, "1DTE Γ CW", #15803d)
-    f_add_zone(d1pw, "1DTE Γ PW", #b91c1c)
-    f_add_zone(d1vt, "1DTE Γ VT", #b45309)
-    f_add_zone(gp1, "Γ +1", #16a34a)
-    f_add_zone(gp2, "Γ +2", #16a34a)
-    f_add_zone(gp3, "Γ +3", #16a34a)
-    f_add_zone(gp4, "Γ +4", #16a34a)
-    f_add_zone(gp5, "Γ +5", #16a34a)
-    f_add_zone(gn1, "Γ -1", #dc2626)
-    f_add_zone(gn2, "Γ -2", #dc2626)
-    f_add_zone(gn3, "Γ -3", #dc2626)
-    f_add_zone(gn4, "Γ -4", #dc2626)
-    f_add_zone(gn5, "Γ -5", #dc2626)
-    f_add_zone(dc1, "Δ +1", #0ea5e9)
-    f_add_zone(dc2, "Δ +2", #0ea5e9)
-    f_add_zone(dc3, "Δ +3", #0ea5e9)
-    f_add_zone(dp1, "Δ -1", #a855f7)
-    f_add_zone(dp2, "Δ -2", #a855f7)
-    f_add_zone(dp3, "Δ -3", #a855f7)
+    f_add_zone(d0cw, "0DTE Γ CW", #15803d, true)
+    f_add_zone(d0pw, "0DTE Γ PW", #b91c1c, true)
+    f_add_zone(d0vt, "0DTE Γ VT", #b45309, true)
+    f_add_zone(d1cw, "1DTE Γ CW", #15803d, true)
+    f_add_zone(d1pw, "1DTE Γ PW", #b91c1c, true)
+    f_add_zone(d1vt, "1DTE Γ VT", #b45309, true)
+    f_add_zone(gp1, "Γ +1", #16a34a, true)
+    f_add_zone(gp2, "Γ +2", #16a34a, true)
+    f_add_zone(gp3, "Γ +3", #16a34a, false)
+    f_add_zone(gp4, "Γ +4", #16a34a, false)
+    f_add_zone(gp5, "Γ +5", #16a34a, false)
+    f_add_zone(gn1, "Γ -1", #dc2626, true)
+    f_add_zone(gn2, "Γ -2", #dc2626, true)
+    f_add_zone(gn3, "Γ -3", #dc2626, false)
+    f_add_zone(gn4, "Γ -4", #dc2626, false)
+    f_add_zone(gn5, "Γ -5", #dc2626, false)
+    f_add_zone(dc1, "Δ +1", #0ea5e9, true)
+    f_add_zone(dc2, "Δ +2", #0ea5e9, false)
+    f_add_zone(dc3, "Δ +3", #0ea5e9, false)
+    f_add_zone(dp1, "Δ -1", #a855f7, true)
+    f_add_zone(dp2, "Δ -2", #a855f7, false)
+    f_add_zone(dp3, "Δ -3", #a855f7, false)
     f_draw_zones()
 `;
