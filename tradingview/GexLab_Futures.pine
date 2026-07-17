@@ -89,12 +89,15 @@ f_add_zone(price, txt, col) =>
         zone_size = array.size(zone_anchor)
         if zone_size > 0
             for i = 0 to zone_size - 1
-                anchor = array.get(zone_anchor, i)
-                if math.abs(price - anchor) <= merge_points
+                zone_lo = array.get(zone_min, i)
+                zone_hi = array.get(zone_max, i)
+                if price >= zone_lo - merge_points and price <= zone_hi + merge_points
                     old_count = array.get(zone_count, i)
                     new_count = old_count + 1
                     array.set(zone_min, i, math.min(array.get(zone_min, i), price))
                     array.set(zone_max, i, math.max(array.get(zone_max, i), price))
+                    existing = array.get(zone_text, i)
+                    array.set(zone_text, i, str.contains(existing, txt) ? existing : existing + " / " + txt)
                     array.set(zone_color, i, #f59e0b)
                     array.set(zone_count, i, new_count)
                     merged := true
@@ -119,13 +122,12 @@ f_draw_zones() =>
             col = array.get(zone_color, i)
             txt_col = array.get(zone_text_color, i)
             count = array.get(zone_count, i)
-            display_txt = count > 1 ? txt + " +" + str.tostring(count - 1) : txt
             zone_alpha = count > 1 ? 86 : 91
             line_width = count > 1 ? 2 : 1
             if show_boxes
                 array.push(zone_boxes, box.new(left=bar_index - 1000, top=hi, right=bar_index + 25, bottom=lo, xloc=xloc.bar_index, border_color=color.new(col, 35), border_width=1, bgcolor=color.new(col, zone_alpha)))
             array.push(zone_lines, line.new(x1=bar_index - 1000, y1=anchor, x2=bar_index + 25, y2=anchor, xloc=xloc.bar_index, extend=extend.none, color=col, width=line_width, style=count > 1 ? line.style_solid : line.style_dotted))
-            array.push(zone_labels, label.new(x=bar_index + 26, y=anchor, text=display_txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=txt_col, size=size.small, textalign=text.align_left))
+            array.push(zone_labels, label.new(x=bar_index + 26, y=anchor, text=txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=txt_col, size=size.small, textalign=text.align_left))
 
 if barstate.islast
     f_clear_drawings()
