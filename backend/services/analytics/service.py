@@ -122,9 +122,10 @@ class GexAnalyticsService:
         gex_all = oi * gamma * 100 * spot * spot * 0.01
         df_raw['gex'] = np.where(is_call, gex_all, -gex_all)
         
-        # DEX (Dollar Delta)
+        # DEX (Dollar Delta) — delta is already signed (+calls, -puts) by the engine,
+        # so no sign flip needed; negating puts would make all DEX positive.
         dex_all = oi * delta * 100 * spot
-        df_raw['dex'] = np.where(is_call, dex_all, -dex_all)
+        df_raw['dex'] = dex_all
 
         # Lambda Exposure (LEX) — guarded option elasticity exposure.
         # Capped and premium-filtered so tiny stale OTM quotes do not dominate.

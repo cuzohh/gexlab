@@ -49,6 +49,9 @@ class StrikeAnalyticsModel(BaseModel):
     lex: Optional[float] = None
     vex: float
     chex: float
+    spex: Optional[float] = None
+    zomex: Optional[float] = None
+    vomex: Optional[float] = None
     openInterest: float
     volume: float
     iv: float

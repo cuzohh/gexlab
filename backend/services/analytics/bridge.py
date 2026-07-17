@@ -282,14 +282,7 @@ class BridgeService:
         levels  = analytics_data.get("levels", {}) or {}
         derived = levels.get("derived", {}) or {}
 
-        by_dte_list = levels.get("byDte", []) or []
-        by_dte = {
-            item["dte"]: item
-            for item in by_dte_list
-            if isinstance(item, dict) and "dte" in item
-        }
-        d0 = by_dte.get(0, {})
-        d1 = by_dte.get(1, {})
+        d0, d1 = (BridgeService._front_expiry_rows(analytics_data) + [{}, {}])[:2]
 
         def fmt(v) -> str:
             return "0" if v is None else str(round(float(v), 2))

@@ -98,8 +98,9 @@ class GexIngestionService:
             if not hist.empty:
                 return hist['Close'].iloc[-1]
             
-            # Method 3: Standard Info (Slow fallback)
-            return self.ticker.info.get('regularMarketPrice') or self.ticker.info.get('previousClose') or 0.0
+            # Method 3: Standard Info (Slow fallback) — fetch once, not twice
+            info = self.ticker.info
+            return info.get('regularMarketPrice') or info.get('previousClose') or 0.0
         except Exception as e:
             logger.error(f"Error fetching price for {self.ticker_symbol}: {e}")
             return 0.0

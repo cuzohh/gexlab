@@ -250,7 +250,7 @@ class LevelIntelligenceService:
     def _summarize_levels(agg_strikes: List[Dict[str, Any]], raw_list: List[Dict[str, Any]], spot_price: float = 0.0) -> Dict[str, Any]:
         if not agg_strikes:
             return {
-                "gammaFlip": 0.0,
+                "gammaFlip": None,
                 "callWall": None,
                 "putWall": None,
                 "sessionCeiling": None,
