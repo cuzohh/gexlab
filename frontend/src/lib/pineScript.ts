@@ -16,7 +16,7 @@ show_boxes = input.bool(true, "Boxes", group="Style")
 box_half_override = input.float(0.0, "Box Half-Width, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
 merge_preset = input.string("Normal", "Merge Sensitivity", options=["Tight", "Normal", "Wide", "Custom"], group="Style")
 merge_override = input.float(0.0, "Custom Merge Distance, Points", minval=0.0, step=0.25, group="Style")
-label_spacing_mult = input.int(2, "Label Spacing Multiplier", minval=1, maxval=5, group="Style")
+label_spacing_mult = input.int(8, "Label Spacing Multiplier", minval=2, maxval=25, group="Style")
 
 symbol_text = str.upper(syminfo.ticker)
 is_nq = str.contains(symbol_text, "NQ")
@@ -164,8 +164,9 @@ f_draw_zones() =>
                     if array.get(component_zone, j) == i
                         label_text = label_cursor == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
                         label_color = array.get(component_color, j)
-                        array.push(zone_labels, label.new(x=bar_index + 26 + label_cursor, y=anchor, text=label_text, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=label_color, size=size.small, textalign=text.align_left))
-                        label_cursor += (str.length(label_text) + 2) * label_spacing_mult
+                        array.push(zone_labels, label.new(x=bar_index + 26 + label_cursor, y=anchor, text=label_text, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=label_color, size=size.tiny, textalign=text.align_left))
+                        label_gap = int(math.max(35, (str.length(label_text) + 2) * label_spacing_mult))
+                        label_cursor += label_gap
 
 if barstate.islast
     f_clear_drawings()
