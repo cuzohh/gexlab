@@ -62,6 +62,9 @@ var string[] zone_text = array.new_string()
 var color[] zone_color = array.new_color()
 var color[] zone_text_color = array.new_color()
 var int[] zone_count = array.new_int()
+var int[] component_zone = array.new_int()
+var string[] component_text = array.new_string()
+var color[] component_color = array.new_color()
 var box[] zone_boxes = array.new_box()
 var line[] zone_lines = array.new_line()
 var label[] zone_labels = array.new_label()
@@ -82,6 +85,25 @@ f_clear_zones() =>
     array.clear(zone_color)
     array.clear(zone_text_color)
     array.clear(zone_count)
+    array.clear(component_zone)
+    array.clear(component_text)
+    array.clear(component_color)
+
+f_has_component(zone_idx, txt) =>
+    found = false
+    component_size = array.size(component_text)
+    if component_size > 0
+        for j = 0 to component_size - 1
+            if array.get(component_zone, j) == zone_idx and array.get(component_text, j) == txt
+                found := true
+                break
+    found
+
+f_add_component(zone_idx, txt, col) =>
+    if not f_has_component(zone_idx, txt)
+        array.push(component_zone, zone_idx)
+        array.push(component_text, txt)
+        array.push(component_color, col)
 
 f_add_zone(price, txt, col) =>
     if not na(price)
@@ -100,9 +122,11 @@ f_add_zone(price, txt, col) =>
                     array.set(zone_text, i, str.contains(existing, txt) ? existing : existing + " / " + txt)
                     array.set(zone_color, i, #f59e0b)
                     array.set(zone_count, i, new_count)
+                    f_add_component(i, txt, col)
                     merged := true
                     break
         if not merged
+            new_zone_idx = array.size(zone_anchor)
             array.push(zone_anchor, price)
             array.push(zone_min, price)
             array.push(zone_max, price)
@@ -110,6 +134,7 @@ f_add_zone(price, txt, col) =>
             array.push(zone_color, col)
             array.push(zone_text_color, col)
             array.push(zone_count, 1)
+            f_add_component(new_zone_idx, txt, col)
 
 f_draw_zones() =>
     zone_size = array.size(zone_anchor)
@@ -127,7 +152,15 @@ f_draw_zones() =>
             if show_boxes
                 array.push(zone_boxes, box.new(left=bar_index - 1000, top=hi, right=bar_index + 25, bottom=lo, xloc=xloc.bar_index, border_color=color.new(col, 35), border_width=1, bgcolor=color.new(col, zone_alpha)))
             array.push(zone_lines, line.new(x1=bar_index - 1000, y1=anchor, x2=bar_index + 25, y2=anchor, xloc=xloc.bar_index, extend=extend.none, color=col, width=line_width, style=count > 1 ? line.style_solid : line.style_dotted))
-            array.push(zone_labels, label.new(x=bar_index + 26, y=anchor, text=txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=txt_col, size=size.small, textalign=text.align_left))
+            component_size = array.size(component_text)
+            label_offset = 0
+            if component_size > 0
+                for j = 0 to component_size - 1
+                    if array.get(component_zone, j) == i
+                        label_text = label_offset == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
+                        label_color = array.get(component_color, j)
+                        array.push(zone_labels, label.new(x=bar_index + 26 + (label_offset * 7), y=anchor, text=label_text, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=label_color, size=size.small, textalign=text.align_left))
+                        label_offset += 1
 
 if barstate.islast
     f_clear_drawings()
