@@ -88,9 +88,11 @@ class BridgeService:
         if isinstance(timestamp, str):
             try:
                 parsed = datetime.fromisoformat(timestamp)
-                if parsed.tzinfo is not None:
-                    parsed = parsed.astimezone(_MARKET_TIMEZONE)
-                return parsed.date()
+                if parsed.tzinfo is None:
+                    # Treat tz-naive timestamps as ET (old snapshots saved before
+                    # service.py was fixed to emit timezone-aware timestamps).
+                    parsed = parsed.replace(tzinfo=_MARKET_TIMEZONE)
+                return parsed.astimezone(_MARKET_TIMEZONE).date()
             except ValueError:
                 pass
         return datetime.now(_MARKET_TIMEZONE).date()
