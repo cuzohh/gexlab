@@ -15,6 +15,7 @@ delta_count = input.int(3, "Δ Levels Per Side (0-3)", minval=0, maxval=3, group
 show_boxes = input.bool(true, "Boxes", group="Style")
 box_half_override = input.float(0.0, "Box Half-Width, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
 merge_override = input.float(0.0, "Merge Distance, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
+label_spacing_mult = input.int(2, "Label Spacing Multiplier", minval=1, maxval=5, group="Style")
 
 symbol_text = str.upper(syminfo.ticker)
 is_nq = str.contains(symbol_text, "NQ")
@@ -153,14 +154,14 @@ f_draw_zones() =>
                 array.push(zone_boxes, box.new(left=bar_index - 1000, top=hi, right=bar_index + 25, bottom=lo, xloc=xloc.bar_index, border_color=color.new(col, 35), border_width=1, bgcolor=color.new(col, zone_alpha)))
             array.push(zone_lines, line.new(x1=bar_index - 1000, y1=anchor, x2=bar_index + 25, y2=anchor, xloc=xloc.bar_index, extend=extend.none, color=col, width=line_width, style=count > 1 ? line.style_solid : line.style_dotted))
             component_size = array.size(component_text)
-            label_offset = 0
+            label_cursor = 0
             if component_size > 0
                 for j = 0 to component_size - 1
                     if array.get(component_zone, j) == i
-                        label_text = label_offset == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
+                        label_text = label_cursor == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
                         label_color = array.get(component_color, j)
-                        array.push(zone_labels, label.new(x=bar_index + 26 + (label_offset * 7), y=anchor, text=label_text, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=label_color, size=size.small, textalign=text.align_left))
-                        label_offset += 1
+                        array.push(zone_labels, label.new(x=bar_index + 26 + label_cursor, y=anchor, text=label_text, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=label_color, size=size.small, textalign=text.align_left))
+                        label_cursor += (str.length(label_text) + 2) * label_spacing_mult
 
 if barstate.islast
     f_clear_drawings()
