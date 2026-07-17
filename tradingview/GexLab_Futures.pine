@@ -16,7 +16,8 @@ show_boxes = input.bool(true, "Boxes", group="Style")
 box_half_override = input.float(0.0, "Box Half-Width, Points (0 = Auto)", minval=0.0, step=0.25, group="Style")
 merge_preset = input.string("Normal", "Merge Sensitivity", options=["Tight", "Normal", "Wide", "Custom"], group="Style")
 merge_override = input.float(0.0, "Custom Merge Distance, Points", minval=0.0, step=0.25, group="Style")
-label_spacing_mult = input.int(8, "Label Spacing Multiplier", minval=2, maxval=25, group="Style")
+label_mode = input.string("Combined", "Label Mode", options=["Combined", "Colored Pieces"], group="Style")
+label_spacing_mult = input.int(8, "Colored Label Spacing", minval=2, maxval=25, group="Style")
 
 symbol_text = str.upper(syminfo.ticker)
 is_nq = str.contains(symbol_text, "NQ")
@@ -160,7 +161,9 @@ f_draw_zones() =>
             component_size = array.size(component_text)
             label_cursor = 0
             bar_ms = int(math.max(1, nz(time - time[1], 60000)))
-            if component_size > 0
+            if label_mode == "Combined"
+                array.push(zone_labels, label.new(x=bar_index + 26, y=anchor, text=txt, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(col, 100), textcolor=txt_col, size=size.small, textalign=text.align_left))
+            else if component_size > 0
                 for j = 0 to component_size - 1
                     if array.get(component_zone, j) == i
                         label_text = label_cursor == 0 ? array.get(component_text, j) : "/ " + array.get(component_text, j)
