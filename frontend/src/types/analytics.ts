@@ -114,6 +114,11 @@ export interface LambdaLevelsData extends GreekLevelsData {
   bands?: LambdaBandsData;
 }
 
+export interface TopGexData {
+  positive: MajorWall[];
+  negative: MajorWall[];
+}
+
 export interface LevelsData {
   gammaFlip?: number;
   callWall?: number;
@@ -125,6 +130,7 @@ export interface LevelsData {
     calls: MajorWall[];
     puts: MajorWall[];
   };
+  topGex?: TopGexData;
   dex?: GreekLevelsData;
   lambda?: LambdaLevelsData;
   vanna?: GreekLevelsData;
@@ -149,6 +155,8 @@ export interface DteLevelsData {
     calls: MajorWall[];
     puts: MajorWall[];
   };
+  topGex?: TopGexData;
+  topDex?: TopGexData;
   dex?: DexLevelsData;
   lambda?: LambdaLevelsData;
   derived?: DerivedLevelsData;

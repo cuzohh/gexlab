@@ -73,6 +73,11 @@ class MajorWallsModel(BaseModel):
     puts: List[MajorWallModel]
 
 
+class TopGexModel(BaseModel):
+    positive: List[MajorWallModel] = []
+    negative: List[MajorWallModel] = []
+
+
 class DexLevelsModel(BaseModel):
     flip: Optional[float] = None
     callWall: Optional[float] = None
@@ -125,6 +130,7 @@ class BaseLevelsModel(BaseModel):
     maxPain: float
     vannaMagnet: float
     majorWalls: Optional[MajorWallsModel] = None
+    topGex: Optional[TopGexModel] = None
     dex: Optional[DexLevelsModel] = None
     lambda_: Optional[LambdaLevelsModel] = Field(default=None, alias="lambda")
     derived: Optional[DerivedLevelsModel] = None

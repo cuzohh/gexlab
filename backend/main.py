@@ -6,6 +6,7 @@ import logging
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from services.ingestion import GexIngestionService
+from services.cboe_ingestion import CboeIngestionService
 from services.basis import BasisService
 from services.analytics.service import GexAnalyticsService
 from services.analytics.levels import LevelIntelligenceService
@@ -32,7 +33,18 @@ async def lifespan(_app: FastAPI):
     global _bg_task
     for ticker in TICKERS:
         _state_locks[ticker] = asyncio.Lock()
+    # Seed state from the latest EOD snapshot so overnight/premarket loads
+    # show valid data while waiting for the first good live fetch.
+    for ticker in TICKERS:
+        dates = snapshot_service.list_snapshot_dates(ticker)
+        if dates:
+            snap = snapshot_service.load_snapshot(ticker, dates[0])
+            if snap and snap.get("analytics"):
+                state["data"][ticker]["analytics"] = snap["analytics"]
+                state["data"][ticker]["basis"] = snap.get("basis") or {}
+                logger.info(f"Seeded {ticker} state from EOD snapshot {dates[0]}.")
     _bg_task = asyncio.create_task(update_data_loop())
+    asyncio.create_task(cboe_eod_loop())
     yield
 
 
@@ -66,6 +78,7 @@ _state_locks: dict[str, asyncio.Lock] = {}
 _bg_task: asyncio.Task | None = None
 
 ingestion_services = {t: GexIngestionService(t) for t in TICKERS}
+cboe_services = {t: CboeIngestionService(t) for t in TICKERS}
 analytics_service = GexAnalyticsService()
 levels_service = LevelIntelligenceService()
 bridge_service = BridgeService()
@@ -126,6 +139,81 @@ def should_save_eod_snapshot(
     return not store.snapshot_exists(ticker, snapshot_date)
 
 
+async def process_cboe_ticker(ticker: str, snapshot_date: str) -> None:
+    """Fetch CBOE chain, run analytics, update state, save EOD snapshot."""
+    cboe = cboe_services[ticker]
+    raw_data = await asyncio.to_thread(cboe.fetch_chain)
+    if not raw_data.get("data"):
+        logger.error(f"CBOE: no data returned for {ticker}")
+        return
+
+    basis_data = await asyncio.to_thread(BasisService.get_futures_basis, ticker)
+    analytics = await asyncio.to_thread(analytics_service.process_chain, raw_data)
+    if not analytics:
+        logger.error(f"CBOE: analytics failed for {ticker}")
+        return
+
+    levels = await asyncio.to_thread(levels_service.get_market_levels, analytics, raw_data)
+    analytics["levels"] = levels
+    analytics["summary"]["timestamp"] = raw_data.get("timestamp") or analytics["summary"]["timestamp"]
+
+    async with _state_locks[ticker]:
+        state["data"][ticker]["raw"] = raw_data
+        state["data"][ticker]["basis"] = basis_data
+        state["data"][ticker]["analytics"] = analytics
+
+    try:
+        snapshot_service.save_snapshot(
+            ticker=ticker,
+            raw_data=raw_data,
+            basis_data=basis_data,
+            analytics_data=analytics,
+            snapshot_date=snapshot_date,
+            source="cboe_eod",
+        )
+        logger.info(f"CBOE EOD snapshot saved for {ticker} ({snapshot_date}).")
+    except Exception as exc:
+        logger.error(f"CBOE snapshot save failed for {ticker}: {exc}")
+
+
+async def cboe_eod_loop() -> None:
+    """Pull CBOE EOD data daily at 5:15 PM ET, and backfill on startup if missed."""
+    EOD_PULL_HOUR = 18
+    EOD_PULL_MINUTE = 30
+
+    # Always pull CBOE on startup. During market hours this returns yesterday's OI
+    # (OI only settles once per day). After 6:30pm it returns today's closing OI.
+    # Either way it's better than seeding from a potentially stale yfinance snapshot.
+    startup_date = get_eod_snapshot_date()
+    if startup_date:
+        logger.info(f"CBOE startup pull for {startup_date}...")
+        for ticker in TICKERS:
+            try:
+                await process_cboe_ticker(ticker, startup_date)
+            except Exception as exc:
+                logger.exception(f"CBOE startup pull failed for {ticker}: {exc}")
+            await asyncio.sleep(1)
+
+    while True:
+        now = datetime.now(MARKET_TIMEZONE)
+        target = now.replace(hour=EOD_PULL_HOUR, minute=EOD_PULL_MINUTE, second=0, microsecond=0)
+        if now >= target:
+            target = target + timedelta(days=1)
+        while target.weekday() >= 5:
+            target = target + timedelta(days=1)
+        wait = (target - now).total_seconds()
+        logger.info(f"Next CBOE EOD pull in {wait / 3600:.1f}h ({target.isoformat()})")
+        await asyncio.sleep(wait)
+
+        snapshot_date = target.date().isoformat()
+        for ticker in TICKERS:
+            try:
+                await process_cboe_ticker(ticker, snapshot_date)
+            except Exception as exc:
+                logger.exception(f"CBOE EOD pull failed for {ticker}: {exc}")
+            await asyncio.sleep(1)
+
+
 async def update_data_loop():
     """Background loop: fetch → compute → atomically write state."""
     state["is_running"] = True
@@ -167,23 +255,34 @@ async def update_data_loop():
                 # handlers never observe a partially-updated state.
                 # Skip the write if fetch returned empty — preserve last good state.
                 if raw_data.get("data"):
+                    contracts = raw_data["data"]
+                    nonzero_oi = sum(1 for c in contracts if (c.get("openInterest") or 0) > 0)
+                    oi_ratio = nonzero_oi / len(contracts) if contracts else 0.0
+                    data_quality_ok = oi_ratio >= 0.05  # at least 5% of contracts have OI
+                    if not data_quality_ok:
+                        logger.warning(
+                            f"Skipping analytics update for {ticker}: "
+                            f"only {nonzero_oi}/{len(contracts)} contracts have OI ({oi_ratio:.1%})"
+                        )
                     async with _state_locks[ticker]:
                         state["data"][ticker]["raw"] = raw_data
                         state["data"][ticker]["basis"] = basis_data
-                        if analytics is not None:
+                        if analytics is not None and data_quality_ok:
                             state["data"][ticker]["analytics"] = analytics
 
                 snapshot_date = get_eod_snapshot_date()
-                if should_save_eod_snapshot(ticker, snapshot_date):
+                if analytics is not None and data_quality_ok and should_save_eod_snapshot(ticker, snapshot_date):
+                    logger.info(f"Saving EOD snapshot for {ticker} ({snapshot_date})...")
                     try:
                         snapshot_service.save_snapshot(
                             ticker=ticker,
                             raw_data=raw_data,
                             basis_data=basis_data,
-                            analytics_data=analytics or {},
+                            analytics_data=analytics,
                             snapshot_date=snapshot_date,
                             source="eod",
                         )
+                        logger.info(f"EOD snapshot saved for {ticker} ({snapshot_date}).")
                     except Exception as snap_err:
                         # Snapshot failures are logged but must not abort the update cycle.
                         logger.error(f"Snapshot save failed for {ticker} ({snapshot_date}): {snap_err}")

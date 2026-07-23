@@ -66,6 +66,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [datesLoading, setDatesLoading] = useState(true);
+  const [datesVersion, setDatesVersion] = useState(0);
   const selectedDateRef = useRef(selectedDate);
   selectedDateRef.current = selectedDate;
   const [macroEvents, setMacroEvents] = useState<MacroEvent[]>([]);
@@ -141,10 +142,13 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
 
     void loadDates();
 
+    const refreshInterval = window.setInterval(() => { void loadDates(); }, 2 * 60 * 1000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(refreshInterval);
     };
-  }, [ticker]);
+  }, [ticker, datesVersion]);
 
   // Resolve EOD to the most recent snapshot strictly before today (America/New_York).
   // Falls back to availableDates[0] only when no prior-day data exists yet.
@@ -166,6 +170,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
       }
 
       if (selectedDate === 'eod' && availableDates.length === 0) {
+        setHistoryError('No EOD snapshots saved yet. The backend saves automatically between 4:05–5 PM ET. Click Retry to check again.');
         return;
       }
       const targetDate = selectedDate === 'eod' ? eodTargetDate : selectedDate;
@@ -357,7 +362,7 @@ export function DashboardWorkspace({ view }: { view: DashboardView }) {
   }
 
   if (!displayAnalytics && !isLive) {
-    return <ErrorScreen ticker={ticker} setTicker={setTicker} message={historyError ?? 'The saved snapshot could not be loaded.'} onRetry={() => setSelectedDate('eod')} />;
+    return <ErrorScreen ticker={ticker} setTicker={setTicker} message={historyError ?? 'The saved snapshot could not be loaded.'} onRetry={() => { setHistoryError(null); setDatesVersion((v) => v + 1); }} />;
   }
 
   if (!displayAnalytics) {
@@ -838,28 +843,69 @@ function renderView({
           </PanelShell>
 
           <PanelShell title="TradingView Bridge" subtitle="Everything needed to move the current market map into Pine in one place." status="TV">
-            <p className="mb-3 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Main Levels</p>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <RelevantLevelCard label="Gamma Flip" value={formatCurrency(displayAnalytics.levels?.gammaFlip)} detail="Core flip line in the bridge payload." />
-              <RelevantLevelCard label="Call Wall" value={formatCurrency(displayAnalytics.levels?.callWall)} detail="Primary upside wall." />
-              <RelevantLevelCard label="Put Wall" value={formatCurrency(displayAnalytics.levels?.putWall)} detail="Primary downside wall." />
-              <RelevantLevelCard label="Max Pain" value={formatCurrency(displayAnalytics.levels?.maxPain)} detail="Payout-minimizing reference." />
-            </div>
-            <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Greek Levels</p>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <RelevantLevelCard label="Vanna Flip" value={formatCurrency(displayAnalytics.levels?.vanna?.flip)} detail="Vanna zero-cross — volatility sensitivity reversal." />
-              <RelevantLevelCard label="Vanna CW" value={formatCurrency(displayAnalytics.levels?.vanna?.callWall)} detail="Peak upside vanna exposure." />
-              <RelevantLevelCard label="Vanna PW" value={formatCurrency(displayAnalytics.levels?.vanna?.putWall)} detail="Peak downside vanna exposure." />
-              <RelevantLevelCard label="Charm Flip" value={formatCurrency(displayAnalytics.levels?.charm?.flip)} detail="Charm zero-cross — time-decay pressure reversal." />
-              <RelevantLevelCard label="Charm CW" value={formatCurrency(displayAnalytics.levels?.charm?.callWall)} detail="Peak upside charm exposure." />
-              <RelevantLevelCard label="Charm PW" value={formatCurrency(displayAnalytics.levels?.charm?.putWall)} detail="Peak downside charm exposure." />
-              <RelevantLevelCard label="Speed Flip" value={formatCurrency(displayAnalytics.levels?.speed?.flip)} detail="Speed zero-cross — gamma acceleration reversal." />
-              <RelevantLevelCard label="Speed CW" value={formatCurrency(displayAnalytics.levels?.speed?.callWall)} detail="Fastest upside gamma acceleration zone." />
-              <RelevantLevelCard label="Speed PW" value={formatCurrency(displayAnalytics.levels?.speed?.putWall)} detail="Fastest downside gamma acceleration zone." />
-              <RelevantLevelCard label="Zomma Flip" value={formatCurrency(displayAnalytics.levels?.zomma?.flip)} detail="Zomma zero-cross — vol-sensitive gamma reversal." />
-              <RelevantLevelCard label="Zomma CW" value={formatCurrency(displayAnalytics.levels?.zomma?.callWall)} detail="Peak vol-sensitive gamma above spot." />
-              <RelevantLevelCard label="Zomma PW" value={formatCurrency(displayAnalytics.levels?.zomma?.putWall)} detail="Peak vol-sensitive gamma below spot." />
-            </div>
+            {(() => {
+              const byDte = displayAnalytics.levels?.byDte ?? [];
+              const _nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+              const _pad = (n: number) => String(n).padStart(2, '0');
+              const todayStr = `${_nowET.getFullYear()}-${_pad(_nowET.getMonth() + 1)}-${_pad(_nowET.getDate())}`;
+              const _pastClose = _nowET.getHours() >= 16;
+              const liveByDte = byDte.filter((r) => r.expiry > todayStr || (r.expiry === todayStr && !_pastClose));
+              const d0 = liveByDte.find((r) => r.dte === 0) ?? liveByDte[0];
+              const d1 = liveByDte.find((r) => r.dte === 1) ?? liveByDte[1];
+              const allStrikes = displayAnalytics.strikes ?? [];
+              const gexPos = d0?.topGex?.positive?.length
+                ? d0.topGex.positive
+                : [...allStrikes].filter((s) => s.gex > 0).sort((a, b) => b.gex - a.gex).slice(0, 5);
+              const gexNeg = d0?.topGex?.negative?.length
+                ? d0.topGex.negative
+                : [...allStrikes].filter((s) => s.gex < 0).sort((a, b) => a.gex - b.gex).slice(0, 5);
+              const dexPos = d0?.topDex?.positive?.length
+                ? d0.topDex.positive
+                : [...allStrikes].filter((s) => s.dex > 0).sort((a, b) => b.dex - a.dex).slice(0, 3);
+              const dexNeg = d0?.topDex?.negative?.length
+                ? d0.topDex.negative
+                : [...allStrikes].filter((s) => s.dex < 0).sort((a, b) => a.dex - b.dex).slice(0, 3);
+              return (
+                <>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">0DTE Walls</p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <RelevantLevelCard label="0DTE Γ CW" value={formatCurrency(d0?.callWall)} detail="0DTE call wall — nearest expiry upside resistance." />
+                    <RelevantLevelCard label="0DTE Γ PW" value={formatCurrency(d0?.putWall)} detail="0DTE put wall — nearest expiry downside support." />
+                    <RelevantLevelCard label="0DTE Γ VT" value={formatCurrency(d0?.gammaFlip)} detail="0DTE gamma flip — zero-cross for nearest expiry." />
+                  </div>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">1DTE Walls</p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <RelevantLevelCard label="1DTE Γ CW" value={formatCurrency(d1?.callWall)} detail="1DTE call wall — next expiry upside resistance." />
+                    <RelevantLevelCard label="1DTE Γ PW" value={formatCurrency(d1?.putWall)} detail="1DTE put wall — next expiry downside support." />
+                    <RelevantLevelCard label="1DTE Γ VT" value={formatCurrency(d1?.gammaFlip)} detail="1DTE gamma flip — zero-cross for next expiry." />
+                  </div>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Γ+ Levels</p>
+                  <div className="grid gap-3 md:grid-cols-5">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <RelevantLevelCard key={i} label={`Γ +${i + 1}`} value={formatCurrency(gexPos[i]?.strike)} detail={`Rank ${i + 1} positive net gamma strike.`} />
+                    ))}
+                  </div>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Γ− Levels</p>
+                  <div className="grid gap-3 md:grid-cols-5">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <RelevantLevelCard key={i} label={`Γ -${i + 1}`} value={formatCurrency(gexNeg[i]?.strike)} detail={`Rank ${i + 1} negative net gamma strike.`} />
+                    ))}
+                  </div>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Δ+ Levels</p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <RelevantLevelCard key={i} label={`Δ +${i + 1}`} value={formatCurrency(dexPos[i]?.strike)} detail={`Rank ${i + 1} positive net delta strike.`} />
+                    ))}
+                  </div>
+                  <p className="mb-3 mt-5 text-[10px] font-black uppercase tracking-[0.24em] text-[#8a7d68] dark:text-[#c8bbab]">Δ− Levels</p>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <RelevantLevelCard key={i} label={`Δ -${i + 1}`} value={formatCurrency(dexNeg[i]?.strike)} detail={`Rank ${i + 1} negative net delta strike.`} />
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
             <div className="mt-5 rounded-[1.5rem] border border-[#eadfcf] bg-[#fcf8f1] px-4 py-4 text-sm leading-relaxed text-[#6a604f] dark:border-white/10 dark:bg-white/5 dark:text-[#d7cbbb]">
               <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#8a7d68] dark:text-[#c8bbab]">Workflow</p>
               <p className="mt-2">1. Copy the bridge payload. 2. Paste into the Pine indicator input. 3. Adjust the box width if needed. 4. Re-copy any time the saved map changes.</p>
@@ -1927,11 +1973,12 @@ function buildExpiryBuckets(raw: RawContract[], comparisonRaw: RawContract[]) {
     putVolume: number;
   }>();
 
-  const today = new Date();
+  const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
 
   for (const row of raw) {
-    const expiryDate = new Date(`${row.expiry}T00:00:00`);
-    const dte = Math.max(0, Math.round((expiryDate.getTime() - today.getTime()) / 86_400_000));
+    const dte = Math.max(0, Math.round(
+      (new Date(`${row.expiry}T00:00:00`).getTime() - new Date(`${todayET}T00:00:00`).getTime()) / 86_400_000
+    ));
     const current = grouped.get(row.expiry) ?? {
       expiry: row.expiry,
       dte,
@@ -2119,52 +2166,28 @@ function buildFuturesBridgeSection(
   targetDate: string | null
 ) {
   const byDte = analytics?.levels?.byDte ?? [];
-  const sortedBuckets = byDte
-    .filter((row) => normalizeDateString(row.expiry))
+  const _nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const _pad = (n: number) => String(n).padStart(2, '0');
+  const todayStr = `${_nowET.getFullYear()}-${_pad(_nowET.getMonth() + 1)}-${_pad(_nowET.getDate())}`;
+  const _pastClose = _nowET.getHours() >= 16;
+  const liveByDte = byDte.filter((row) => {
+    const exp = normalizeDateString(row.expiry);
+    return exp > todayStr || (exp === todayStr && !_pastClose);
+  });
+  const sortedBuckets = liveByDte
     .sort((a, b) => normalizeDateString(a.expiry).localeCompare(normalizeDateString(b.expiry)));
   const selectedBuckets = targetDate
     ? sortedBuckets
         .filter((row) => normalizeDateString(row.expiry) >= targetDate)
         .slice(0, 2)
     : [
-        byDte.find((row) => row.dte === 0),
-        byDte.find((row) => row.dte === 1),
+        liveByDte.find((row) => row.dte === 0),
+        liveByDte.find((row) => row.dte === 1),
       ];
   const d0 = selectedBuckets[0];
   const d1 = selectedBuckets[1];
-  const targetExpiries = [d0?.expiry, d1?.expiry].map(normalizeDateString).filter(Boolean);
-  const lambdaBands = deriveLambdaBands(analytics, targetExpiries) ?? analytics?.levels?.lambda?.bands;
-  const vanna = withDerivedGreekLevels(analytics, analytics?.levels?.vanna, 'vex');
-  const charm = withDerivedGreekLevels(analytics, analytics?.levels?.charm, 'chex');
-  const speed = withDerivedGreekLevels(analytics, analytics?.levels?.speed, 'spex');
-  const zomma = withDerivedGreekLevels(analytics, analytics?.levels?.zomma, 'zomex');
-  const rawValues = [
-    d0?.callWall,
-    d0?.putWall,
-    d0?.gammaFlip,
-    d1?.callWall,
-    d1?.putWall,
-    d1?.gammaFlip,
-    vanna?.flip,
-    vanna?.callWall,
-    vanna?.putWall,
-    charm?.flip,
-    charm?.callWall,
-    charm?.putWall,
-    lambdaBands?.up1,
-    lambdaBands?.down1,
-    lambdaBands?.up2,
-    lambdaBands?.down2,
-    speed?.flip,
-    speed?.callWall,
-    speed?.putWall,
-    zomma?.flip,
-    zomma?.callWall,
-    zomma?.putWall,
-  ];
-  if (!rawValues.some((value) => typeof value === 'number' && value !== 0)) return '';
-  const multiplier = ticker === 'QQQ' ? 40 : 10;
 
+  const multiplier = ticker === 'QQQ' ? 40 : 10;
   const convert = (value: number | undefined) => {
     if (typeof value !== 'number' || value === 0) return '0';
     const futurePrice = basis?.future_price ?? 0;
@@ -2176,7 +2199,52 @@ function buildFuturesBridgeSection(
     return rounded.toFixed(2).replace(/\.?0+$/, '');
   };
 
-  return rawValues.map(convert).join(',');
+  const dteValues = [
+    d0?.callWall,
+    d0?.putWall,
+    d0?.gammaFlip,
+    d1?.callWall,
+    d1?.putWall,
+    d1?.gammaFlip,
+  ];
+  if (!dteValues.some((value) => typeof value === 'number' && value !== 0)) return '';
+
+  // Strikes already shown as DTE walls — exclude from GEX ranking
+  const plotted = new Set<number>(
+    [
+      d0?.callWall, d0?.putWall,
+      d1?.callWall, d1?.putWall,
+      analytics?.levels?.callWall,
+      analytics?.levels?.putWall,
+    ].filter((v): v is number => typeof v === 'number' && v !== 0)
+  );
+
+  const allStrikes = analytics?.strikes ?? [];
+  const d0TopGex = d0?.topGex;
+  const gexPos = d0TopGex?.positive?.length
+    ? d0TopGex.positive.filter((s) => !plotted.has(s.strike))
+    : allStrikes.filter((s) => s.gex > 0 && !plotted.has(s.strike)).sort((a, b) => b.gex - a.gex);
+  const gexNeg = d0TopGex?.negative?.length
+    ? d0TopGex.negative.filter((s) => !plotted.has(s.strike))
+    : allStrikes.filter((s) => s.gex < 0 && !plotted.has(s.strike)).sort((a, b) => a.gex - b.gex);
+
+  const d0TopDex = d0?.topDex;
+  const dexPos = d0TopDex?.positive?.length
+    ? [...d0TopDex.positive]
+    : [...allStrikes].filter((s) => s.dex > 0).sort((a, b) => b.dex - a.dex);
+  const dexNeg = d0TopDex?.negative?.length
+    ? [...d0TopDex.negative]
+    : [...allStrikes].filter((s) => s.dex < 0).sort((a, b) => a.dex - b.dex);
+
+  const values: (number | undefined)[] = [
+    ...dteValues,
+    ...Array.from({ length: 5 }, (_, i) => gexPos[i]?.strike),
+    ...Array.from({ length: 5 }, (_, i) => gexNeg[i]?.strike),
+    ...Array.from({ length: 3 }, (_, i) => dexPos[i]?.strike),
+    ...Array.from({ length: 3 }, (_, i) => dexNeg[i]?.strike),
+  ];
+
+  return values.map(convert).join(',');
 }
 
 type BridgeGreekMetric = 'vex' | 'chex' | 'spex' | 'zomex';

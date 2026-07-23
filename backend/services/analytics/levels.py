@@ -247,6 +247,36 @@ class LevelIntelligenceService:
         }
 
     @staticmethod
+    def _top_gex(df_agg: "pd.DataFrame") -> Dict[str, Any]:
+        if df_agg.empty or 'gex' not in df_agg.columns:
+            return {"positive": [], "negative": []}
+        df = df_agg[['strike', 'gex']].copy()
+        df['gex'] = pd.to_numeric(df['gex'], errors='coerce').fillna(0.0)
+        df['strike'] = pd.to_numeric(df['strike'], errors='coerce')
+        df = df[df['strike'].notna()]
+        top_pos = df[df['gex'] > 0].sort_values('gex', ascending=False).head(6)
+        top_neg = df[df['gex'] < 0].sort_values('gex', ascending=True).head(6)
+        return {
+            "positive": top_pos.to_dict(orient='records'),
+            "negative": top_neg.to_dict(orient='records'),
+        }
+
+    @staticmethod
+    def _top_dex(df_agg: "pd.DataFrame") -> Dict[str, Any]:
+        if df_agg.empty or 'dex' not in df_agg.columns:
+            return {"positive": [], "negative": []}
+        df = df_agg[['strike', 'dex']].copy()
+        df['dex'] = pd.to_numeric(df['dex'], errors='coerce').fillna(0.0)
+        df['strike'] = pd.to_numeric(df['strike'], errors='coerce')
+        df = df[df['strike'].notna()]
+        top_pos = df[df['dex'] > 0].sort_values('dex', ascending=False).head(3)
+        top_neg = df[df['dex'] < 0].sort_values('dex', ascending=True).head(3)
+        return {
+            "positive": top_pos.to_dict(orient='records'),
+            "negative": top_neg.to_dict(orient='records'),
+        }
+
+    @staticmethod
     def _summarize_levels(agg_strikes: List[Dict[str, Any]], raw_list: List[Dict[str, Any]], spot_price: float = 0.0) -> Dict[str, Any]:
         if not agg_strikes:
             return {
@@ -257,6 +287,8 @@ class LevelIntelligenceService:
                 "maxPain": 0.0,
                 "vannaMagnet": 0.0,
                 "majorWalls": None,
+                "topGex": {"positive": [], "negative": []},
+                "topDex": {"positive": [], "negative": []},
                 "derived": LevelIntelligenceService._derive_relevant_levels([], [], spot_price),
             }
 
@@ -299,6 +331,8 @@ class LevelIntelligenceService:
             "maxPain": max_pain,
             "vannaMagnet": vanna_magnet,
             "majorWalls": walls.get("majorWalls"),
+            "topGex": LevelIntelligenceService._top_gex(df_agg),
+            "topDex": LevelIntelligenceService._top_dex(df_agg),
             "dex": dex_levels,
             "lambda": {
                 **lambda_levels,
@@ -459,15 +493,9 @@ class LevelIntelligenceService:
             levels["byDte"] = []
             return levels
 
-        reference_timestamp = pd.to_datetime(
-            raw_data.get("timestamp") or analytics_data.get("summary", {}).get("timestamp"),
-            errors="coerce",
-            utc=True,
-        )
-        if pd.isna(reference_timestamp):
-            reference_date = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
-        else:
-            reference_date = reference_timestamp.tz_convert("America/New_York").normalize().tz_localize(None)
+        # Always use wall-clock ET date so DTE reflects today, not when CBOE last
+        # published its data (which is yesterday's close during market hours).
+        reference_date = pd.Timestamp.now(tz="America/New_York").normalize().tz_localize(None)
 
         df_raw = df_raw.loc[valid_expiry].copy()
         df_raw["dte"] = (df_raw["expiry_dt"] - reference_date).dt.days

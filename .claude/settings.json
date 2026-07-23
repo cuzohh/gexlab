@@ -15,7 +15,12 @@
       "Bash(npx skills *)",
       "Skill(fewer-permission-prompts)",
       "Skill(fewer-permission-prompts:*)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Skill(code-review)",
+      "Skill(code-review:*)",
+      "Bash(git diff *)",
+      "Read(//c/Users/pranav/.claude/**)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
       "C:\\Users\\pranav\\.claude"

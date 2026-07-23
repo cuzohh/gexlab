@@ -62,6 +62,12 @@ function convertLevels(levels: LevelsData | undefined, ticker: 'SPY' | 'QQQ', ba
             : undefined,
         }
       : undefined,
+    topGex: levels.topGex
+      ? {
+          positive: levels.topGex.positive.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+          negative: levels.topGex.negative.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+        }
+      : undefined,
     derived: levels.derived
       ? {
           sessionFloor: convertPrice(levels.derived.sessionFloor, ticker, basis, mode),
@@ -119,6 +125,18 @@ function convertLevels(levels: LevelsData | undefined, ticker: 'SPY' | 'QQQ', ba
             skewCheapStrike: convertPrice(entry.derived.skewCheapStrike, ticker, basis, mode),
           }
         : undefined,
+      topGex: entry.topGex
+        ? {
+            positive: entry.topGex.positive.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+            negative: entry.topGex.negative.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+          }
+        : undefined,
+      topDex: entry.topDex
+        ? {
+            positive: entry.topDex.positive.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+            negative: entry.topDex.negative.map((wall) => ({ ...wall, strike: convertPrice(wall.strike, ticker, basis, mode) ?? wall.strike })),
+          }
+        : undefined,
     })),
   };
 }
@@ -161,22 +179,3 @@ export function convertAnalyticsForDisplay(
   };
 }
 
-export function convertBridgePayload(payload: string, ticker: 'SPY' | 'QQQ', basis?: BasisData | null, mode: PriceMode = 'etf') {
-  if (mode === 'etf' || !basis || !payload) return payload;
-
-  try {
-    const parsed = JSON.parse(payload) as Record<string, number | null>;
-    const remapped = { ...parsed } as Record<string, number | null>;
-
-    for (const dte of [0, 1]) {
-      for (const suffix of ['cw', 'pw', 'vt']) {
-        const key = `d${dte}${suffix}`;
-        remapped[key] = convertPrice(parsed[key] ?? undefined, ticker, basis, mode) ?? parsed[key];
-      }
-    }
-
-    return JSON.stringify(remapped);
-  } catch {
-    return payload;
-  }
-}

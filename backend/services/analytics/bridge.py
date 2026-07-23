@@ -105,21 +105,13 @@ class BridgeService:
         return next_day
 
     @staticmethod
-    def _front_expiry_reference_date(analytics_data: Dict[str, Any]) -> date:
-        timestamp = (analytics_data.get("summary", {}) or {}).get("timestamp")
-        if isinstance(timestamp, str):
-            try:
-                parsed = datetime.fromisoformat(timestamp)
-                if parsed.tzinfo is None:
-                    parsed = parsed.replace(tzinfo=_MARKET_TIMEZONE)
-                parsed_et = parsed.astimezone(_MARKET_TIMEZONE)
-                reference = parsed_et.date()
-                if parsed_et.time() >= time(16, 0):
-                    return BridgeService._next_weekday(reference)
-                return reference
-            except ValueError:
-                pass
-        return BridgeService._reference_date(analytics_data)
+    def _front_expiry_reference_date(_analytics_data: Dict[str, Any]) -> date:
+        # Use wall-clock ET time. After 4pm today's expiry has settled;
+        # advance to the next weekday so the bridge shows tomorrow's 0DTE.
+        now_et = datetime.now(_MARKET_TIMEZONE)
+        if now_et.time() >= time(16, 0):
+            return BridgeService._next_weekday(now_et.date())
+        return now_et.date()
 
     @staticmethod
     def _front_expiry_rows(analytics_data: Dict[str, Any]) -> list[Dict[str, Any]]:
@@ -267,7 +259,8 @@ class BridgeService:
             fmt(d1.get("gammaFlip")),
         ]
 
-        top_gex = levels.get("topGex", {}) or {}
+        # Prefer 0DTE-specific topGex so LEAPS don't dominate gp/gn slots.
+        top_gex = (d0.get("topGex") or levels.get("topGex") or {})
         plotted_walls = {
             BridgeService._convert_to_futures_price(value, basis_data, ticker)
             for value in (

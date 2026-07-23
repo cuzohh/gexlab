@@ -128,9 +128,10 @@ class GexAnalyticsService:
         df_raw['dex'] = dex_all
 
         # Lambda Exposure (LEX) — guarded option elasticity exposure.
-        # Capped and premium-filtered so tiny stale OTM quotes do not dominate.
+        # option_lambda is already signed (negative for puts via delta), so no
+        # sign flip needed — applying one would double-negate puts to positive.
         lex_all = oi * option_lambda * 100
-        df_raw['lex'] = np.where(is_call, lex_all, -lex_all)
+        df_raw['lex'] = lex_all
         
         # Vanna Exposure (VEX) — delta sensitivity to vol; dealer rehedge pressure on IV moves
         vex_all = oi * higher['vanna'] * 100 * spot
