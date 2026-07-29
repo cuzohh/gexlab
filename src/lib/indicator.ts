@@ -1,8 +1,4 @@
 export const PINE_SCRIPT = String.raw`//@version=6
-// max_bars_back is deliberate. Requesting the cash index on an intraday futures
-// chart means the secondary series has far fewer bars than the primary, and
-// Pine's offset into it grows across overnight and holiday gaps — far enough to
-// overrun the default buffer thousands of bars into history.
 indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=1000, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
 
 // Paste the "GX2" bridge payload copied from GEXLab V3.
@@ -27,7 +23,7 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=1000, max_boxes
 bridge = input.text_area("", "GEXLab bridge", group="Data", tooltip="Copy the bridge from the GEXLab Options workspace. The payload carries its own price space, strike increments and snapshot time.")
 
 map_mode = input.string("Auto", "Chart mapping", options=["Auto", "Cash-index ratio", "Cash-index basis", "Payload-reference ratio", "Manual ratio", "Manual basis", "None"], group="Mapping", tooltip="Auto uses the live cash-index ratio when it is available, which maps the payload onto futures, the cash index itself and the ETF alike. These are observed estimates, not exchange-defined conversions.")
-map_samples = input.int(20, "Synchronized samples", minval=1, maxval=240, group="Mapping", tooltip="Averages only bars where the cash index and this chart are both updating, then holds the last valid relationship outside the cash session.")
+map_samples = input.int(3, "Synchronized sessions", minval=1, maxval=60, group="Mapping", tooltip="Averages the last N daily closes on which the cash index and this chart both printed. Keep it short: these are sessions, not bars, and a futures basis decays toward expiry, so a long average trails the real relationship by more than it smooths. Twenty sessions of NQ carry is worth tens of index points.")
 ndx_symbol = input.symbol("NASDAQ:NDX", "NDX cash index", group="Mapping")
 spx_symbol = input.symbol("SP:SPX", "SPX cash index", group="Mapping")
 manual_ratio_input = input.float(1.0, "Manual ratio", minval=0.000001, step=0.00001, group="Mapping")
@@ -255,29 +251,46 @@ if not parsed
 // simple-qualified so request.security still accepts the symbol.
 is_nasdaq = str.contains(bridge, "~NQ~")
 cash_symbol = is_nasdaq ? ndx_symbol : spx_symbol
-cash_close = request.security(cash_symbol, timeframe.period, close, gaps=barmerge.gaps_on, lookahead=barmerge.lookahead_off)
 
-// The last N bars on which the cash index and this chart both printed, kept in
-// a window rather than averaged with ta.sma. A moving average over a gapped
-// series returns na whenever the window still straddles the overnight gap, so
-// ta.sma would go blind for the first N bars of every session; this holds only
-// synchronized samples and so is valid from the first tick of the cash open.
+// Both series are requested on the daily timeframe, and that is load-bearing
+// rather than a matter of taste.
+//
+// Asking for the cash index at the chart's own resolution pairs a 24-hour
+// futures session with an index that only prints during regular hours. Pine
+// aligns the two by time, so every overnight and holiday gap widens the offset
+// it must reach back through, and that offset grows for as long as the chart
+// does: it overran a 493-bar buffer around bar 10,000 and a 1,277-bar buffer
+// around bar 10,900. No fixed buffer survives it. On the daily timeframe the
+// two symbols share a bar for every session they both trade, so the offset
+// cannot accumulate.
+//
+// The cost is that the relationship is one session old intraday. That suits
+// what it measures: a futures basis decays over weeks toward expiry and an
+// index-to-ETF ratio is near constant, so both are wrong by far less over a
+// session than an intraday chart price compared against a fixed index close
+// would be.
+cash_daily = request.security(cash_symbol, "D", close, lookahead=barmerge.lookahead_off)
+chart_daily = request.security(syminfo.tickerid, "D", close, lookahead=barmerge.lookahead_off)
+
+// The last N sessions on which both printed. A daily value only changes once a
+// session, so a sample is taken when the reading actually moves rather than on
+// every bar, which would otherwise fill the window with one repeated number.
 var float[] ratio_window = array.new_float()
 var float[] basis_window = array.new_float()
 var float held_ratio = na
 var float held_basis = na
 var float held_cash = na
 var float held_chart = na
-if not na(cash_close) and cash_close > 0
-    array.push(ratio_window, close / cash_close)
-    array.push(basis_window, close - cash_close)
+if not na(cash_daily) and cash_daily > 0 and not na(chart_daily) and (na(held_cash) or cash_daily != held_cash or chart_daily != held_chart)
+    array.push(ratio_window, chart_daily / cash_daily)
+    array.push(basis_window, chart_daily - cash_daily)
     if array.size(ratio_window) > map_samples
         array.shift(ratio_window)
         array.shift(basis_window)
     held_ratio := array.avg(ratio_window)
     held_basis := array.avg(basis_window)
-    held_cash := cash_close
-    held_chart := close
+    held_cash := cash_daily
+    held_chart := chart_daily
 
 // The last bar at or before the snapshot. Levels measured then did not apply to
 // the price action before it, so that is where their lines begin.
@@ -642,7 +655,7 @@ if barstate.islast
         f_monitor_row(3, "REGIME", na(regime_price) ? "—" : close > regime_price ? "POSITIVE GAMMA" : "NEGATIVE GAMMA", na(regime_price) ? color.gray : close > regime_price ? color.white : color.orange)
         f_monitor_row(4, "MAPPING", active_mode + (map_mode == "Auto" ? " (auto)" : ""), na(map_factor) or na(map_offset) ? color.orange : color.white)
         f_monitor_row(5, "FACTOR", str.tostring(map_factor, "#.######") + (map_offset != 0 ? "  " + str.tostring(map_offset, "#.##") : ""), color.white)
-        f_monitor_row(6, "CASH / CHART", str.tostring(held_cash, "#.##") + " / " + str.tostring(held_chart, "#.##"), color.white)
+        f_monitor_row(6, "CASH / CHART", str.tostring(held_cash, "#.##") + " / " + str.tostring(held_chart, "#.##") + " (daily)", color.white)
         // A large drift means the payload's own reference price no longer maps
         // onto this chart, which is the signal that the levels are stale or that
         // the wrong mapping mode is selected.

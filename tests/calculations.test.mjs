@@ -719,6 +719,16 @@ test("TradingView bridge script renders each book in its own style and survives 
   // straddles the overnight gap, so the ratio window holds only live samples.
   assert.doesNotMatch(PINE_SCRIPT, /ta\.sma\(ratio_sample/);
   assert.match(PINE_SCRIPT, /held_ratio := array\.avg\(ratio_window\)/);
+  // Both legs of the mapping are requested on the daily timeframe. Requesting
+  // the cash index at the chart's own resolution pairs a 24-hour futures
+  // session with a regular-hours index, and the offset Pine must reach back
+  // through then grows with the chart until it overruns any fixed buffer. This
+  // has regressed twice; the two requests must stay on "D" and there must be no
+  // timeframe.period request left behind.
+  assert.match(PINE_SCRIPT, /request\.security\(cash_symbol, "D", close/);
+  assert.match(PINE_SCRIPT, /request\.security\(syminfo\.tickerid, "D", close/);
+  assert.doesNotMatch(PINE_SCRIPT, /request\.security\([^)]*timeframe\.period/);
+  assert.doesNotMatch(PINE_SCRIPT, /barmerge\.gaps_on/);
 });
 
 test("the strike increment is the modal gap, so a missing strike cannot widen it", () => {
