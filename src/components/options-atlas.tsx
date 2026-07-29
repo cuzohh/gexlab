@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { buildBridgePayload, type BridgeSource } from "@/lib/bridge-payload";
+import {
+  buildBridgePayload,
+  DEFAULT_BRIDGE_PARTS,
+  readBridgeParts,
+  type BridgePart,
+  type BridgeSource,
+} from "@/lib/bridge-payload";
 import { PINE_SCRIPT } from "@/lib/indicator";
 import { MOTIVEWAVE_STUDY } from "@/lib/motivewave-indicator";
 import { interpolateAt } from "@/lib/options-math";
@@ -14,18 +20,6 @@ type ExpiryMode = "single" | "through" | "custom" | "composite";
 type PriceScale = "native" | "futures";
 type Shelf = "levels" | "chain" | "volatility" | "term" | "indicator";
 type UpdateMode = "eod" | "live";
-type BridgePart =
-  | "expiryWalls"
-  | "flips"
-  | "aggregateWalls"
-  | "maxPain"
-  | "vanna"
-  | "gamma"
-  | "delta"
-  | "confirmation"
-  | "profile"
-  | "volumeWalls"
-  | "expectedMove";
 
 type LiveStrike = {
   strike: number;
@@ -239,6 +233,8 @@ function easternDate(value: string) {
     parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
+
+const BRIDGE_PARTS_KEY = "gexlab:bridge-parts";
 
 function bridgeNumber(value: number | null) {
   return value === null || !Number.isFinite(value) ? "0" : String(Math.round(value * 100) / 100);
@@ -570,19 +566,8 @@ export function OptionsAtlas() {
   const [anchorTimes, setAnchorTimes] = useState<Record<Instrument, string>>({ NQ: "", ES: "" });
   const [automaticAnchors, setAutomaticAnchors] = useState<Partial<Record<Instrument, FuturesAnchorData>>>({});
   const [anchorErrors, setAnchorErrors] = useState<Partial<Record<Instrument, string>>>({});
-  const [bridgeParts, setBridgeParts] = useState<Record<BridgePart, boolean>>({
-    expiryWalls: true,
-    flips: true,
-    aggregateWalls: true,
-    maxPain: true,
-    vanna: false,
-    gamma: true,
-    delta: false,
-    confirmation: true,
-    profile: true,
-    volumeWalls: true,
-    expectedMove: true,
-  });
+  const [bridgeParts, setBridgeParts] =
+    useState<Record<BridgePart, boolean>>(DEFAULT_BRIDGE_PARTS);
   const [dataState, setDataState] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
   const [updateMode, setUpdateMode] = useState<UpdateMode>("eod");
@@ -606,11 +591,20 @@ export function OptionsAtlas() {
 
   useEffect(() => {
     const savedMode = window.localStorage.getItem("gexlab:options-update-mode");
+    const savedParts = readBridgeParts(window.localStorage.getItem(BRIDGE_PARTS_KEY));
     queueMicrotask(() => {
       if (savedMode === "live") setUpdateMode("live");
+      setBridgeParts(savedParts);
       setPreferencesLoaded(true);
     });
   }, []);
+
+  useEffect(() => {
+    // Guarded on the load having happened, so the defaults cannot overwrite a
+    // stored preference on the first render.
+    if (!preferencesLoaded) return;
+    window.localStorage.setItem(BRIDGE_PARTS_KEY, JSON.stringify(bridgeParts));
+  }, [bridgeParts, preferencesLoaded]);
 
   useEffect(() => {
     if (!preferencesLoaded) return;

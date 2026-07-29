@@ -63,9 +63,11 @@ import {
 import {
   buildBridgePayload,
   concentrationClusters,
+  DEFAULT_BRIDGE_PARTS,
   exposureProfile,
   minimumSeparation,
   oneSigmaBps,
+  readBridgeParts,
   strikeIncrement,
   volumeWalls,
 } from "../src/lib/bridge-payload.ts";
@@ -745,6 +747,23 @@ test("TradingView bridge script renders each book in its own style and survives 
   // within 5,000 calculated bars no offset can exceed 5,000. This has regressed
   // twice, both times by raising the buffer alone.
   assert.match(PINE_SCRIPT, /max_bars_back=5000, calc_bars_count=5000/);
+});
+
+test("saved bridge contents are merged against the parts this build knows", () => {
+  // A preference written before a part existed must not leave it undefined,
+  // and one written when a since-removed part existed must not resurrect it.
+  const stored = JSON.stringify({ gamma: false, delta: true, prior: true });
+  const parts = readBridgeParts(stored);
+  assert.equal(parts.gamma, false, "a stored choice wins");
+  assert.equal(parts.delta, true);
+  assert.equal(parts.profile, DEFAULT_BRIDGE_PARTS.profile, "an absent part falls back");
+  assert.equal("prior" in parts, false, "a removed part does not come back");
+  assert.deepEqual(Object.keys(parts).sort(), Object.keys(DEFAULT_BRIDGE_PARTS).sort());
+
+  // Anything unreadable or non-boolean falls back rather than throwing.
+  assert.deepEqual(readBridgeParts(null), DEFAULT_BRIDGE_PARTS);
+  assert.deepEqual(readBridgeParts("not json"), DEFAULT_BRIDGE_PARTS);
+  assert.deepEqual(readBridgeParts(JSON.stringify({ gamma: "yes" })), DEFAULT_BRIDGE_PARTS);
 });
 
 test("the strike increment is the modal gap, so a missing strike cannot widen it", () => {

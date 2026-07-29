@@ -47,7 +47,46 @@ export type BridgePart =
   | "delta"
   | "profile"
   | "volumeWalls"
-  | "expectedMove";
+  | "expectedMove"
+  // Acted on by the caller rather than the builder: it decides whether the
+  // confirmation book is handed over as a source at all.
+  | "confirmation";
+
+export const DEFAULT_BRIDGE_PARTS: Record<BridgePart, boolean> = {
+  expiryWalls: true,
+  flips: true,
+  aggregateWalls: true,
+  maxPain: true,
+  vanna: false,
+  gamma: true,
+  delta: false,
+  confirmation: true,
+  profile: true,
+  volumeWalls: true,
+  expectedMove: true,
+};
+
+/**
+ * Reads the saved bridge contents, keyed against what this build knows about.
+ *
+ * Only current keys survive, so a part added since the preference was written
+ * picks up its default instead of arriving undefined, and one that has been
+ * removed does not linger in the payload builder as a stale switch.
+ */
+export function readBridgeParts(raw: string | null): Record<BridgePart, boolean> {
+  if (!raw) return DEFAULT_BRIDGE_PARTS;
+  try {
+    const stored = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(DEFAULT_BRIDGE_PARTS).map(([part, fallback]) => [
+        part,
+        typeof stored[part] === "boolean" ? stored[part] : fallback,
+      ]),
+    ) as Record<BridgePart, boolean>;
+  } catch {
+    return DEFAULT_BRIDGE_PARTS;
+  }
+}
 
 export type BridgeStrikeRow = {
   strike: number;
