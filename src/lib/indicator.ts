@@ -412,8 +412,11 @@ f_render(index) =>
     // A merged level draws whatever any of its contributing books asks for, so
     // an index line and an ETF zone on the same price render as a line inside
     // its confirmation band rather than one of the two silently winning.
-    draw_line = (from_index and f_has_line(0)) or (from_confirm and f_has_line(1)) or (from_prior and f_has_line(2))
+    wants_line = (from_index and f_has_line(0)) or (from_confirm and f_has_line(1)) or (from_prior and f_has_line(2))
     draw_zone = show_zones and half > 0 and ((from_index and f_has_zone(0)) or (from_confirm and f_has_zone(1)) or (from_prior and f_has_zone(2)))
+    // A zone-only book must not disappear when zones are switched off globally;
+    // it falls back to a line so the level is still on the chart.
+    draw_line = wants_line or not draw_zone
     if draw_line or draw_zone
         tone = f_tone(kind, from_index, from_confirm)
         dim = not from_index
@@ -427,6 +430,7 @@ f_render(index) =>
               top=price + half,
               right=right_edge,
               bottom=price - half,
+              extend=extend_right ? extend.right : extend.none,
               border_color=color.new(tone, dim ? 70 : 60),
               bgcolor=color.new(tone, dim ? 93 : math.round(88 - weight * 8))))
         if draw_line
@@ -661,12 +665,19 @@ if barstate.islast
 
     // One alert covering every drawn level, naming whichever price reached.
     // Attach the script with "Any alert() function call".
+    // One alert per bar carrying every level the bar reached. alert() throttles
+    // by call site rather than by message, so firing inside the loop would
+    // report whichever level happened to be nearest and silently drop the rest.
     if alerts_on and drawn > 0
+        string touched = ""
         for rank = 0 to drawn - 1
             index = array.get(nearest, rank)
             price = array.get(merged_price, index)
             if high >= price and low <= price
-                alert("GEXLab " + syminfo.ticker + ": " + array.get(merged_label, index) + " at " + str.tostring(price, format.mintick), alert.freq_once_per_bar)
+                touched := touched + (touched == "" ? "" : ", ") + array.get(merged_label, index) +
+                  " " + str.tostring(price, format.mintick)
+        if touched != ""
+            alert("GEXLab " + syminfo.ticker + ": " + touched, alert.freq_once_per_bar)
 
 // Static alerts for the primary book's structural levels, for anyone who wants
 // them wired individually rather than through one alert() stream.

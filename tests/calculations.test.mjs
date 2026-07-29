@@ -698,8 +698,20 @@ test("TradingView bridge script renders each book in its own style and survives 
   // All three are freely settable to either or both.
   assert.match(PINE_SCRIPT, /options=\["Line", "Zone", "Line \+ zone"\]/);
   // A merged level honours every contributing book's style rather than one winning.
-  assert.match(PINE_SCRIPT, /draw_line = \(from_index and f_has_line\(0\)\)/);
+  assert.match(PINE_SCRIPT, /wants_line = \(from_index and f_has_line\(0\)\)/);
   assert.match(PINE_SCRIPT, /draw_zone = show_zones and half > 0 and \(\(from_index and f_has_zone\(0\)\)/);
+  // A zone-only book must survive the master zone switch being turned off.
+  assert.match(PINE_SCRIPT, /draw_line = wants_line or not draw_zone/);
+  // A zone follows its line when lines are extended: box.new takes the same
+  // extend argument the line does, not just line.new.
+  assert.equal(
+    (PINE_SCRIPT.match(/extend=extend_right \? extend\.right : extend\.none/g) ?? []).length,
+    2,
+  );
+  // alert() throttles by call site, so every level touched in a bar is gathered
+  // into one message rather than the loop firing once and being suppressed.
+  assert.match(PINE_SCRIPT, /if touched != ""/);
+  assert.match(PINE_SCRIPT, /alert\("GEXLab " \+ syminfo\.ticker \+ ": " \+ touched/);
   // Requesting the cash index on an intraday chart overruns the default
   // historical buffer thousands of bars back.
   assert.match(PINE_SCRIPT, /indicator\("GEXLab V3 Option Levels", overlay=true, max_bars_back=1000/);
