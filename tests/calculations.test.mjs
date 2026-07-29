@@ -741,6 +741,57 @@ test("copying confirms on the button that fired and survives a refused clipboard
   assert.doesNotMatch(atlas, /window\.setTimeout\(\(\) => setNotice\(""\), 2200\)/);
 });
 
+test("selecting a strike is confirmed everywhere it can be selected from", () => {
+  const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
+  // The chart never received the selection, so the band that was clicked looked
+  // identical to every other one.
+  assert.match(atlas, /pinned=\{pin\}/);
+  assert.match(atlas, /<g className="profile-pin" key=\{`pin-\$\{pinnedRow\.strike\}`\}>/);
+  // Decimation means the pinned strike is not always a drawn row, so the
+  // highlight resolves to the row the click landed on.
+  assert.match(atlas, /const pinnedRow =/);
+  // The chain and the ledger sit below the inspector they drive, so they mark
+  // themselves and bring it into view. The chart does not scroll: it is already
+  // beside the inspector.
+  assert.match(atlas, /onClick=\{\(\) => pinStrike\(row\.strike, true\)\}/);
+  assert.match(atlas, /onClick=\{\(\) => pinStrike\(Number\(value\), true\)\}/);
+  assert.match(atlas, /onPin=\{pinStrike\}/);
+  assert.match(atlas, /inspectorRef\.current\?\.scrollIntoView/);
+  assert.doesNotMatch(atlas, /onPin=\{setPinnedStrike\}/);
+});
+
+test("nothing is pinned until there is a real strike to pin", () => {
+  const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
+  // A hardcoded 23200 was snapped to the nearest listed strike, so the inspector
+  // opened on a far-OTM strike as though it had been chosen.
+  assert.match(atlas, /useState<number \| null>\(null\)/);
+  assert.doesNotMatch(atlas, /useState\(23200\)/);
+  assert.match(atlas, /const pin = pinnedStrike !== null && strikes\.length \? nearest\(pinnedStrike\) : null/);
+  // Switching instrument cleared the pin to zero, which snapped to the lowest
+  // listed strike on the new book.
+  assert.doesNotMatch(atlas, /setPinnedStrike\(0\)/);
+  // Auto-pinning to the money must not overwrite a selection: unconditional, it
+  // dragged the inspector back to spot on every live poll.
+  assert.match(atlas, /setPinnedStrike\(\(current\) =>\n {10}current \?\?/);
+  // A label claiming preview geometry over a panel that draws none.
+  assert.doesNotMatch(atlas, /atlas-canvas--preview/);
+});
+
+test("a failed market-data request can be retried without resetting the workspace", () => {
+  const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
+  // Recovery used to mean switching instrument, which resets eight pieces of
+  // state, or reloading the page.
+  assert.match(atlas, /Retry the request/);
+  assert.match(atlas, /setRefreshTick\(\(value\) => value \+ 1\)/);
+  // The tick is what clears the response cache, so a retry cannot be handed the
+  // same failure back out of memory.
+  assert.match(atlas, /lastRefreshTickRef\.current !== refreshTick/);
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(css, /PREVIEW GEOMETRY/);
+  // Dead styling for a selection marker that was never rendered.
+  assert.doesNotMatch(css, /\.pin-rule/);
+});
+
 test("motion is opt-in for transforms and switched off when the reader asks", () => {
   const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
   // Every new animation relies on this one guard, so it has to keep covering

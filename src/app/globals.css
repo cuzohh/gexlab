@@ -1931,17 +1931,6 @@ h3 {
   position: relative;
 }
 
-.atlas-canvas--preview::after {
-  color: var(--ink-muted);
-  content: "PREVIEW GEOMETRY · WAITING FOR MARKET DATA";
-  font-family: var(--font-mono);
-  font-size: 0.52rem;
-  letter-spacing: 0.08em;
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-
 .atlas-canvas svg {
   display: block;
   height: auto;
@@ -2262,20 +2251,31 @@ h3 {
   font-size: 9px;
 }
 
-.pin-rule {
+/* The selected strike. A backdrop the width of the plot rather than another
+   rule, because the chart already carries three level rules and a spot rule and
+   a fifth line would not read as "this row". Drawn before the exposure layer, so
+   it sits behind the bars it is selecting. */
+.profile-pin {
+  animation: pin-settle 220ms var(--ease-out) both;
   pointer-events: none;
 }
 
-.pin-rule line {
-  stroke: var(--ink);
-  stroke-opacity: 0.35;
-  stroke-width: 0.8;
+.profile-pin rect {
+  fill: color-mix(in oklch, var(--map) 12%, transparent);
 }
 
-.pin-rule circle {
-  fill: var(--canvas);
-  stroke: var(--ink);
+.profile-pin line {
+  stroke: var(--map);
   stroke-width: 1.4;
+}
+
+@keyframes pin-settle {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .strike-hit {
@@ -2350,6 +2350,17 @@ h3 {
   letter-spacing: -0.05em;
   line-height: 0.95;
   margin-top: 0.7rem;
+}
+
+/* Nothing pinned reads as an empty field rather than a value of "—". */
+.strike-inspector:not([data-pinned]) .pinned-value {
+  color: var(--ink-muted);
+}
+
+/* The number changing is the whole confirmation for a selection made from the
+   shelf below, so it settles in rather than swapping in place. */
+.strike-inspector[data-pinned] .pinned-value {
+  animation: value-settle 240ms var(--ease-out) both;
 }
 
 .distance {
@@ -2481,6 +2492,15 @@ h3 {
   text-align: left;
 }
 
+.level-ledger button:hover {
+  background: var(--surface);
+}
+
+.level-ledger button[data-active] {
+  background: var(--map-wash);
+  box-shadow: inset 0 2px 0 var(--map);
+}
+
 .level-ledger button:first-child {
   padding-left: 0;
 }
@@ -2576,6 +2596,18 @@ h3 {
 
 .chain-row:not(.chain-row--head):hover {
   background: var(--surface);
+}
+
+/* Clicking a row moves the inspector, which is a scroll away. The row it moved
+   to has to stay marked, or nothing on screen says which one is being read. */
+.chain-row[data-active] {
+  background: var(--map-wash);
+  box-shadow: inset 2px 0 0 var(--map);
+}
+
+.chain-row[data-active] span,
+.chain-row[data-active] strong {
+  color: var(--ink);
 }
 
 .data-pending {

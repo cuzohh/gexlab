@@ -249,6 +249,7 @@ function MarketProfileChart({
   futuresAnchor,
   selectedExpiry,
   onPin,
+  pinned = null,
 }: {
   snapshot: LiveOptionsData | null;
   fallbackSymbol: string;
@@ -258,6 +259,8 @@ function MarketProfileChart({
   futuresAnchor: number | null;
   selectedExpiry: string;
   onPin?: (strike: number) => void;
+  /** The selected strike, in this profile's own price space. */
+  pinned?: number | null;
 }) {
     if (!snapshot) {
     return (
@@ -308,6 +311,18 @@ function MarketProfileChart({
     x: center + (row[metric] / maxExposure) * width,
     y: yFor(row.strike),
   }));
+  // The band height each strike row occupies. The click targets are sized from
+  // it, and so is the selected-row backdrop, so the highlight covers exactly
+  // what was clicked.
+  const band = (bottom - top) / Math.max(rows.length - 1, 1);
+  // Decimation means the pinned strike is not always one of the drawn rows, so
+  // the highlight lands on the row the click actually resolved to.
+  const pinnedRow =
+    pinned === null || !rows.length
+      ? null
+      : rows.reduce((best, row) =>
+          Math.abs(row.strike - pinned) < Math.abs(best.strike - pinned) ? row : best,
+        );
   const negativeClipId = `${snapshot.symbol.toLowerCase()}-${metric}-negative-exposure`;
   const positiveClipId = `${snapshot.symbol.toLowerCase()}-${metric}-positive-exposure`;
   const labelStride = Math.max(1, Math.ceil(rows.length / 8));
@@ -396,6 +411,24 @@ function MarketProfileChart({
           </defs>
           <line x1={center} x2={center} y1={top - 16} y2={bottom + 12} className="strike-spine" />
           <text x={center} y={top - 23} textAnchor="middle" className="profile-zero-label">ZERO</text>
+
+          {/* Selecting a strike used to change nothing on the chart it was
+              clicked on. The chosen row now carries a backdrop the width of the
+              plot, drawn behind the exposure so it never obscures a bar, with
+              brackets at both ends. No price label: the inspector states it, and
+              another number here would collide with the level rules. */}
+          {pinnedRow && (
+            <g className="profile-pin" key={`pin-${pinnedRow.strike}`}>
+              <rect
+                x="28"
+                y={yFor(pinnedRow.strike) - band / 2}
+                width="444"
+                height={band}
+              />
+              <line x1="28" x2="40" y1={yFor(pinnedRow.strike)} y2={yFor(pinnedRow.strike)} />
+              <line x1="460" x2="472" y1={yFor(pinnedRow.strike)} y2={yFor(pinnedRow.strike)} />
+            </g>
+          )}
 
           <g key={`${view}-${metric}-${selectedExpiry}-${priceScale}`} className="exposure-layer">
             {view === "bars" &&
@@ -486,9 +519,9 @@ function MarketProfileChart({
           </g>
 
           {onPin && rows.map((row) => {
-            const band = (bottom - top) / Math.max(rows.length - 1, 1);
             const exposure = row[metric];
             const displayStrike = formatStrike(convert(row.strike));
+            const selected = pinnedRow?.strike === row.strike;
             return (
               <rect
                 key={`hit-${row.strike}`}
@@ -499,6 +532,7 @@ function MarketProfileChart({
                 className="strike-hit"
                 tabIndex={0}
                 role="button"
+                aria-pressed={selected}
                 aria-label={`${snapshot.symbol} strike ${displayStrike}, ${formatCompact(exposure)} ${metric} exposure. Inspect strike.`}
                 onClick={() => onPin(row.strike)}
                 onKeyDown={(event) => {
@@ -555,13 +589,18 @@ export function OptionsAtlas() {
   const [selectedExpiries, setSelectedExpiries] = useState<string[]>([]);
   const [priceScale, setPriceScale] = useState<PriceScale>("native");
   const [scope, setScope] = useState("");
-  const [pinnedStrike, setPinnedStrike] = useState(23200);
+  // Null until the reader picks one. A hardcoded default used to be snapped to
+  // the nearest listed strike, which put the inspector on whichever strike was
+  // closest to 23,200 — far out of the money on an index trading near 27,800 —
+  // and presented it as a selection nobody had made.
+  const [pinnedStrike, setPinnedStrike] = useState<number | null>(null);
   const [shelf, setShelf] = useState<Shelf>("levels");
   const [surfaceView, setSurfaceView] = useState<"smile" | "surface">("smile");
   const [notice, setNotice] = useState("");
   // Which action confirmed, so the tick lands on the button that was pressed.
   const [confirmed, setConfirmed] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
+  const inspectorRef = useRef<HTMLElement | null>(null);
   const [marketData, setMarketData] = useState<LiveOptionsData | null>(null);
   const [comparisonData, setComparisonData] = useState<LiveOptionsData | null>(null);
   const [comparisonError, setComparisonError] = useState("");
@@ -716,7 +755,12 @@ export function OptionsAtlas() {
               : "ETF confirmation unavailable for the exact selected expiry.",
           );
         }
-        setPinnedStrike(
+        // Open on the at-the-money strike, but only when nothing is pinned.
+        // This used to reassign unconditionally, so in live mode every poll
+        // dragged the inspector off whatever the reader had selected and back
+        // to spot.
+        setPinnedStrike((current) =>
+          current ??
           payload.strikes.reduce((best, row) =>
             Math.abs(row.strike - payload.spot) < Math.abs(best - payload.spot)
               ? row.strike
@@ -953,7 +997,7 @@ export function OptionsAtlas() {
   const nearest = (value: number) =>
     strikes.reduce((best, strike) => (Math.abs(strike - value) < Math.abs(best - value) ? strike : best));
 
-  const pin = strikes.length ? nearest(pinnedStrike) : null;
+  const pin = pinnedStrike !== null && strikes.length ? nearest(pinnedStrike) : null;
   const distance = pin !== null && marketData ? pin - spot : null;
   const pinnedData = marketData?.strikes.find((row) => row.strike === pin);
   const chainRows = useMemo(
@@ -1035,6 +1079,15 @@ export function OptionsAtlas() {
     if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
   }, []);
 
+  // The chain table and the level ledger live in the shelf below the inspector
+  // they drive, so a click there changed a panel that was off-screen. Selections
+  // made beside the inspector do not scroll: moving the page under a reader who
+  // can already see the result is worse than not moving it.
+  function pinStrike(strike: number, reveal = false) {
+    setPinnedStrike(strike);
+    if (reveal) inspectorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   // Copying is the one action here with no visible result — the payload goes to
   // the clipboard and the page looks unchanged. The button that fired confirms
   // in place so the feedback is where the click was, and the footer carries the
@@ -1101,6 +1154,23 @@ export function OptionsAtlas() {
                 ? `The ${cfg.source} request failed: ${dataError}`
                 : `Loading the ${cfg.source} option chain.`}
           </p>
+          {/* Without this the only way out of a failed request was switching
+              instrument, which resets the whole selection, or reloading the
+              page. Bumping the refresh tick reuses the fetch path and clears
+              the response cache, so a retry cannot be served the failure again
+              from memory. */}
+          {dataState === "error" && (
+            <button
+              className="quiet-action"
+              onClick={() => {
+                setDataError("");
+                setDataState("loading");
+                setRefreshTick((value) => value + 1);
+              }}
+            >
+              Retry the request
+            </button>
+          )}
         </div>
         <div className="atlas-context" aria-label="Structure controls">
           <div className="atlas-switch" aria-label="Futures chart target">
@@ -1118,7 +1188,9 @@ export function OptionsAtlas() {
                   setDataState("loading");
                   setDataError("");
                   setComparisonError("");
-                  setPinnedStrike(0);
+                  // Null, not zero: zero snapped to the lowest listed strike and
+                  // showed it as the selection for the new instrument.
+                  setPinnedStrike(null);
                 }}
               >
                 {value}
@@ -1563,7 +1635,11 @@ export function OptionsAtlas() {
             </div>
           </header>
 
-          <div className={`atlas-canvas ${dataState !== "ready" ? "atlas-canvas--preview" : ""}`}>
+          {/* No --preview modifier: it printed "PREVIEW GEOMETRY · WAITING FOR
+              MARKET DATA" over a panel that draws no geometry at all while
+              loading, and implied fabricated numbers were on screen. Each
+              profile already says it is waiting in its own header. */}
+          <div className="atlas-canvas">
             <div className="profile-comparison">
               <MarketProfileChart
                 snapshot={marketData}
@@ -1573,7 +1649,8 @@ export function OptionsAtlas() {
                 priceScale={priceScale}
                 futuresAnchor={futuresAnchor}
                 selectedExpiry={selectedExpiry}
-                onPin={setPinnedStrike}
+                onPin={pinStrike}
+                pinned={pin}
               />
               <MarketProfileChart
                 snapshot={comparisonData}
@@ -1602,10 +1679,17 @@ export function OptionsAtlas() {
           </figcaption>
         </figure>
 
-        <aside className="strike-inspector">
+        <aside className="strike-inspector" ref={inspectorRef} data-pinned={pin !== null || undefined}>
           <p className="section-kicker">Pinned strike</p>
-          <strong className="pinned-value">{pin?.toLocaleString() ?? "—"}</strong>
-          <p className={`distance ${distance !== null && distance >= 0 ? "distance--above" : "distance--below"}`}>
+          {/* Keyed so a new selection remounts the number and the settle replays. */}
+          <strong className="pinned-value" key={pin ?? "none"}>{pin?.toLocaleString() ?? "—"}</strong>
+          {/* No tone while nothing is pinned: the falsy branch used to paint
+              "Waiting for a strike" in the below-spot colour. */}
+          <p
+            className={`distance${
+              distance === null ? "" : distance >= 0 ? " distance--above" : " distance--below"
+            }`}
+          >
             {distance === null ? "Waiting for a strike" : `${distance >= 0 ? "+" : ""}${distance.toLocaleString()} from spot`}
           </p>
 
@@ -1641,11 +1725,13 @@ export function OptionsAtlas() {
             <p>
               {pinnedData
                 ? `${pinnedData[metric] >= 0 ? "Positive" : "Negative"} ${metric} exposure is concentrated here. This is an estimate from open interest, not observed dealer inventory or live options flow.`
-                : "No market-data row is available for this strike."}
+                : pin === null
+                  ? "Select a strike on either profile, in the chain, or from the level ledger."
+                  : "No market-data row is available for this strike."}
             </p>
           </div>
           <button className="quiet-action" disabled={!marketData} onClick={() => setPinnedStrike(spot)}>
-            Return to spot
+            {pin === null ? "Inspect spot" : "Return to spot"}
           </button>
         </aside>
       </div>
@@ -1688,7 +1774,12 @@ export function OptionsAtlas() {
                   ["Max pain", maxPain, "Minimum intrinsic payout at expiry", "comparison"],
                   ["Put wall", putWall, "Largest nearby negative gamma strike below spot (±6% wall window)", "constructive"],
                 ].filter(([, value]) => value !== null).map(([label, value, note, tone]) => (
-                  <button key={label} onClick={() => setPinnedStrike(Number(value))}>
+                  <button
+                    key={label}
+                    aria-pressed={pin !== null && pin === nearest(Number(value))}
+                    data-active={(pin !== null && pin === nearest(Number(value))) || undefined}
+                    onClick={() => pinStrike(Number(value), true)}
+                  >
                     <i className={`level-tone level-tone--${tone}`} />
                     <span>{label}</span>
                     <strong>{formatStrike(Number(value))}</strong>
@@ -1699,18 +1790,32 @@ export function OptionsAtlas() {
             </div>
           )}
 
+          {/* A grid rather than a table: the rows are selectable, and only a
+              grid's row supports aria-selected. Under role="table" the rows
+              announced as rows and never said they could be activated. */}
           {shelf === "chain" && (
-            <div className="chain-table" role="table" aria-label={`${cfg.source} option chain`}>
+            <div className="chain-table" role="grid" aria-label={`${cfg.source} option chain`}>
               <div className="chain-row chain-row--head" role="row">
-                <span>Call OI</span><span>Call vol.</span><strong>Strike</strong><span>Put vol.</span><span>Put OI</span>
+                <span role="columnheader">Call OI</span>
+                <span role="columnheader">Call vol.</span>
+                <strong role="columnheader">Strike</strong>
+                <span role="columnheader">Put vol.</span>
+                <span role="columnheader">Put OI</span>
               </div>
               {chainRows.map((row) => (
-                <button className="chain-row" role="row" key={row.strike} onClick={() => setPinnedStrike(row.strike)}>
-                  <span>{row.callOi.toLocaleString()}</span>
-                  <span>{row.callVolume.toLocaleString()}</span>
-                  <strong>{row.strike.toLocaleString()}</strong>
-                  <span>{row.putVolume.toLocaleString()}</span>
-                  <span>{row.putOi.toLocaleString()}</span>
+                <button
+                  className="chain-row"
+                  role="row"
+                  key={row.strike}
+                  aria-selected={pin === row.strike}
+                  data-active={pin === row.strike || undefined}
+                  onClick={() => pinStrike(row.strike, true)}
+                >
+                  <span role="gridcell">{row.callOi.toLocaleString()}</span>
+                  <span role="gridcell">{row.callVolume.toLocaleString()}</span>
+                  <strong role="gridcell">{row.strike.toLocaleString()}</strong>
+                  <span role="gridcell">{row.putVolume.toLocaleString()}</span>
+                  <span role="gridcell">{row.putOi.toLocaleString()}</span>
                 </button>
               ))}
               {!chainRows.length && <div className="data-pending"><strong>Loading option chain</strong></div>}
@@ -1973,7 +2078,9 @@ export function OptionsAtlas() {
           {/* Keyed so React remounts the text and the settle animation replays,
               which is what makes a changed notice read as new rather than as
               text that was always there. */}
-          <em key={notice}>{notice || "Select a strike to inspect"}</em>
+          <em key={notice || pin}>
+            {notice || (pin === null ? "Select a strike to inspect" : `Inspecting ${pin.toLocaleString()}`)}
+          </em>
         </span>
       </footer>
     </section>
