@@ -671,9 +671,17 @@ test("TradingView bridge script uses Pine v6 and self-identifying payload price 
 });
 
 test("TradingView bridge script draws the histogram, expected move and agreement", () => {
-  // The exposure profile the walls are peaks of.
+  // The exposure profile the walls are peaks of, switchable between the two
+  // books and defaulting to the ETF.
   assert.match(PINE_SCRIPT, /show_profile = input\.bool/);
   assert.match(PINE_SCRIPT, /array\.push\(hist_strike, strike\)/);
+  assert.match(PINE_SCRIPT, /profile_source = input\.string\("Confirmation book \(QQQ \/ SPY\)"/);
+  assert.match(PINE_SCRIPT, /array\.push\(hist_book, role\)/);
+  // Selecting a book the bridge did not carry falls back rather than blanking.
+  assert.match(PINE_SCRIPT, /shown = has_wanted \? wanted : array\.get\(hist_book, 0\)/);
+  // Every level names the book that measured it, the index one included.
+  assert.match(PINE_SCRIPT, /prefix = name \+ " "/);
+  assert.doesNotMatch(PINE_SCRIPT, /prefix = role == 1/);
   // Expected move arrives pre-scaled in bps so a 0DTE move is not rounded up.
   assert.match(PINE_SCRIPT, /sigma_bps \/ 10000\.0/);
   // Greek-lettered level names: gamma and delta have symbols, vanna and charm
@@ -882,9 +890,10 @@ test("the bridge payload rescales every book onto one reference price with its o
   assert.equal(Number(etfFields[3]), 41.07);
   assert.equal(Number(etfFields[4].split(",")[0]), 23205.36);
   assert.equal(Number(etfFields[4].split(",")[1]), 22794.64);
-  // The histogram stays on the primary book: a second profile on the same axis
-  // would read as one distribution and is not one.
-  assert.equal(etfFields[8], "");
+  // Both books ship a profile so the chart can switch between them; it draws
+  // one at a time, because overlaying two would read as a single distribution.
+  // The ETF's is rescaled onto the index like everything else in its block.
+  assert.equal(etfFields[8], "22917.86,-57;22958.93,-43;23041.07,100;23082.14,71");
 });
 
 test("the exposure histogram normalizes to its own peak and keeps strikes near spot", () => {

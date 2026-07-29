@@ -316,10 +316,11 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
     )
     .join(";");
 
-  // The histogram is the primary book's alone. Overlaying a second chain's
-  // profile on the same axis would read as one distribution and is not one.
+  // Both books ship a profile. Overlaying them would read as one distribution
+  // and is not one, so the indicator draws a single book at a time and this
+  // only decides which ones it can offer.
   const profile =
-    parts.profile && source.role === "P"
+    parts.profile
       ? exposureProfile(source.strikes, source.spot)
           .map((point) => `${field(point.strike * factor)},${point.exposure}`)
           .join(";")

@@ -47,6 +47,7 @@ show_volume_walls = input.bool(true, "Volume walls", group="Levels", tooltip="Wa
 show_confirmation = input.bool(true, "Confirmation book (QQQ / SPY)", group="Levels", tooltip="Draws the ETF book rescaled onto this chart. Where it agrees with the index book the level is corroborated by a second, independently listed chain.")
 
 show_profile = input.bool(true, "Exposure histogram", group="Overlays", tooltip="The strike-by-strike Γ profile, drawn to the right of price. This is the shape the walls are peaks of.")
+profile_source = input.string("Confirmation book (QQQ / SPY)", "Histogram source", options=["Index book (NDX / SPX)", "Confirmation book (QQQ / SPY)"], group="Overlays", tooltip="Both books ship a profile; one is drawn at a time. Overlaying them would read as a single distribution and is not one.")
 profile_bars = input.int(40, "Histogram length (bars)", minval=5, maxval=200, group="Overlays")
 show_expected_move = input.bool(true, "Expected move", group="Overlays", tooltip="Front-expiry ATM implied volatility scaled to that expiry's own year fraction, so a 0DTE move is not rounded up to a whole session.")
 move_sigmas = input.int(2, "Expected-move bands", minval=1, maxval=3, group="Overlays")
@@ -99,6 +100,10 @@ var float[] lv_step = array.new_float()
 // The strike-by-strike exposure profile of the primary book.
 var float[] hist_strike = array.new_float()
 var float[] hist_value = array.new_float()
+// Which book each histogram point came from: 0 the index chain, 1 the ETF.
+var int[] hist_book = array.new_int()
+// Strike increment per book, which sets how tall a histogram bar is drawn.
+var float[] book_step = array.new_float(2, na)
 
 var bool parsed = false
 var bool payload_is_futures = false
@@ -107,8 +112,8 @@ var float payload_epoch = 0.0
 
 // Pine functions may mutate a global array by reference but may not assign to a
 // global scalar, so the values the block parser has to hand back live here.
-//   0 one-sigma bps  1 primary spot  2 primary strike increment
-var float[] meta_levels = array.new_float(3, na)
+//   0 one-sigma bps  1 primary spot
+var float[] meta_levels = array.new_float(2, na)
 
 f_str(items, index) =>
     array.size(items) > index ? array.get(items, index) : ""
@@ -156,7 +161,10 @@ f_parse_block(block) =>
         name = f_str(fields, 0)
         role = f_str(fields, 1) == "C" ? 1 : 0
         step = f_number(fields, 3)
-        prefix = role == 1 ? name + " " : ""
+        // Every level says which book measured it, the index one included.
+        prefix = name + " "
+
+        array.set(book_step, role, step)
 
         aggregate = str.split(f_str(fields, 4), ",")
         call_wall = f_price(aggregate, 0)
@@ -164,7 +172,6 @@ f_parse_block(block) =>
         flip = f_price(aggregate, 2)
         if role == 0
             array.set(meta_levels, 1, f_price(fields, 2))
-            array.set(meta_levels, 2, step)
         f_push(call_wall, prefix + "Call Wall", 0, 1.0, role, step)
         f_push(put_wall, prefix + "Put Wall", 1, 1.0, role, step)
         f_push(flip, prefix + "Γ Flip", 2, 1.0, role, step)
@@ -188,9 +195,8 @@ f_parse_block(block) =>
                     f_push(f_price(slice, 2), label_text + " Put Wall", 10, weight, role, step)
                     f_push(f_price(slice, 3), label_text + " Γ Flip", 11, weight, role, step)
 
-        // The histogram belongs to the primary book alone. Two chains' profiles
-        // on one axis would read as a single distribution and are not one.
-        if role == 0 and array.size(fields) >= 9
+        // Both books carry a profile; the drawing picks one.
+        if array.size(fields) >= 9
             points = str.split(f_str(fields, 8), ";")
             if array.size(points) > 0
                 for point_index = 0 to array.size(points) - 1
@@ -201,6 +207,7 @@ f_parse_block(block) =>
                         if not na(strike) and exposure != 0
                             array.push(hist_strike, strike)
                             array.push(hist_value, exposure)
+                            array.push(hist_book, role)
 
         if array.size(fields) >= 10
             volume = str.split(f_str(fields, 9), ",")
@@ -545,12 +552,21 @@ if barstate.islast
     // level with a broad shoulder behind it is a different proposition from an
     // isolated spike, and the lines alone cannot say which is which.
     if show_profile and drawing and array.size(hist_strike) > 0
+        wanted = profile_source == "Index book (NDX / SPX)" ? 0 : 1
+        // Fall back to whichever book did ship a profile, so excluding one from
+        // the bridge leaves the histogram working rather than blank.
+        bool has_wanted = false
+        for point_index = 0 to array.size(hist_book) - 1
+            if array.get(hist_book, point_index) == wanted
+                has_wanted := true
+                break
+        shown = has_wanted ? wanted : array.get(hist_book, 0)
         profile_left = f_future(right_bars + 2)
-        bar_half = math.max(nz(f_map_width(array.get(meta_levels, 2)), 0) * 0.45, syminfo.mintick)
+        bar_half = math.max(nz(f_map_width(array.get(book_step, shown)), 0) * 0.45, syminfo.mintick)
         for point_index = 0 to array.size(hist_strike) - 1
             level = f_map(array.get(hist_strike, point_index))
             exposure = array.get(hist_value, point_index)
-            if not na(level)
+            if not na(level) and array.get(hist_book, point_index) == shown
                 tone = exposure > 0 ? c_call : c_put
                 length = math.max(1, math.round(math.abs(exposure) / 100 * profile_bars))
                 array.push(drawn_boxes, box.new(
