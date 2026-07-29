@@ -24,9 +24,10 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //     volume    callVolumeWall,putVolumeWall
 //     move      oneSigmaBps,frontDte
 //
-// Every block carries its own strike increment, so a QQQ level whose strikes are
-// $1 apart draws a zone roughly 41 index points wide while an NDX level draws
-// 25, and both are rescaled again by whatever maps the payload onto this chart.
+// Every block carries its own strike increment, measured from the chain rather
+// than assumed: on a recent snapshot NDX listed a modal 10-point grid across its
+// near expiries while QQQ's $1 grid rescaled onto the index covers about 41
+// points. Both are rescaled again by whatever maps the payload onto this chart.
 bridge = input.text_area("", "GEXLab bridge", group="Data", tooltip="Copy the bridge from the GEXLab Options workspace. The payload carries its own price space, strike increments and snapshot time.")
 
 map_mode = input.string("Auto", "Chart mapping", options=["Auto", "Cash-index ratio", "Cash-index basis", "Payload-reference ratio", "Manual ratio", "Manual basis", "None"], group="Mapping", tooltip="Auto uses the live cash-index ratio when it is available, which maps the payload onto futures, the cash index itself and the ETF alike. These are observed estimates, not exchange-defined conversions.")
@@ -58,7 +59,8 @@ hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Fi
 
 // How each book renders. The index book is measured on the chain the chart
 // actually tracks, so it draws as a line: a definite price. The ETF book is
-// rescaled onto the index, where a $1 QQQ strike grid lands as a ~41-point band,
+// rescaled onto the index, where a $1 QQQ strike grid lands as a ~41-point band
+// against the index's own 10,
 // so it draws as a zone — the width is the honest precision of the conversion,
 // not decoration. Any book can be set to either or both.
 index_style = input.string("Line", "Index book (NDX / SPX)", options=["Line", "Zone", "Line + zone"], group="Books")
@@ -614,8 +616,8 @@ if barstate.islast
                 if not na(level)
                     // Each book keeps the bin height its own strike grid earns,
                     // which is the whole reason the two are drawn apart: an ETF
-                    // bar covering ~41 index points is not a finer read than an
-                    // index bar covering 25, and stacking them would imply it.
+                    // bar covering ~41 index points is not the same read as an
+                    // index bar covering 10, and stacking them would imply it.
                     half = math.max(nz(f_map_width(array.get(book_step, book)), 0) * 0.45, syminfo.mintick)
                     tone = exposure > 0 ? c_call : c_put
                     length = math.max(1, math.round(math.abs(exposure) / 100 * profile_bars))

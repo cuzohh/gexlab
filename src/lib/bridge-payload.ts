@@ -30,7 +30,9 @@
 // Every price in a block is expressed in the payload's price space, which is
 // why `step` travels with it: a QQQ level rescaled onto NDX carries a $1 strike
 // increment that has become ~41 index points, and the indicator must draw its
-// zone that wide rather than reusing the index's own 25-point grid.
+// zone that wide rather than reusing the index's own grid. That grid is measured,
+// never assumed — NDX quotes a modal 10 points across its near expiries and 25
+// further out, and strikeIncrement reads whichever the selected expiries list.
 //
 // Delimiters are fixed and non-overlapping so Pine can split with str.split:
 //   "|" blocks, "~" fields, ";" records, "," subfields.
