@@ -47,11 +47,11 @@ show_volume_walls = input.bool(true, "Volume walls", group="Levels", tooltip="Wa
 show_confirmation = input.bool(true, "Confirmation book (QQQ / SPY)", group="Levels", tooltip="Draws the ETF book rescaled onto this chart. Where it agrees with the index book the level is corroborated by a second, independently listed chain.")
 
 show_profile = input.bool(true, "Exposure histogram", group="Overlays", tooltip="The strike-by-strike Γ profile, drawn to the right of price. This is the shape the walls are peaks of.")
-profile_source = input.string("Confirmation book (QQQ / SPY)", "Histogram source", options=["Index book (NDX / SPX)", "Confirmation book (QQQ / SPY)"], group="Overlays", tooltip="Both books ship a profile; one is drawn at a time. Overlaying them would read as a single distribution and is not one.")
+profile_source = input.string("Both, back to back", "Histogram source", options=["Both, back to back", "Index book (NDX / SPX)", "Confirmation book (QQQ / SPY)"], group="Overlays", tooltip="Back to back grows the index book left of a shared axis and the ETF right of it, each keeping the bin height its own strike grid earns. Same price is the same height on both sides, so where the two chains agree is readable directly. Overlaying them instead would merge two different bin widths into one shape that is neither.")
 profile_bars = input.int(40, "Histogram length (bars)", minval=5, maxval=200, group="Overlays")
 show_expected_move = input.bool(true, "Expected move", group="Overlays", tooltip="Front-expiry ATM implied volatility scaled to that expiry's own year fraction, so a 0DTE move is not rounded up to a whole session.")
 move_sigmas = input.int(2, "Expected-move bands", minval=1, maxval=3, group="Overlays")
-max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60, group="Filter", tooltip="Keeps the levels closest to price. The rest are still parsed and still appear in the level table.")
+max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60, group="Filter", tooltip="Keeps the levels closest to price and drops the rest from the chart.")
 max_distance = input.float(3.0, "Maximum distance from price (%, 0 = off)", minval=0.0, step=0.25, group="Filter")
 min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops Γ and Δ clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
 hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Filter")
@@ -104,6 +104,7 @@ var float[] hist_value = array.new_float()
 var int[] hist_book = array.new_int()
 // Strike increment per book, which sets how tall a histogram bar is drawn.
 var float[] book_step = array.new_float(2, na)
+var string[] book_name = array.new_string(2, "")
 
 var bool parsed = false
 var bool payload_is_futures = false
@@ -165,6 +166,7 @@ f_parse_block(block) =>
         prefix = name + " "
 
         array.set(book_step, role, step)
+        array.set(book_name, role, name)
 
         aggregate = str.split(f_str(fields, 4), ",")
         call_wall = f_price(aggregate, 0)
@@ -364,7 +366,14 @@ var float[] merged_weight = array.new_float()
 // bitmask because Pine has no bitwise operators.
 var bool[] merged_index = array.new_bool()
 var bool[] merged_confirm = array.new_bool()
+var bool[] merged_agreed = array.new_bool()
 var int[] merged_slot = array.new_int()
+
+// Histogram layout, resolved before the levels draw because their labels sit to
+// the right of it and have to clear whatever width it takes.
+var bool profile_both = false
+var int profile_shown = 0
+var int profile_lanes = 1
 
 f_emit(price, text_value, kind, half, weight, from_index, from_confirm) =>
     array.push(merged_price, price)
@@ -390,7 +399,7 @@ f_render(index) =>
     weight = array.get(merged_weight, index)
     from_index = array.get(merged_index, index)
     from_confirm = array.get(merged_confirm, index)
-    agreed = from_index and from_confirm
+    agreed = array.get(merged_agreed, index)
     // A merged level draws whatever any of its contributing books asks for, so
     // an index line and an ETF zone on the same price render as a line inside
     // its confirmation band rather than one of the two silently winning.
@@ -428,13 +437,58 @@ f_render(index) =>
         caption = (agreed ? "✓ " : "") + array.get(merged_label, index) +
           (show_prices ? "  " + str.tostring(price, format.mintick) : "")
         array.push(drawn_labels, label.new(
-          x=f_future(right_bars + 2 + (show_profile ? profile_bars + 3 : 0) + array.get(merged_slot, index) * 9),
+          x=f_future(right_bars + 2 + (show_profile ? profile_bars * profile_lanes + 3 : 0) + array.get(merged_slot, index) * 9),
           y=price,
           text=caption,
           style=label.style_label_left,
           color=color.new(tone, 100),
           textcolor=dim ? color.new(tone, 25) : tone,
           size=size.small))
+
+// visible_price and visible_source are locals of the drawing block, and a Pine
+// function can only reach globals, so they are handed in rather than captured.
+f_merge_book(by_price, visible_price, visible_source, book_pass) =>
+    bool group_open = false
+    float group_price = 0.0
+    float group_anchor = 0.0
+    string group_text = ""
+    int group_kind = 0
+    int group_priority = 99
+    float group_half = 0.0
+    float group_weight = 0.0
+    for rank = 0 to array.size(by_price) - 1
+        slot = array.get(by_price, rank)
+        price = array.get(visible_price, slot)
+        source_index = array.get(visible_source, slot)
+        kind = array.get(lv_kind, source_index)
+        role = array.get(lv_role, source_index)
+        if f_class(kind, role) == book_pass
+            priority = f_priority(kind)
+            half = f_half_width(array.get(lv_step, source_index))
+            weight = array.get(lv_weight, source_index)
+            tolerance = merge_tolerance > 0 ? merge_tolerance : group_half * 1.2
+            if group_open and price - group_anchor > tolerance
+                f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1)
+                group_open := false
+            if not group_open
+                group_open := true
+                group_anchor := price
+                group_price := price
+                group_text := array.get(lv_label, source_index)
+                group_kind := kind
+                group_priority := priority
+                group_half := half
+                group_weight := weight
+            else
+                group_text := group_text + "  ·  " + array.get(lv_label, source_index)
+                group_half := math.max(group_half, half)
+                group_weight := math.max(group_weight, weight)
+                if priority < group_priority
+                    group_priority := priority
+                    group_kind := kind
+                    group_price := price
+    if group_open
+        f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1)
 
 // Redraw on every realtime tick. A realtime tick rolls the script back to the
 // start of the bar, which destroys anything drawn on the previous tick, so the
@@ -448,9 +502,25 @@ if barstate.islast
     array.clear(merged_weight)
     array.clear(merged_index)
     array.clear(merged_confirm)
+    array.clear(merged_agreed)
     array.clear(merged_slot)
 
     drawing = not hide_outside_rth or session.ismarket
+
+    // Which books actually shipped a profile. A single-book selection falls
+    // back to whichever one did, and back to back needs both to mean anything.
+    bool has_index = false
+    bool has_confirm = false
+    if array.size(hist_book) > 0
+        for point_index = 0 to array.size(hist_book) - 1
+            if array.get(hist_book, point_index) == 0
+                has_index := true
+            else
+                has_confirm := true
+    profile_both := profile_source == "Both, back to back" and has_index and has_confirm
+    wanted = profile_source == "Confirmation book (QQQ / SPY)" ? 1 : 0
+    profile_shown := wanted == 0 ? (has_index ? 0 : 1) : (has_confirm ? 1 : 0)
+    profile_lanes := show_profile and profile_both ? 2 : 1
 
     visible_price = array.new_float()
     visible_source = array.new_int()
@@ -472,68 +542,46 @@ if barstate.islast
     // agreeing on a price is the strongest read the payload can offer.
     if array.size(visible_price) > 0
         by_price = array.sort_indices(visible_price, order.ascending)
-        bool group_open = false
-        float group_price = 0.0
-        float group_anchor = 0.0
-        string group_text = ""
-        int group_kind = 0
-        int group_priority = 99
-        float group_half = 0.0
-        float group_weight = 0.0
-        bool group_index = false
-        bool group_confirm = false
-        for rank = 0 to array.size(by_price) - 1
-            slot = array.get(by_price, rank)
-            price = array.get(visible_price, slot)
-            source_index = array.get(visible_source, slot)
-            kind = array.get(lv_kind, source_index)
-            priority = f_priority(kind)
-            half = f_half_width(array.get(lv_step, source_index))
-            weight = array.get(lv_weight, source_index)
-            role = array.get(lv_role, source_index)
-            book = f_class(kind, role)
-            tolerance = merge_tolerance > 0 ? merge_tolerance : group_half * 1.2
-            if group_open and price - group_anchor > tolerance
-                f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm)
-                group_open := false
-            if not group_open
-                group_open := true
-                group_anchor := price
-                group_price := price
-                group_text := array.get(lv_label, source_index)
-                group_kind := kind
-                group_priority := priority
-                group_half := half
-                group_weight := weight
-                group_index := book == 0
-                group_confirm := book == 1
-            else
-                group_text := group_text + "  ·  " + array.get(lv_label, source_index)
-                group_half := math.max(group_half, half)
-                group_weight := math.max(group_weight, weight)
-                group_index := group_index or book == 0
-                group_confirm := group_confirm or book == 1
-                if priority < group_priority
-                    group_priority := priority
-                    group_kind := kind
-                    group_price := price
-        if group_open
-            f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm)
+        // One pass per book. Merging across books used to take the price of the
+        // higher-priority member and the width of the widest, which drew an
+        // ETF-width zone centred on an index price: off its own strike grid and
+        // away from its own histogram bar by up to half a bin.
+        for book_pass = 0 to 1
+            f_merge_book(by_price, visible_price, visible_source, book_pass)
 
     total = array.size(merged_price)
-    // Merged levels arrive in ascending price order, so a run of prices closer
-    // together than a label is tall gets its labels stepped sideways instead of
-    // stacked on top of each other.
-    float previous_price = na
-    int stagger = 0
     if total > 0
         for index = 0 to total - 1
+            array.push(merged_slot, 0)
+            array.push(merged_agreed, false)
+
+        // Agreement is proximity between the books, not a merge. Marking both
+        // levels leaves each on its own strike grid and its own histogram bar,
+        // and an index line sitting inside the ETF band it agrees with is a
+        // better picture of corroboration than one line standing for both.
+        for left = 0 to total - 1
+            if array.get(merged_index, left)
+                for right = 0 to total - 1
+                    if array.get(merged_confirm, right)
+                        reach = math.max(array.get(merged_half, left), array.get(merged_half, right))
+                        if math.abs(array.get(merged_price, left) - array.get(merged_price, right)) <= reach
+                            array.set(merged_agreed, left, true)
+                            array.set(merged_agreed, right, true)
+
+        // Levels now arrive grouped by book, so the stagger walks them in price
+        // order: a run closer together than a label is tall gets stepped
+        // sideways rather than stacked.
+        by_merged = array.sort_indices(merged_price, order.ascending)
+        float previous_price = na
+        int stagger = 0
+        for rank = 0 to total - 1
+            index = array.get(by_merged, rank)
             price = array.get(merged_price, index)
             if not na(previous_price) and stagger_labels and label_gap > 0 and price - previous_price < label_gap
                 stagger := stagger >= 3 ? 0 : stagger + 1
             else
                 stagger := 0
-            array.push(merged_slot, stagger)
+            array.set(merged_slot, index, stagger)
             previous_price := price
 
     distances = array.new_float()
@@ -553,27 +601,50 @@ if barstate.islast
         wanted = profile_source == "Index book (NDX / SPX)" ? 0 : 1
         // Fall back to whichever book did ship a profile, so excluding one from
         // the bridge leaves the histogram working rather than blank.
-        bool has_wanted = false
-        for point_index = 0 to array.size(hist_book) - 1
-            if array.get(hist_book, point_index) == wanted
-                has_wanted := true
-                break
-        shown = has_wanted ? wanted : array.get(hist_book, 0)
-        profile_left = f_future(right_bars + 2)
-        bar_half = math.max(nz(f_map_width(array.get(book_step, shown)), 0) * 0.45, syminfo.mintick)
+        // Back to back puts the axis a lane in, so the index book has somewhere
+        // to grow leftwards into. A single book grows right from the near edge.
+        axis = f_future(right_bars + 2 + (profile_both ? profile_bars : 0))
+        float highest_level = na
+        float lowest_level = na
         for point_index = 0 to array.size(hist_strike) - 1
-            level = f_map(array.get(hist_strike, point_index))
-            exposure = array.get(hist_value, point_index)
-            if not na(level) and array.get(hist_book, point_index) == shown
-                tone = exposure > 0 ? c_call : c_put
-                length = math.max(1, math.round(math.abs(exposure) / 100 * profile_bars))
-                array.push(drawn_boxes, box.new(
-                  left=profile_left,
-                  top=level + bar_half,
-                  right=math.min(profile_left + length, bar_index + 500),
-                  bottom=level - bar_half,
-                  border_color=color.new(tone, 75),
-                  bgcolor=color.new(tone, 55)))
+            book = array.get(hist_book, point_index)
+            if profile_both or book == profile_shown
+                level = f_map(array.get(hist_strike, point_index))
+                exposure = array.get(hist_value, point_index)
+                if not na(level)
+                    // Each book keeps the bin height its own strike grid earns,
+                    // which is the whole reason the two are drawn apart: an ETF
+                    // bar covering ~41 index points is not a finer read than an
+                    // index bar covering 25, and stacking them would imply it.
+                    half = math.max(nz(f_map_width(array.get(book_step, book)), 0) * 0.45, syminfo.mintick)
+                    tone = exposure > 0 ? c_call : c_put
+                    length = math.max(1, math.round(math.abs(exposure) / 100 * profile_bars))
+                    grows_left = profile_both and book == 0
+                    array.push(drawn_boxes, box.new(
+                      left=math.max(grows_left ? axis - length : axis, bar_index + 1),
+                      top=level + half,
+                      right=math.min(grows_left ? axis : axis + length, bar_index + 500),
+                      bottom=level - half,
+                      border_color=color.new(tone, 75),
+                      bgcolor=color.new(tone, 55)))
+                    highest_level := na(highest_level) or level > highest_level ? level : highest_level
+                    lowest_level := na(lowest_level) or level < lowest_level ? level : lowest_level
+        if profile_both and not na(highest_level)
+            array.push(drawn_lines, line.new(
+              x1=axis,
+              y1=lowest_level,
+              x2=axis,
+              y2=highest_level,
+              color=color.new(color.gray, 45),
+              width=1))
+            array.push(drawn_labels, label.new(
+              x=axis,
+              y=highest_level,
+              text="◄ " + array.get(book_name, 0) + "   " + array.get(book_name, 1) + " ►",
+              style=label.style_label_down,
+              color=color.new(color.gray, 100),
+              textcolor=color.new(color.gray, 20),
+              size=size.tiny))
 
     // Expected move. The walls say where hedging sits; this says whether today
     // has the volatility to reach them.

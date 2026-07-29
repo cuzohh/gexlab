@@ -677,10 +677,22 @@ test("TradingView bridge script draws the histogram, expected move and agreement
   // books and defaulting to the ETF.
   assert.match(PINE_SCRIPT, /show_profile = input\.bool/);
   assert.match(PINE_SCRIPT, /array\.push\(hist_strike, strike\)/);
-  assert.match(PINE_SCRIPT, /profile_source = input\.string\("Confirmation book \(QQQ \/ SPY\)"/);
+  assert.match(PINE_SCRIPT, /profile_source = input\.string\("Both, back to back"/);
   assert.match(PINE_SCRIPT, /array\.push\(hist_book, role\)/);
-  // Selecting a book the bridge did not carry falls back rather than blanking.
-  assert.match(PINE_SCRIPT, /shown = has_wanted \? wanted : array\.get\(hist_book, 0\)/);
+  // Back to back needs both books present; a single-book selection falls back
+  // to whichever one the bridge actually carried rather than blanking.
+  assert.match(PINE_SCRIPT, /profile_both := profile_source == "Both, back to back" and has_index and has_confirm/);
+  assert.match(PINE_SCRIPT, /profile_shown := wanted == 0 \? \(has_index \? 0 : 1\) : \(has_confirm \? 1 : 0\)/);
+  // Each book keeps the bin height its own strike grid earns.
+  assert.match(PINE_SCRIPT, /f_map_width\(array\.get\(book_step, book\)\)/);
+  // Level labels clear whatever width the histogram takes, one lane or two.
+  assert.match(PINE_SCRIPT, /profile_bars \* profile_lanes \+ 3/);
+  // Merging runs per book, so a level always keeps its own book's price and
+  // stays on the strike grid its histogram bars are drawn from.
+  assert.match(PINE_SCRIPT, /f_merge_book\(by_price, visible_price, visible_source, book_pass\)/);
+  assert.match(PINE_SCRIPT, /if f_class\(kind, role\) == book_pass/);
+  // Agreement is proximity, not a merge, so neither level gets moved.
+  assert.match(PINE_SCRIPT, /array\.set\(merged_agreed, left, true\)/);
   // Every level names the book that measured it, the index one included.
   assert.match(PINE_SCRIPT, /prefix = name \+ " "/);
   assert.doesNotMatch(PINE_SCRIPT, /prefix = role == 1/);
@@ -697,7 +709,7 @@ test("TradingView bridge script draws the histogram, expected move and agreement
   // feature's own identifiers rather than the word.
   assert.doesNotMatch(PINE_SCRIPT, /show_prior|prior_style|prior_recolor|c_prior|merged_prior|"Prior /);
   // Levels both books agree on are flagged rather than silently merged.
-  assert.match(PINE_SCRIPT, /agreed = from_index and from_confirm/);
+  assert.match(PINE_SCRIPT, /agreed = array\.get\(merged_agreed, index\)/);
   assert.match(PINE_SCRIPT, /agreed \? "✓ " : ""/);
   // Lines start where the snapshot was taken, not at an arbitrary lookback.
   // With the monitor gone this is also the only staleness cue left: a short
