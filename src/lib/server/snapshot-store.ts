@@ -277,48 +277,6 @@ export function snapshotIsFresh(snapshot: StoredSnapshot<unknown>, now = Date.no
   return Date.parse(snapshot.refreshAfter) > now;
 }
 
-export type SnapshotHistoryEntry = {
-  id: number;
-  sourceTime: string | null;
-  fetchedAt: string;
-  methodologyVersion: string;
-};
-
-/**
- * Lists prior versions of one snapshot newest first, without their payloads.
- * Chain payloads run to megabytes, so callers scan the timestamps here and then
- * read back only the single revision they actually want.
- */
-export function listSnapshotHistory(
-  namespace: string,
-  key: string,
-  limit = 60,
-): SnapshotHistoryEntry[] {
-  return database()
-    .prepare(`
-      SELECT id, source_time, fetched_at, methodology_version
-      FROM snapshot_history
-      WHERE namespace = ? AND cache_key = ?
-      ORDER BY id DESC
-      LIMIT ?
-    `)
-    .all(namespace, key, limit)
-    .map((row) => {
-      const entry = row as {
-        id: number;
-        source_time: string | null;
-        fetched_at: string;
-        methodology_version: string;
-      };
-      return {
-        id: entry.id,
-        sourceTime: entry.source_time,
-        fetchedAt: entry.fetched_at,
-        methodologyVersion: entry.methodology_version,
-      };
-    });
-}
-
 function easternDayOf(iso: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
@@ -403,41 +361,6 @@ export function pruneSnapshotHistory(
   const statement = database().prepare("DELETE FROM snapshot_history WHERE id = ?");
   for (const row of doomed) statement.run(row.id);
   return doomed.length;
-}
-
-export function readSnapshotHistory<T>(id: number): StoredSnapshot<T> | null {
-  const row = database()
-    .prepare(`
-      SELECT namespace, cache_key, payload, source_time, fetched_at, methodology_version
-      FROM snapshot_history
-      WHERE id = ?
-    `)
-    .get(id) as
-    | {
-        namespace: string;
-        cache_key: string;
-        payload: string;
-        source_time: string | null;
-        fetched_at: string;
-        methodology_version: string;
-      }
-    | undefined;
-
-  if (!row) return null;
-  try {
-    return {
-      namespace: row.namespace,
-      key: row.cache_key,
-      payload: JSON.parse(row.payload) as T,
-      sourceTime: row.source_time,
-      fetchedAt: row.fetched_at,
-      // A historical revision has no refresh horizon of its own; it is already spent.
-      refreshAfter: row.fetched_at,
-      methodologyVersion: row.methodology_version,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export type SurfaceHistoryRow = {

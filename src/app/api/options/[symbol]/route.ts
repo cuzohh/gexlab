@@ -20,8 +20,6 @@ import { dedupeRequest } from "@/lib/server/request-deduper";
 import { loadMacroSeries } from "@/lib/server/macro-sources";
 import {
   getSnapshot,
-  listSnapshotHistory,
-  readSnapshotHistory,
   loadSurfaceHistory,
   pruneSnapshotHistory,
   putSnapshot,
@@ -445,12 +443,6 @@ const memoPositioning = memoize<{
   expiries: number;
 } | null>(8);
 const memoExpiryLevels = memoize<ExpiryLevels>(400);
-const memoPriorSession = memoize<{
-  observationDate: string;
-  sourceTime: string;
-  spot: number;
-  levels: ReturnType<typeof calculateLevels>;
-} | null>(16);
 const memoExpiryStats = memoize<{
   expiry: string;
   atmIv: number | null;
@@ -912,58 +904,6 @@ export async function GET(
         volume: expiryContracts.reduce((total, contract) => total + contract.volume, 0),
       };
     }));
-    // The same walls measured on the previous session's chain. Where a wall has
-    // moved is itself the signal: a call wall that rolled up overnight is a
-    // different market from one that has been pinned for a week. Recomputed from
-    // the stored raw snapshot rather than stored separately, so it always
-    // reflects the current methodology and the caller's own expiry selection.
-    const priorSession = memoPriorSession(
-      `${snapshotKey}:prior:${riskFreeRate}:${selectedExpiries.join(",")}`,
-      () => {
-        try {
-          const revision = listSnapshotHistory("options-raw", stored.key).find((entry) => {
-            const observedAt = entry.sourceTime ?? entry.fetchedAt;
-            return easternDate(new Date(observedAt)) < observationDate;
-          });
-          if (!revision) return null;
-          const previous = readSnapshotHistory<RawPayload>(revision.id);
-          if (!previous) return null;
-          const previousSpot = number(previous.payload.data?.current_price);
-          if (!Number.isFinite(previousSpot) || previousSpot <= 0) return null;
-          const previousTime = previous.sourceTime ?? previous.fetchedAt;
-          const previousContracts = (previous.payload.data?.options ?? [])
-            .map(parseContract)
-            .filter((contract): contract is ParsedContract => Boolean(contract))
-            .filter((contract) => selectedExpiries.includes(contract.expiry));
-          if (!previousContracts.length) return null;
-          const previousValuation = Date.parse(previousTime);
-          const previousLevels = calculateLevels(
-            aggregate(
-              previousContracts,
-              previousSpot,
-              SYMBOLS[symbol].dividendYield,
-              previousValuation,
-              riskFreeRate,
-            ),
-            previousContracts,
-            previousSpot,
-            SYMBOLS[symbol].dividendYield,
-            previousValuation,
-            riskFreeRate,
-          );
-          return {
-            observationDate: easternDate(new Date(previousTime)),
-            sourceTime: previousTime,
-            spot: previousSpot,
-            levels: previousLevels,
-          };
-        } catch {
-          // A prior revision is a convenience. A malformed one must never take
-          // the current session's levels down with it.
-          return null;
-        }
-      },
-    );
     const invalidStrike = rows.find((row) =>
       Object.values(row).some(
         (value) => value !== null && typeof value === "number" && !Number.isFinite(value),
@@ -1016,7 +956,6 @@ export async function GET(
         walls: "Largest signed strike gamma on the appropriate side of spot within ±6%; tail concentrations remain available separately",
       },
       levels,
-      priorSession,
       strikes: rows,
     });
   } catch (error) {

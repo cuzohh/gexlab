@@ -679,6 +679,16 @@ test("TradingView bridge script draws the histogram, regime, expected move and a
   assert.match(PINE_SCRIPT, /\nbgcolor\(regime_active \?/);
   // Expected move arrives pre-scaled in bps so a 0DTE move is not rounded up.
   assert.match(PINE_SCRIPT, /sigma_bps \/ 10000\.0/);
+  // Greek-lettered level names: gamma and delta have symbols, vanna and charm
+  // are trader coinages with no Greek letter and stay as words.
+  assert.match(PINE_SCRIPT, /"Γ Flip"/);
+  assert.match(PINE_SCRIPT, /"Γ\+", "Γ−"/);
+  assert.match(PINE_SCRIPT, /"Δ\+", "Δ−"/);
+  assert.doesNotMatch(PINE_SCRIPT, /"Gamma |"Delta /);
+  // Prior-session walls were removed. The staleness row still says "PRIOR
+  // SESSION", which is about how old the payload is, so the check names the
+  // feature's own identifiers rather than the word.
+  assert.doesNotMatch(PINE_SCRIPT, /show_prior|prior_style|prior_recolor|c_prior|merged_prior|"Prior /);
   // Levels both books agree on are flagged rather than silently merged.
   assert.match(PINE_SCRIPT, /agreed = from_index and from_confirm/);
   assert.match(PINE_SCRIPT, /agreed \? "✓ " : ""/);
@@ -694,7 +704,6 @@ test("TradingView bridge script renders each book in its own style and survives 
   // rescaled onto it and draws as the band that conversion is actually good to.
   assert.match(PINE_SCRIPT, /index_style = input\.string\("Line", "Index book/);
   assert.match(PINE_SCRIPT, /confirm_style = input\.string\("Zone", "Confirmation book/);
-  assert.match(PINE_SCRIPT, /prior_style = input\.string\("Line", "Prior-session walls"/);
   // All three are freely settable to either or both.
   assert.match(PINE_SCRIPT, /options=\["Line", "Zone", "Line \+ zone"\]/);
   // A merged level honours every contributing book's style rather than one winning.
@@ -795,7 +804,6 @@ test("the bridge payload rescales every book onto one reference price with its o
     profile: true,
     volumeWalls: true,
     expectedMove: true,
-    prior: true,
   };
   const emptyLevels = {
     callWall: null,
@@ -821,7 +829,6 @@ test("the bridge payload rescales every book onto one reference price with its o
     frontAtmIv: 0.16,
     frontYears: 1 / 365,
     frontDte: 0,
-    priorLevels: { ...emptyLevels, callWall: 23150, putWall: 22750, gammaFlip: 23010 },
   };
   const etf = {
     name: "QQQ",
@@ -836,7 +843,6 @@ test("the bridge payload rescales every book onto one reference price with its o
     ],
     levels: { ...emptyLevels, callWall: 565, putWall: 555 },
     expiries: [],
-    priorLevels: { ...emptyLevels, callWall: 566 },
   };
   const payload = buildBridgePayload([index, etf], {
     space: "N",
@@ -866,7 +872,6 @@ test("the bridge payload rescales every book onto one reference price with its o
   assert.equal(indexFields[9], "23050,22950");
   // 16% annualized over one session is ~84bps, and the DTE rides along.
   assert.equal(indexFields[10], "84,0");
-  assert.equal(indexFields[11], "23150,22750,23010");
 
   const etfFields = blocks[2].split("~");
   assert.equal(etfFields[0], "QQQ");
@@ -877,11 +882,9 @@ test("the bridge payload rescales every book onto one reference price with its o
   assert.equal(Number(etfFields[3]), 41.07);
   assert.equal(Number(etfFields[4].split(",")[0]), 23205.36);
   assert.equal(Number(etfFields[4].split(",")[1]), 22794.64);
-  // The histogram and the prior-session walls stay on the primary book: a second
-  // profile on the same axis would read as one distribution, and a second book's
-  // migration doubles the faded lines for no added answer.
+  // The histogram stays on the primary book: a second profile on the same axis
+  // would read as one distribution and is not one.
   assert.equal(etfFields[8], "");
-  assert.equal(etfFields[11], "");
 });
 
 test("the exposure histogram normalizes to its own peak and keeps strikes near spot", () => {
@@ -948,7 +951,6 @@ test("the bridge payload drops the level groups that are switched off", () => {
         expiries: [{ label: "0DTE", dte: 0, levels: emptyLevels }],
         frontAtmIv: 0.16,
         frontYears: 1 / 365,
-        priorLevels: emptyLevels,
       },
     ],
     {
@@ -968,7 +970,6 @@ test("the bridge payload drops the level groups that are switched off", () => {
         profile: false,
         volumeWalls: false,
         expectedMove: false,
-        prior: false,
       },
     },
   );
@@ -981,11 +982,10 @@ test("the bridge payload drops the level groups that are switched off", () => {
   assert.equal(fields[7], "0DTE,0,0,0,0");
   // A switched-off group leaves an empty field rather than being omitted, so
   // field positions stay fixed no matter what the user included.
-  assert.equal(fields.length, 12);
+  assert.equal(fields.length, 11);
   assert.equal(fields[8], "");
   assert.equal(fields[9], "");
   assert.equal(fields[10], "");
-  assert.equal(fields[11], "");
 });
 
 test("MotiveWave study is a compilable overlay that reads the same bridge payload", () => {

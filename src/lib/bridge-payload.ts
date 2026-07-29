@@ -11,7 +11,7 @@
 //     epochSec    snapshot time, so the chart can show payload age
 //
 //   block   <name>~<role>~<spot>~<step>~<agg>~<gamma>~<delta>~<expiries>
-//                 ~<profile>~<volume>~<move>~<prior>
+//                 ~<profile>~<volume>~<move>
 //     name        NDX | SPX | QQQ | SPY
 //     role        P = primary book, C = confirmation book
 //     spot        that book's spot, rescaled onto refSpot (so ≈ refSpot)
@@ -23,7 +23,6 @@
 //     profile     strike,exposure;…              exposure -100…100 of the peak
 //     volume      callVolumeWall,putVolumeWall
 //     move        oneSigmaBps,frontDte           bps of spot, already √-scaled
-//     prior       priorCall,priorPut,priorFlip   previous session's walls
 //
 // Fields past the eighth are additive: a reader that only understands the first
 // eight still parses a newer payload correctly.
@@ -48,8 +47,7 @@ export type BridgePart =
   | "delta"
   | "profile"
   | "volumeWalls"
-  | "expectedMove"
-  | "prior";
+  | "expectedMove";
 
 export type BridgeStrikeRow = {
   strike: number;
@@ -79,7 +77,6 @@ export type BridgeSource = {
   /** Year fraction to that expiry, so a 0DTE move is not rounded up to a day. */
   frontYears?: number | null;
   frontDte?: number | null;
-  priorLevels?: BridgeLevelSet | null;
 };
 
 export type BridgeOptions = {
@@ -338,17 +335,6 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
     : "";
   const sigma = parts.expectedMove ? oneSigmaBps(source.frontAtmIv, source.frontYears) : null;
   const move = sigma === null ? "" : `${sigma},${Math.max(0, Math.round(source.frontDte ?? 0))}`;
-  // Prior walls stay on the primary book. A second chain's migration answers a
-  // question nobody asked and doubles the faded lines on the chart.
-  const prior =
-    parts.prior && source.role === "P" && source.priorLevels
-      ? [
-          field(source.priorLevels.callWall === null ? null : source.priorLevels.callWall * factor),
-          field(source.priorLevels.putWall === null ? null : source.priorLevels.putWall * factor),
-          field(source.priorLevels.gammaFlip === null ? null : source.priorLevels.gammaFlip * factor),
-        ].join(",")
-      : "";
-
   return [
     source.name,
     source.role,
@@ -361,7 +347,6 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
     profile,
     volume,
     move,
-    prior,
   ].join("~");
 }
 

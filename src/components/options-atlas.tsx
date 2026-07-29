@@ -25,8 +25,7 @@ type BridgePart =
   | "confirmation"
   | "profile"
   | "volumeWalls"
-  | "expectedMove"
-  | "prior";
+  | "expectedMove";
 
 type LiveStrike = {
   strike: number;
@@ -127,12 +126,6 @@ type LiveOptionsData = {
     standardGreeks: string;
   };
   levels: OptionLevels;
-  priorSession: {
-    observationDate: string;
-    sourceTime: string;
-    spot: number;
-    levels: OptionLevels;
-  } | null;
   strikes: LiveStrike[];
 };
 
@@ -589,7 +582,6 @@ export function OptionsAtlas() {
     profile: true,
     volumeWalls: true,
     expectedMove: true,
-    prior: true,
   });
   const [dataState, setDataState] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
@@ -915,7 +907,6 @@ export function OptionsAtlas() {
         frontAtmIv: frontSurface?.atmIv ?? null,
         frontYears: frontSurface?.years ?? null,
         frontDte: front ? calendarDte(front, dteBase) : null,
-        priorLevels: snapshot.priorSession?.levels ?? null,
       },
     ];
   };
@@ -1869,7 +1860,6 @@ export function OptionsAtlas() {
                     ["profile", "Exposure histogram"],
                     ["volumeWalls", "Volume walls"],
                     ["expectedMove", "Expected move"],
-                    ["prior", "Prior-session walls"],
                   ] as [BridgePart, string][]).map(([part, label]) => (
                     <button
                       key={part}

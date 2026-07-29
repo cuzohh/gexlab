@@ -13,7 +13,7 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //
 //   GX2#H~<space>~<instrument>~<refSpot>~<epochSec>|<block>|<block>
 //   block: <name>~<role>~<spot>~<step>~<agg>~<gamma>~<delta>~<expiries>
-//          ~<profile>~<volume>~<move>~<prior>
+//          ~<profile>~<volume>~<move>
 //     role      P primary book, C confirmation book (QQQ / SPY)
 //     step      that book's strike increment, already rescaled onto refSpot
 //     agg       call,put,flip,maxpain,vanna
@@ -23,7 +23,6 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //     profile   strike,exposure;…      exposure -100…100 of the peak
 //     volume    callVolumeWall,putVolumeWall
 //     move      oneSigmaBps,frontDte
-//     prior     priorCall,priorPut,priorFlip
 //
 // Every block carries its own strike increment, so a QQQ level whose strikes are
 // $1 apart draws a zone roughly 41 index points wide while an NDX level draws
@@ -39,25 +38,24 @@ manual_basis_input = input.float(0.0, "Manual basis", step=0.25, group="Mapping"
 
 show_aggregate_walls = input.bool(true, "Combined walls", group="Levels")
 show_expiry_walls = input.bool(true, "Selected-expiry walls", group="Levels")
-show_flips = input.bool(true, "Gamma flips", group="Levels")
+show_flips = input.bool(true, "Γ flips", group="Levels")
 show_max_pain = input.bool(true, "Max pain", group="Levels")
 show_vanna = input.bool(false, "Vanna magnet", group="Levels")
-show_gamma = input.bool(true, "Gamma concentrations", group="Levels")
-show_delta = input.bool(false, "Delta concentrations", group="Levels")
+show_gamma = input.bool(true, "Γ concentrations", group="Levels")
+show_delta = input.bool(false, "Δ concentrations", group="Levels")
 show_volume_walls = input.bool(true, "Volume walls", group="Levels", tooltip="Walls measured from contracts traded today rather than from open interest. For a same-day expiry this often describes current hedging better than a position built over weeks.")
-show_prior = input.bool(true, "Prior-session walls", group="Levels", tooltip="Where the same walls sat on the previous session's chain. A wall that rolled overnight is a different market from one that has been pinned.")
 show_confirmation = input.bool(true, "Confirmation book (QQQ / SPY)", group="Levels", tooltip="Draws the ETF book rescaled onto this chart. Where it agrees with the index book the level is corroborated by a second, independently listed chain.")
 
-show_profile = input.bool(true, "Exposure histogram", group="Overlays", tooltip="The strike-by-strike gamma profile, drawn to the right of price. This is the shape the walls are peaks of.")
+show_profile = input.bool(true, "Exposure histogram", group="Overlays", tooltip="The strike-by-strike Γ profile, drawn to the right of price. This is the shape the walls are peaks of.")
 profile_bars = input.int(40, "Histogram length (bars)", minval=5, maxval=200, group="Overlays")
 show_expected_move = input.bool(true, "Expected move", group="Overlays", tooltip="Front-expiry ATM implied volatility scaled to that expiry's own year fraction, so a 0DTE move is not rounded up to a whole session.")
 move_sigmas = input.int(2, "Expected-move bands", minval=1, maxval=3, group="Overlays")
-show_regime = input.bool(true, "Gamma regime shading", group="Overlays", tooltip="Tints the background by which side of the gamma flip price is on: above it dealer hedging dampens moves, below it amplifies them.")
+show_regime = input.bool(true, "Γ regime shading", group="Overlays", tooltip="Tints the background by which side of the Γ flip price is on: above it dealer hedging dampens moves, below it amplifies them.")
 regime_transparency = input.int(93, "Regime shading transparency", minval=70, maxval=99, group="Overlays")
 
 max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60, group="Filter", tooltip="Keeps the levels closest to price. The rest are still parsed and still appear in the level table.")
 max_distance = input.float(3.0, "Maximum distance from price (%, 0 = off)", minval=0.0, step=0.25, group="Filter")
-min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops gamma and delta clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
+min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops Γ and Δ clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
 hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Filter")
 
 // How each book renders. The index book is measured on the chain the chart
@@ -67,11 +65,8 @@ hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Fi
 // not decoration. Any book can be set to either or both.
 index_style = input.string("Line", "Index book (NDX / SPX)", options=["Line", "Zone", "Line + zone"], group="Books")
 confirm_style = input.string("Zone", "Confirmation book (QQQ / SPY)", options=["Line", "Zone", "Line + zone"], group="Books")
-prior_style = input.string("Line", "Prior-session walls", options=["Line", "Zone", "Line + zone"], group="Books")
 confirm_recolor = input.bool(true, "Tint the confirmation book", group="Books", tooltip="Off keeps the call/put colouring so an ETF wall reads as a wall; on makes which book a level came from the first thing you see.")
 c_confirm = input.color(#6a5f8f, "Confirmation tint", group="Books")
-prior_recolor = input.bool(true, "Tint prior-session walls", group="Books")
-c_prior = input.color(#5a5f66, "Prior-session tint", group="Books")
 
 show_zones = input.bool(true, "Draw zones at all", group="Style", tooltip="Master switch. Which books draw zones is set in the Books group.")
 zone_width_mult = input.float(1.0, "Zone width in strike increments", minval=0.1, maxval=6.0, step=0.1, group="Style", tooltip="A zone of 1.0 spans exactly one strike increment of the book the level came from, after mapping onto this chart.")
@@ -85,10 +80,10 @@ stagger_labels = input.bool(true, "Stagger crowded labels", group="Style")
 show_prices = input.bool(true, "Price in label", group="Style")
 c_call = input.color(#2f6b5f, "Call side", group="Style")
 c_put = input.color(#a0443b, "Put side", group="Style")
-c_flip = input.color(#8a641f, "Gamma flip", group="Style")
+c_flip = input.color(#8a641f, "Γ flip", group="Style")
 c_pain = input.color(#6f6378, "Max pain", group="Style")
 c_vanna = input.color(#315f78, "Vanna magnet", group="Style")
-c_delta = input.color(#4b6ea9, "Delta concentration", group="Style")
+c_delta = input.color(#4b6ea9, "Δ concentration", group="Style")
 c_move = input.color(#7a7f8a, "Expected move", group="Style")
 
 show_monitor = input.bool(true, "Mapping monitor", group="Tables")
@@ -102,7 +97,6 @@ alerts_on = input.bool(true, "Name the level in alert() messages", group="Alerts
 //   5 gamma +      6 gamma -      7 delta +      8 delta -
 //   9 expiry call 10 expiry put  11 expiry flip
 //  12 volume call 13 volume put
-//  14 prior call  15 prior put   16 prior flip
 var float[] lv_price = array.new_float()
 var string[] lv_label = array.new_string()
 var int[] lv_kind = array.new_int()
@@ -162,10 +156,10 @@ f_add_concentrations(raw, kind_positive, kind_negative, name_positive, name_nega
                 if not na(price)
                     if sign >= 0
                         positive_rank := positive_rank + 1
-                        f_push(price, prefix + name_positive + " " + str.tostring(positive_rank), kind_positive, weight, role, step)
+                        f_push(price, prefix + name_positive + str.tostring(positive_rank), kind_positive, weight, role, step)
                     else
                         negative_rank := negative_rank + 1
-                        f_push(price, prefix + name_negative + " " + str.tostring(negative_rank), kind_negative, weight, role, step)
+                        f_push(price, prefix + name_negative + str.tostring(negative_rank), kind_negative, weight, role, step)
 
 f_parse_block(block) =>
     fields = str.split(block, "~")
@@ -188,12 +182,12 @@ f_parse_block(block) =>
             array.set(meta_levels, 6, step)
         f_push(call_wall, prefix + "Call Wall", 0, 1.0, role, step)
         f_push(put_wall, prefix + "Put Wall", 1, 1.0, role, step)
-        f_push(flip, prefix + "Gamma Flip", 2, 1.0, role, step)
+        f_push(flip, prefix + "Γ Flip", 2, 1.0, role, step)
         f_push(f_price(aggregate, 3), prefix + "Max Pain", 3, 1.0, role, step)
         f_push(f_price(aggregate, 4), prefix + "Vanna Magnet", 4, 1.0, role, step)
 
-        f_add_concentrations(f_str(fields, 5), 5, 6, "Gamma +", "Gamma -", prefix, role, step)
-        f_add_concentrations(f_str(fields, 6), 7, 8, "Delta +", "Delta -", prefix, role, step)
+        f_add_concentrations(f_str(fields, 5), 5, 6, "Γ+", "Γ−", prefix, role, step)
+        f_add_concentrations(f_str(fields, 6), 7, 8, "Δ+", "Δ−", prefix, role, step)
 
         expiries = str.split(f_str(fields, 7), ";")
         if array.size(expiries) > 0
@@ -207,7 +201,7 @@ f_parse_block(block) =>
                     weight = math.max(0.3, 1.0 - dte / 30.0)
                     f_push(f_price(slice, 1), label_text + " Call Wall", 9, weight, role, step)
                     f_push(f_price(slice, 2), label_text + " Put Wall", 10, weight, role, step)
-                    f_push(f_price(slice, 3), label_text + " Flip", 11, weight, role, step)
+                    f_push(f_price(slice, 3), label_text + " Γ Flip", 11, weight, role, step)
 
         // The histogram belongs to the primary book alone. Two chains' profiles
         // on one axis would read as a single distribution and are not one.
@@ -232,12 +226,6 @@ f_parse_block(block) =>
             move = str.split(f_str(fields, 10), ",")
             array.set(meta_levels, 3, f_number(move, 0))
             array.set(meta_levels, 4, f_number(move, 1))
-
-        if array.size(fields) >= 12
-            prior = str.split(f_str(fields, 11), ",")
-            f_push(f_price(prior, 0), "Prior Call Wall", 14, 1.0, role, step)
-            f_push(f_price(prior, 1), "Prior Put Wall", 15, 1.0, role, step)
-            f_push(f_price(prior, 2), "Prior Gamma Flip", 16, 1.0, role, step)
 
 // Parsed once. Any change to the payload input recompiles the whole script, so
 // there is nothing to invalidate.
@@ -330,24 +318,24 @@ f_map_width(width) =>
     na(width) or na(map_factor) ? float(na) : width * map_factor
 
 f_priority(kind) =>
-    kind == 0 or kind == 1 ? 0 : kind == 2 ? 1 : kind == 5 or kind == 6 ? 2 : kind == 12 or kind == 13 ? 2 : kind == 9 or kind == 10 ? 3 : kind == 11 ? 4 : kind == 3 ? 5 : kind == 4 ? 6 : kind >= 14 ? 8 : 7
+    kind == 0 or kind == 1 ? 0 : kind == 2 ? 1 : kind == 5 or kind == 6 ? 2 : kind == 12 or kind == 13 ? 2 : kind == 9 or kind == 10 ? 3 : kind == 11 ? 4 : kind == 3 ? 5 : kind == 4 ? 6 : 7
 
 f_color(kind) =>
-    kind == 0 or kind == 5 or kind == 9 or kind == 12 or kind == 14 ? c_call : kind == 1 or kind == 6 or kind == 10 or kind == 13 or kind == 15 ? c_put : kind == 2 or kind == 11 or kind == 16 ? c_flip : kind == 3 ? c_pain : kind == 4 ? c_vanna : c_delta
+    kind == 0 or kind == 5 or kind == 9 or kind == 12 ? c_call : kind == 1 or kind == 6 or kind == 10 or kind == 13 ? c_put : kind == 2 or kind == 11 ? c_flip : kind == 3 ? c_pain : kind == 4 ? c_vanna : c_delta
 
 f_visible(kind) =>
-    kind == 0 or kind == 1 ? show_aggregate_walls : kind == 2 or kind == 11 ? show_flips : kind == 3 ? show_max_pain : kind == 4 ? show_vanna : kind == 5 or kind == 6 ? show_gamma : kind == 7 or kind == 8 ? show_delta : kind == 12 or kind == 13 ? show_volume_walls : kind >= 14 ? show_prior : show_expiry_walls
+    kind == 0 or kind == 1 ? show_aggregate_walls : kind == 2 or kind == 11 ? show_flips : kind == 3 ? show_max_pain : kind == 4 ? show_vanna : kind == 5 or kind == 6 ? show_gamma : kind == 7 or kind == 8 ? show_delta : kind == 12 or kind == 13 ? show_volume_walls : show_expiry_walls
 
 f_weight_filtered(kind, weight) =>
     (kind >= 5 and kind <= 8) and weight * 100 < min_weight
 
-// Which book a level belongs to: 0 the index chain, 1 the confirmation chain,
-// 2 the previous session. Style, colour and emphasis all follow from this.
+// Which book a level belongs to: 0 the index chain, 1 the confirmation chain.
+// Style, colour and emphasis all follow from this.
 f_class(kind, role) =>
-    kind >= 14 ? 2 : role == 1 ? 1 : 0
+    role == 1 ? 1 : 0
 
 f_class_style(book) =>
-    book == 0 ? index_style : book == 1 ? confirm_style : prior_style
+    book == 0 ? index_style : confirm_style
 
 f_has_line(book) =>
     style = f_class_style(book)
@@ -358,10 +346,10 @@ f_has_zone(book) =>
     style == "Zone" or style == "Line + zone"
 
 // The index book keeps the call/put colouring, because there a wall should read
-// as a wall. A level only the ETF or only the previous session produced takes
-// that book's tint, so where it came from is the first thing you see.
+// as a wall. A level only the ETF produced takes that book's tint, so where it
+// came from is the first thing you see.
 f_tone(kind, from_index, from_confirm) =>
-    from_index ? f_color(kind) : from_confirm ? (confirm_recolor ? c_confirm : f_color(kind)) : (prior_recolor ? c_prior : f_color(kind))
+    from_index or not from_confirm ? f_color(kind) : confirm_recolor ? c_confirm : f_color(kind)
 
 f_half_width(step) =>
     base = zone_half_width > 0 ? zone_half_width : nz(f_map_width(step), 0) * zone_width_mult / 2
@@ -393,10 +381,9 @@ var float[] merged_weight = array.new_float()
 // bitmask because Pine has no bitwise operators.
 var bool[] merged_index = array.new_bool()
 var bool[] merged_confirm = array.new_bool()
-var bool[] merged_prior = array.new_bool()
 var int[] merged_slot = array.new_int()
 
-f_emit(price, text_value, kind, half, weight, from_index, from_confirm, from_prior) =>
+f_emit(price, text_value, kind, half, weight, from_index, from_confirm) =>
     array.push(merged_price, price)
     array.push(merged_label, text_value)
     array.push(merged_kind, kind)
@@ -404,7 +391,6 @@ f_emit(price, text_value, kind, half, weight, from_index, from_confirm, from_pri
     array.push(merged_weight, weight)
     array.push(merged_index, from_index)
     array.push(merged_confirm, from_confirm)
-    array.push(merged_prior, from_prior)
 
 f_left_edge() =>
     anchor_snapshot and snapshot_bar > 0 ? snapshot_bar : math.max(bar_index - left_bars, 0)
@@ -421,13 +407,12 @@ f_render(index) =>
     weight = array.get(merged_weight, index)
     from_index = array.get(merged_index, index)
     from_confirm = array.get(merged_confirm, index)
-    from_prior = array.get(merged_prior, index)
     agreed = from_index and from_confirm
     // A merged level draws whatever any of its contributing books asks for, so
     // an index line and an ETF zone on the same price render as a line inside
     // its confirmation band rather than one of the two silently winning.
-    wants_line = (from_index and f_has_line(0)) or (from_confirm and f_has_line(1)) or (from_prior and f_has_line(2))
-    draw_zone = show_zones and half > 0 and ((from_index and f_has_zone(0)) or (from_confirm and f_has_zone(1)) or (from_prior and f_has_zone(2)))
+    wants_line = (from_index and f_has_line(0)) or (from_confirm and f_has_line(1))
+    draw_zone = show_zones and half > 0 and ((from_index and f_has_zone(0)) or (from_confirm and f_has_zone(1)))
     // A zone-only book must not disappear when zones are switched off globally;
     // it falls back to a line so the level is still on the chart.
     draw_line = wants_line or not draw_zone
@@ -496,7 +481,6 @@ if barstate.islast
     array.clear(merged_weight)
     array.clear(merged_index)
     array.clear(merged_confirm)
-    array.clear(merged_prior)
     array.clear(merged_slot)
 
     drawing = not hide_outside_rth or session.ismarket
@@ -531,7 +515,6 @@ if barstate.islast
         float group_weight = 0.0
         bool group_index = false
         bool group_confirm = false
-        bool group_prior = false
         for rank = 0 to array.size(by_price) - 1
             slot = array.get(by_price, rank)
             price = array.get(visible_price, slot)
@@ -544,7 +527,7 @@ if barstate.islast
             book = f_class(kind, role)
             tolerance = merge_tolerance > 0 ? merge_tolerance : group_half * 1.2
             if group_open and price - group_anchor > tolerance
-                f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm, group_prior)
+                f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm)
                 group_open := false
             if not group_open
                 group_open := true
@@ -557,20 +540,18 @@ if barstate.islast
                 group_weight := weight
                 group_index := book == 0
                 group_confirm := book == 1
-                group_prior := book == 2
             else
                 group_text := group_text + "  ·  " + array.get(lv_label, source_index)
                 group_half := math.max(group_half, half)
                 group_weight := math.max(group_weight, weight)
                 group_index := group_index or book == 0
                 group_confirm := group_confirm or book == 1
-                group_prior := group_prior or book == 2
                 if priority < group_priority
                     group_priority := priority
                     group_kind := kind
                     group_price := price
         if group_open
-            f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm, group_prior)
+            f_emit(group_price, group_text, group_kind, group_half, group_weight, group_index, group_confirm)
 
     total = array.size(merged_price)
     // Merged levels arrive in ascending price order, so a run of prices closer
@@ -653,7 +634,7 @@ if barstate.islast
         f_monitor_row(0, "PAYLOAD", payload_ok ? (primary_name == "" ? "LOADED" : primary_name) + (confirm_name == "" ? "" : " + " + confirm_name) : "PASTE GX2 BRIDGE", payload_ok ? color.white : color.orange)
         f_monitor_row(1, "SESSION", not payload_ok ? "—" : payload_before_session ? "PRIOR SESSION" : "CURRENT", payload_before_session ? color.orange : color.white)
         f_monitor_row(2, "AGE", na(age_hours) ? "—" : str.tostring(age_hours, "#.#") + "h", na(age_hours) or age_hours > 24 ? color.orange : color.white)
-        f_monitor_row(3, "REGIME", na(regime_price) ? "—" : close > regime_price ? "POSITIVE GAMMA" : "NEGATIVE GAMMA", na(regime_price) ? color.gray : close > regime_price ? color.white : color.orange)
+        f_monitor_row(3, "REGIME", na(regime_price) ? "—" : close > regime_price ? "POSITIVE Γ" : "NEGATIVE Γ", na(regime_price) ? color.gray : close > regime_price ? color.white : color.orange)
         f_monitor_row(4, "MAPPING", active_mode + (map_mode == "Auto" ? " (auto)" : ""), na(map_factor) or na(map_offset) ? color.orange : color.white)
         f_monitor_row(5, "FACTOR", str.tostring(map_factor, "#.######") + (map_offset != 0 ? "  " + str.tostring(map_offset, "#.##") : ""), color.white)
         f_monitor_row(6, "CASH / CHART", str.tostring(held_cash, "#.##") + " / " + str.tostring(held_chart, "#.##"), color.white)
@@ -701,6 +682,6 @@ flip_price = f_map(array.get(meta_levels, 2))
 flip_guard = nz(flip_price, close)
 alertcondition(not na(call_price) and high >= call_price and low <= call_price, "Call wall touched", "GEXLab: price reached the call wall")
 alertcondition(not na(put_price) and high >= put_price and low <= put_price, "Put wall touched", "GEXLab: price reached the put wall")
-alertcondition(not na(flip_price) and ta.crossover(close, flip_guard), "Crossed above gamma flip", "GEXLab: closed above the gamma flip")
-alertcondition(not na(flip_price) and ta.crossunder(close, flip_guard), "Crossed below gamma flip", "GEXLab: closed below the gamma flip")
+alertcondition(not na(flip_price) and ta.crossover(close, flip_guard), "Crossed above Γ flip", "GEXLab: closed above the Γ flip")
+alertcondition(not na(flip_price) and ta.crossunder(close, flip_guard), "Crossed below Γ flip", "GEXLab: closed below the Γ flip")
 `;
