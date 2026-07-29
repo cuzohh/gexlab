@@ -783,6 +783,33 @@ test("concentration clusters are separated peaks, not the strikes bracketing one
   assert.equal(clusters.every((level) => level.sign === 1), true);
 });
 
+test("concentration clusters report a listed strike, not a point between two", () => {
+  const step = 25;
+  const strikes = [
+    { strike: 23025, gamma: 88, delta: 0 },
+    { strike: 23050, gamma: 100, delta: 0 },
+    { strike: 23075, gamma: 60, delta: 0 },
+  ];
+  const listed = new Set(strikes.map((row) => row.strike));
+  const clusters = concentrationClusters(
+    strikes,
+    "gamma",
+    true,
+    3,
+    step,
+    minimumSeparation(step, 23000),
+  );
+  // The exposure-weighted centre of this cluster is ~23047, which is between
+  // strikes: the exposure histogram draws no bar there, so a level reported at
+  // that price looked unrelated to the profile it came from.
+  assert.ok(clusters.length > 0);
+  for (const cluster of clusters) {
+    assert.ok(listed.has(cluster.strike), `${cluster.strike} is not a listed strike`);
+  }
+  // Still the weighted centre's neighbourhood, not simply the tallest print.
+  assert.equal(clusters[0].strike, 23050);
+});
+
 test("concentration clusters respect the requested sign and count", () => {
   const strikes = [
     { strike: 100, gamma: -80, delta: 0 },

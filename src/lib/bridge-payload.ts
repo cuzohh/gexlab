@@ -141,10 +141,13 @@ export function strikeIncrement(strikes: number[]) {
  * wall five times, because the four strikes bracketing a peak are almost always
  * the next four largest prints. Instead each strike is scored by the exposure
  * summed across its neighbourhood, peaks are taken greedily with a minimum
- * separation (non-maximum suppression), and the reported price is the
- * exposure-weighted centroid of the cluster rather than its single tallest
- * strike, which is both steadier between snapshots and closer to where the
- * hedging actually sits.
+ * separation (non-maximum suppression), and the cluster's exposure-weighted
+ * centre picks which strike to name — steadier between snapshots than simply
+ * taking the tallest print, and closer to where the hedging actually sits.
+ *
+ * The price returned is snapped back to a listed strike. The centre itself
+ * falls between strikes, which put every reported level in the gap between two
+ * bars of the exposure histogram and made the two look unrelated.
  */
 export function concentrationClusters(
   rows: BridgeStrikeRow[],
@@ -171,10 +174,13 @@ export function concentrationClusters(
     return { ...row, mass };
   });
 
-  const accepted: Concentration[] = [];
+  const accepted: Array<Concentration & { peak: number }> = [];
   for (const peak of [...scored].sort((left, right) => right.mass - left.mass)) {
     if (accepted.length >= count) break;
-    if (accepted.some((level) => Math.abs(level.strike - peak.strike) < minSeparation)) continue;
+    // Suppression compares peaks rather than reported prices, so rounding the
+    // reported price to a strike cannot pull two clusters closer than the
+    // separation they were selected to respect.
+    if (accepted.some((level) => Math.abs(level.peak - peak.strike) < minSeparation)) continue;
     let weighted = 0;
     let mass = 0;
     for (const other of candidates) {
@@ -182,17 +188,22 @@ export function concentrationClusters(
       weighted += other.strike * other.magnitude;
       mass += other.magnitude;
     }
-    accepted.push({
-      strike: mass > 0 ? round2(weighted / mass) : peak.strike,
-      weight: peak.mass,
-      sign,
-    });
+    const centre = mass > 0 ? weighted / mass : peak.strike;
+    // Report a strike that is actually listed. The weighted centre decides
+    // which one, so selection keeps the steadiness of the centroid, but the
+    // price named is one that can be traded and one the exposure histogram
+    // draws a bar at. A level floating between two bars reads as a bug.
+    const listed = candidates.reduce((best, row) =>
+      Math.abs(row.strike - centre) < Math.abs(best.strike - centre) ? row : best,
+    ).strike;
+    accepted.push({ strike: round2(listed), weight: peak.mass, sign, peak: peak.strike });
   }
 
   const heaviest = Math.max(...accepted.map((level) => level.weight), 0);
   return accepted
     .map((level) => ({
-      ...level,
+      strike: level.strike,
+      sign: level.sign,
       weight: heaviest > 0 ? Math.round((level.weight / heaviest) * 100) : 0,
     }))
     .sort((left, right) => right.weight - left.weight);
