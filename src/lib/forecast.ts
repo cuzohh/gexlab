@@ -177,6 +177,36 @@ export function applyStandardizer(standardizer: Standardizer, observation: numbe
   );
 }
 
+export type PlattScaler = { intercept: number; slope: number };
+
+/**
+ * Platt scaling: a one-dimensional logistic fitted on the model's own logits.
+ *
+ * The engine already measures calibration and shows the reliability bins, but
+ * nothing acted on them. Refitting intercept and slope on a held-out slice of
+ * the training fold turns that measurement into a lower log loss, and because
+ * it is fitted inside the fold it cannot leak into the block being scored.
+ */
+export function fitPlattScaling(probabilities: number[], labels: number[]): PlattScaler | null {
+  if (probabilities.length < 50) return null;
+  const design = probabilities.map((probability) => {
+    const clipped = Math.min(Math.max(probability, 1e-6), 1 - 1e-6);
+    return [1, Math.log(clipped / (1 - clipped))];
+  });
+  const weights = logisticFit(design, labels, { penalty: 1e-3, iterations: 25 });
+  if (!weights || !weights.every((value) => Number.isFinite(value))) return null;
+  // A non-positive slope means the held-out slice disagrees with the model's
+  // ranking. Rescaling on that would amplify noise, so the caller keeps the raw
+  // probabilities instead.
+  if (weights[1] <= 0) return null;
+  return { intercept: weights[0], slope: weights[1] };
+}
+
+export function applyPlattScaling(scaler: PlattScaler, probability: number) {
+  const clipped = Math.min(Math.max(probability, 1e-6), 1 - 1e-6);
+  return sigmoid(scaler.intercept + scaler.slope * Math.log(clipped / (1 - clipped)));
+}
+
 export function withIntercept(observation: number[]) {
   return [1, ...observation];
 }
@@ -189,6 +219,136 @@ export function logLoss(probabilities: number[], labels: number[]) {
     total += labels[index] * Math.log(clipped) + (1 - labels[index]) * Math.log(1 - clipped);
   }
   return -total / probabilities.length;
+}
+
+/** Per-observation log loss, which the significance test differences pairwise. */
+export function pointwiseLogLoss(probabilities: number[], labels: number[]) {
+  return probabilities.map((probability, index) => {
+    const clipped = Math.min(Math.max(probability, 1e-9), 1 - 1e-9);
+    return -(labels[index] * Math.log(clipped) + (1 - labels[index]) * Math.log(1 - clipped));
+  });
+}
+
+/**
+ * Standard normal CDF via Abramowitz and Stegun 7.1.26, which is accurate to
+ * about 1e-7 — far tighter than the p-values here are meaningful to.
+ */
+export function normalCdf(value: number) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value) / Math.SQRT2;
+  const t = 1 / (1 + 0.3275911 * x);
+  const y =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+/**
+ * Newey-West long-run variance of a series.
+ *
+ * Bartlett weights taper the autocovariances so the estimate stays positive.
+ * The lag has to reach the horizon: overlapping forecasts share most of their
+ * window, and treating those as independent is what makes a noise-sized edge
+ * look decisive.
+ */
+export function neweyWestVariance(series: number[], lag: number) {
+  const count = series.length;
+  if (count < 2) return null;
+  const average = series.reduce((sum, value) => sum + value, 0) / count;
+  const centered = series.map((value) => value - average);
+  let variance = centered.reduce((sum, value) => sum + value * value, 0) / count;
+  const maxLag = Math.max(0, Math.min(Math.floor(lag), count - 1));
+  for (let offset = 1; offset <= maxLag; offset += 1) {
+    let covariance = 0;
+    for (let index = offset; index < count; index += 1) {
+      covariance += centered[index] * centered[index - offset];
+    }
+    covariance /= count;
+    variance += 2 * (1 - offset / (maxLag + 1)) * covariance;
+  }
+  return variance > 0 ? variance : null;
+}
+
+export type ForecastComparison = {
+  /** Mean loss advantage of the model over the baseline. Positive favours the model. */
+  meanAdvantage: number;
+  standardError: number;
+  statistic: number;
+  pValue: number;
+  /** Autocovariance lag used, which is the forecast horizon less one. */
+  lag: number;
+  samples: number;
+  /** Sample count discounted for the overlap between consecutive forecasts. */
+  effectiveSamples: number;
+};
+
+/**
+ * Diebold-Mariano test on two paired loss series.
+ *
+ * A model whose log loss is 0.0001 below the base rate's has not demonstrated
+ * anything, and over a multi-session horizon neither has one that is 0.003
+ * below it: consecutive labels for a 20-day question share nineteen of their
+ * twenty days, so five thousand daily forecasts carry a few hundred
+ * observations' worth of independent evidence. Differencing the losses pairwise
+ * and dividing by a HAC standard error is what separates the two cases.
+ */
+export function dieboldMariano(
+  modelLoss: number[],
+  baselineLoss: number[],
+  horizon = 1,
+): ForecastComparison | null {
+  const count = Math.min(modelLoss.length, baselineLoss.length);
+  if (count < 30) return null;
+  const advantage = Array.from({ length: count }, (_, index) => baselineLoss[index] - modelLoss[index]);
+  const meanAdvantage = advantage.reduce((sum, value) => sum + value, 0) / count;
+  // A differential with no dispersion is degenerate rather than infinitely
+  // significant, and floating point leaves it a hair above zero instead of at
+  // it, so the guard has to be a threshold and not an equality. Log losses are
+  // of order one; a spread of 1e-12 is not a measurement.
+  const dispersion = Math.sqrt(
+    advantage.reduce((sum, value) => sum + (value - meanAdvantage) ** 2, 0) / count,
+  );
+  if (!(dispersion > 1e-12)) return null;
+  const lag = Math.max(0, Math.floor(horizon) - 1);
+  const variance = neweyWestVariance(advantage, lag);
+  if (variance === null) return null;
+  const standardError = Math.sqrt(variance / count);
+  if (!Number.isFinite(standardError) || standardError === 0) return null;
+  const statistic = meanAdvantage / standardError;
+  return {
+    meanAdvantage,
+    standardError,
+    statistic,
+    pValue: 2 * (1 - normalCdf(Math.abs(statistic))),
+    lag,
+    samples: count,
+    effectiveSamples: Math.round(count / Math.max(1, Math.floor(horizon))),
+  };
+}
+
+/**
+ * Benjamini-Hochberg false discovery rate adjustment.
+ *
+ * Nine targets are each tested against their base rate, so at a nominal five
+ * percent a couple would be expected to clear the bar on noise alone. Returns
+ * q-values in the input order.
+ */
+export function benjaminiHochberg(pValues: Array<number | null>) {
+  const present = pValues
+    .map((value, index) => ({ value, index }))
+    .filter((entry): entry is { value: number; index: number } => entry.value !== null)
+    .sort((left, right) => left.value - right.value);
+  const total = present.length;
+  const adjusted = new Array<number | null>(pValues.length).fill(null);
+  let running = 1;
+  for (let rank = total - 1; rank >= 0; rank -= 1) {
+    const entry = present[rank];
+    running = Math.min(running, (entry.value * total) / (rank + 1));
+    adjusted[entry.index] = Math.min(1, running);
+  }
+  return adjusted;
 }
 
 export function brierScore(probabilities: number[], labels: number[]) {

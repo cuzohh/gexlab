@@ -38,8 +38,15 @@ import {
 } from "../src/lib/event-parsing.ts";
 import { isZip, readZipEntries } from "../src/lib/zip.ts";
 import {
+  applyPlattScaling,
   backtestVolScaledStrategy,
+  benjaminiHochberg,
   brierScore,
+  dieboldMariano,
+  fitPlattScaling,
+  neweyWestVariance,
+  normalCdf,
+  pointwiseLogLoss,
   calibrationBins,
   harFeatures,
   logLoss,
@@ -980,6 +987,132 @@ test("the copied MotiveWave study matches the compilable Java source", () => {
     ),
     'src/lib/motivewave-indicator.ts is stale. Run "npm run sync:motivewave".',
   );
+});
+
+test("the normal CDF is accurate enough for the p-values it produces", () => {
+  assert.equal(normalCdf(0).toFixed(6), "0.500000");
+  assert.equal(normalCdf(1.959964).toFixed(4), "0.9750");
+  assert.equal(normalCdf(-1.959964).toFixed(4), "0.0250");
+  assert.equal(normalCdf(2.575829).toFixed(4), "0.9950");
+});
+
+test("Newey-West widens the variance when a series is autocorrelated", () => {
+  // A series where every value repeats: no new information after the first.
+  const overlapping = [];
+  for (let index = 0; index < 200; index += 1) overlapping.push(index % 20 < 10 ? 1 : -1);
+  const naive = neweyWestVariance(overlapping, 0);
+  const corrected = neweyWestVariance(overlapping, 9);
+  assert.ok(corrected > naive, "autocovariance terms must inflate the long-run variance");
+  // Independent noise should barely move.
+  const alternating = Array.from({ length: 200 }, (_, index) => (index % 2 ? 1 : -1));
+  assert.ok(neweyWestVariance(alternating, 4) < neweyWestVariance(alternating, 0));
+  assert.equal(neweyWestVariance([1], 0), null);
+});
+
+/**
+ * A deterministic forecaster that leans the right way `hitRate` of the time by
+ * `lean`, scored against a coin-flip baseline. It has to be imperfect: a model
+ * that always assigns the same probability to the true class produces a
+ * constant loss differential, which carries no sampling variation to test.
+ */
+function forecaster(count, hitRate, lean, seedValue) {
+  let seed = seedValue;
+  const random = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const labels = [];
+  const model = [];
+  const baseline = [];
+  for (let index = 0; index < count; index += 1) {
+    const label = random() < 0.5 ? 1 : 0;
+    labels.push(label);
+    baseline.push(0.5);
+    const leansCorrectly = random() < hitRate;
+    model.push(0.5 + lean * (leansCorrectly === (label === 1) ? 1 : -1));
+  }
+  return (horizon = 1) =>
+    dieboldMariano(pointwiseLogLoss(model, labels), pointwiseLogLoss(baseline, labels), horizon);
+}
+
+test("a hair-thin log-loss edge is not significant, and a real one is", () => {
+  // The point is a model that finishes ahead on total log loss without having
+  // demonstrated anything, which is the situation the old
+  // `modelLogLoss < baselineLogLoss` test could not tell apart from real skill.
+  const thin = forecaster(600, 0.52, 0.01, 42)();
+  const real = forecaster(600, 0.65, 0.12, 7)();
+
+  assert.ok(thin.meanAdvantage > 0, "the model does finish with the smaller loss");
+  assert.ok(thin.pValue > 0.05, "but the edge is inside its own standard error");
+
+  assert.ok(real.meanAdvantage > thin.meanAdvantage);
+  assert.ok(real.pValue < 0.001);
+  assert.ok(real.statistic > thin.statistic);
+  assert.equal(dieboldMariano([1, 2, 3], [1, 2, 3], 1), null, "too few observations");
+  // A perfectly constant differential has no sampling variation to divide by,
+  // so no verdict is issued rather than an infinite one.
+  assert.equal(dieboldMariano(Array(100).fill(0.1), Array(100).fill(0.2), 1), null);
+});
+
+test("the overlap discount reports independent observations, not raw sessions", () => {
+  const scored = forecaster(600, 0.65, 0.12, 7);
+  const daily = scored(1);
+  const monthly = scored(20);
+  // The same 600 forecasts: a one-session question resolves 600 times, a
+  // twenty-session question about thirty.
+  assert.equal(daily.samples, 600);
+  assert.equal(daily.effectiveSamples, 600);
+  assert.equal(monthly.effectiveSamples, 30);
+  assert.equal(daily.lag, 0);
+  assert.equal(monthly.lag, 19);
+  assert.equal(daily.meanAdvantage, monthly.meanAdvantage);
+  // Same edge, wider error bar once the overlap is accounted for.
+  assert.ok(monthly.standardError > daily.standardError);
+  assert.ok(monthly.pValue > daily.pValue);
+});
+
+test("Benjamini-Hochberg is monotone and never shrinks a p-value", () => {
+  const raw = [0.001, 0.008, 0.039, 0.041, 0.9];
+  const adjusted = benjaminiHochberg(raw);
+  for (let index = 0; index < raw.length; index += 1) {
+    assert.ok(adjusted[index] >= raw[index], "a q-value cannot be below its p-value");
+  }
+  for (let index = 1; index < adjusted.length; index += 1) {
+    assert.ok(adjusted[index] >= adjusted[index - 1], "step-up adjustment must not decrease");
+  }
+  // Nine targets tested at once: a lone 0.04 no longer clears five percent.
+  const nine = benjaminiHochberg([0.04, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]);
+  assert.ok(nine[0] > 0.05);
+  assert.deepEqual(benjaminiHochberg([null, 0.01]), [null, 0.01]);
+});
+
+test("Platt scaling pulls in a model whose confidence outruns its hit rate", () => {
+  // The model claims 95% and is right 70% of the time; it claims 5% and is
+  // right 70% of the time. The ranking is informative, the level is not.
+  const labels = [];
+  const overconfident = [];
+  for (let index = 0; index < 400; index += 1) {
+    const bullish = index % 2 === 0;
+    const correct = index % 10 < 7;
+    labels.push(bullish === correct ? 1 : 0);
+    overconfident.push(bullish ? 0.95 : 0.05);
+  }
+  const scaler = fitPlattScaling(overconfident, labels);
+  assert.ok(scaler, "a calibrator should be recoverable from 400 observations");
+  const calibrated = overconfident.map((probability) => applyPlattScaling(scaler, probability));
+  assert.ok(
+    logLoss(calibrated, labels) < logLoss(overconfident, labels),
+    "calibration must reduce the loss it was fitted to reduce",
+  );
+  // Pulled back toward the frequency actually observed rather than the claim.
+  assert.ok(Math.max(...calibrated) < 0.9);
+  assert.ok(Math.max(...calibrated) > 0.5);
+  assert.equal(fitPlattScaling([0.5, 0.5], [1, 0]), null, "too few observations");
+});
+
+test("Platt scaling declines to fit when the held-out slice inverts the ranking", () => {
+  // Probabilities that point the wrong way produce a negative slope; rescaling
+  // on that would amplify noise, so the caller keeps the raw output.
+  const labels = Array.from({ length: 300 }, (_, index) => (index % 2 === 0 ? 1 : 0));
+  const inverted = labels.map((label) => (label === 1 ? 0.2 : 0.8));
+  assert.equal(fitPlattScaling(inverted, labels), null);
 });
 
 test("pinball loss evaluates asymmetric quantile prediction accuracy", () => {

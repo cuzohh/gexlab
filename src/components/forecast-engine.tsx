@@ -20,6 +20,17 @@ type ClassifierEvaluation = {
   model: { logLoss: number | null; brier: number | null; accuracy: number | null; auc: number | null };
   baseRate: { logLoss: number | null; brier: number | null; accuracy: number | null };
   skill: { logLoss: number | null; brier: number | null; accuracy: number | null };
+  horizon: number;
+  comparison: {
+    meanAdvantage: number;
+    standardError: number;
+    statistic: number;
+    pValue: number;
+    lag: number;
+    samples: number;
+    effectiveSamples: number;
+  } | null;
+  falseDiscoveryRate: number | null;
   beatsBaseline: boolean;
   calibration: CalibrationBin[];
   confident: { threshold: number; share: number; accuracy: number | null; samples: number };
@@ -57,6 +68,8 @@ type EngineData = {
       positionPct: number;
       cashPct: number;
       exposureLabel: string;
+      basis?: string;
+      hasMeasuredEdge?: boolean;
       volatilityScale: number;
     };
   };
@@ -294,7 +307,7 @@ function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null })
       <header>
         <h3>{evaluation.question}</h3>
         <span className={`state-label state-label--${evaluation.beatsBaseline ? "constructive" : "stress"}`}>
-          {evaluation.beatsBaseline ? "Beats base rate" : "No skill"}
+          {evaluation.beatsBaseline ? "Beats base rate" : "No measured skill"}
         </span>
       </header>
       <table className="score-table">
@@ -313,6 +326,29 @@ function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null })
             <td>{evaluation.baseRate.logLoss?.toFixed(4) ?? "—"}</td>
             <td className={(evaluation.skill.logLoss ?? 0) > 0 ? "gain" : "loss"}>
               {signed(evaluation.skill.logLoss, "", 4)}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">
+              Log-loss advantage{" "}
+              <small>
+                Diebold-Mariano, HAC lag {evaluation.comparison?.lag ?? 0}
+              </small>
+            </th>
+            <td colSpan={2}>
+              {evaluation.comparison
+                ? `${signed(evaluation.comparison.meanAdvantage, "", 4)} ± ${evaluation.comparison.standardError.toFixed(4)}`
+                : "—"}
+            </td>
+            <td className={evaluation.beatsBaseline ? "gain" : "loss"}>
+              {evaluation.comparison
+                ? `p ${evaluation.comparison.pValue < 0.001 ? "< 0.001" : evaluation.comparison.pValue.toFixed(3)}`
+                : "—"}
+              {evaluation.falseDiscoveryRate !== null && (
+                <small>
+                  {" "}q {evaluation.falseDiscoveryRate < 0.001 ? "< 0.001" : evaluation.falseDiscoveryRate.toFixed(3)}
+                </small>
+              )}
             </td>
           </tr>
           <tr>
@@ -369,6 +405,27 @@ function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null })
         where it moved at least {(evaluation.confident.threshold * 100).toFixed(0)} points from the base rate it
         was right {percent(evaluation.confident.accuracy)} of the time.
       </p>
+      {evaluation.comparison && (
+        <p className="calibration-note">
+          {evaluation.horizon > 1 ? (
+            <>
+              This question looks {evaluation.horizon} sessions ahead, so consecutive forecasts share all but
+              one day of their window and the {evaluation.comparison.samples.toLocaleString()} scored sessions
+              carry roughly {evaluation.comparison.effectiveSamples.toLocaleString()} independent
+              observations. The verdict above is the log-loss difference divided by a standard error that
+              accounts for that overlap, not a comparison of the two numbers.
+            </>
+          ) : (
+            <>
+              The verdict above is the log-loss difference divided by its standard error across{" "}
+              {evaluation.comparison.samples.toLocaleString()} scored sessions, not a comparison of the two
+              numbers: a model can finish a ten-thousandth ahead and have shown nothing.
+            </>
+          )}{" "}
+          q is the p-value after a false-discovery-rate correction across all nine targets, since testing
+          nine questions at once is expected to produce a winner or two by chance.
+        </p>
+      )}
       {evaluation.coefficients.length > 0 && (
         <details className="learn-panel">
           <summary>What the current fit leans on</summary>
@@ -471,7 +528,12 @@ export function ForecastEngine() {
             </div>
             <div className="card-footer">
               <p>Position: <strong>{data.forecast.recommendedExposure.positionPct}%</strong> · Cash: <strong>{data.forecast.recommendedExposure.cashPct}%</strong></p>
-              <small>Scaled inverse to realized vol ({(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualised).</small>
+              <small>
+                {data.forecast.recommendedExposure.basis ??
+                  `Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualised).`}
+                {data.forecast.recommendedExposure.hasMeasuredEdge &&
+                  ` Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualised).`}
+              </small>
             </div>
           </article>
         )}

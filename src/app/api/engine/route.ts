@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
 import {
   accuracy,
+  applyPlattScaling,
   applyStandardizer,
   backtestVolScaledStrategy,
+  benjaminiHochberg,
   brierScore,
+  dieboldMariano,
+  type ForecastComparison,
   reliabilityByQuantile,
+  fitPlattScaling,
   fitStandardizer,
   harFeatures,
   logLoss,
+  pointwiseLogLoss,
   logisticFit,
   logisticPredict,
   pinballLoss,
@@ -40,7 +46,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.5.1";
+const MODEL_VERSION = "engine-v1.6.0";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -71,13 +77,29 @@ const MINIMUM_POSITIONING_SESSIONS = 750;
 // one rather than the flattering one.
 const INTRADAY_CLUSTER_SIZE = 5;
 
+/**
+ * Splits a training fold into an inner fit and an inner held-out tail, with the
+ * same embargo the outer walk-forward uses.
+ *
+ * Without the embargo a twenty-day label at the end of the inner fit overlaps
+ * the first twenty rows of the tail it is validated on. The effect is small,
+ * since all it decides is one value from a five-point grid and the calibration
+ * slope, but it is the one place the fold discipline used to lapse.
+ */
+function innerSplit(rowCount: number) {
+  const split = Math.floor(rowCount * 0.8);
+  const fitEnd = split - WALK_FORWARD.embargo;
+  if (fitEnd < 200 || rowCount - split < 100) return null;
+  return { fitEnd, holdoutStart: split };
+}
+
 function selectPenalty(features: number[][], labels: number[]) {
-  const split = Math.floor(features.length * 0.8);
-  if (split < 200 || features.length - split < 100) return PENALTY_GRID[2];
-  const innerTrain = features.slice(0, split);
-  const innerLabels = labels.slice(0, split);
-  const validation = features.slice(split);
-  const validationLabels = labels.slice(split);
+  const split = innerSplit(features.length);
+  if (!split) return PENALTY_GRID[2];
+  const innerTrain = features.slice(0, split.fitEnd);
+  const innerLabels = labels.slice(0, split.fitEnd);
+  const validation = features.slice(split.holdoutStart);
+  const validationLabels = labels.slice(split.holdoutStart);
   let best = PENALTY_GRID[2];
   let bestLoss = Number.POSITIVE_INFINITY;
   for (const penalty of PENALTY_GRID) {
@@ -91,6 +113,44 @@ function selectPenalty(features: number[][], labels: number[]) {
     }
   }
   return best;
+}
+
+/**
+ * Fits a fold, optionally with a Platt calibrator learned on an embargoed tail
+ * of the same fold.
+ *
+ * Calibration is off by default because it was measured and it does not help.
+ * Fitted on the inner model and applied to the full-fold model it lost on all
+ * nine targets; fitted and applied coherently to the inner model it lost on all
+ * nine again. Both are explicable: the penalty grid runs to 1600, so these fits
+ * are already shrunk hard toward the base rate and are close to calibrated
+ * before anything rescales them. Estimating a slope from a few hundred held-out
+ * rows with a weak signal adds more variance than it removes miscalibration.
+ *
+ * Kept behind a flag rather than deleted, because the argument for it gets
+ * stronger as the sample grows and the honest way to revisit it is to rerun the
+ * comparison rather than to reason about it.
+ */
+const CALIBRATE_FOLDS = process.env.GEXLAB_CALIBRATE === "1";
+
+function fitCalibratedFold(design: number[][], labels: number[], penalty: number) {
+  const split = CALIBRATE_FOLDS ? innerSplit(design.length) : null;
+  if (!split) {
+    const weights = logisticFit(design, labels, { penalty, iterations: 12 });
+    return weights ? { weights, calibrator: null } : null;
+  }
+  // The scaler is applied to the model it was fitted for, which costs the
+  // held-out tail as training data but keeps the two logit scales comparable.
+  const weights = logisticFit(design.slice(0, split.fitEnd), labels.slice(0, split.fitEnd), {
+    penalty,
+    iterations: 12,
+  });
+  if (!weights) return null;
+  const calibrator = fitPlattScaling(
+    design.slice(split.holdoutStart).map((row) => logisticPredict(weights, row)),
+    labels.slice(split.holdoutStart),
+  );
+  return { weights, calibrator };
 }
 
 /**
@@ -290,6 +350,11 @@ type ClassifierEvaluation = {
   model: { logLoss: number | null; brier: number | null; accuracy: number | null; auc: number | null };
   baseRate: { logLoss: number | null; brier: number | null; accuracy: number | null };
   skill: { logLoss: number | null; brier: number | null; accuracy: number | null };
+  /** Sessions the label spans, which sets the HAC lag and the overlap discount. */
+  horizon: number;
+  comparison: ForecastComparison | null;
+  /** False-discovery-rate q-value across every scored target. Filled in after all fits. */
+  falseDiscoveryRate: number | null;
   beatsBaseline: boolean;
   calibration: ReturnType<typeof reliabilityByQuantile>;
   confident: { threshold: number; share: number; accuracy: number | null; samples: number };
@@ -308,6 +373,7 @@ function evaluateClassifier(
   labels: Array<number | null>,
   target: string,
   question: string,
+  horizon: number,
 ): ClassifierEvaluation | null {
   const usableIndexes = labels
     .map((label, index) => (label === null ? null : index))
@@ -323,11 +389,12 @@ function evaluateClassifier(
     const standardizer = fitStandardizer(trainFeatures);
     const design = trainFeatures.map((row) => withIntercept(applyStandardizer(standardizer, row)));
     const penalty = selectPenalty(design, trainLabels);
-    const weights = logisticFit(design, trainLabels, { penalty, iterations: 12 });
-    if (!weights) return [];
-    return usable
-      .slice(predict[0], predict[1])
-      .map((row) => logisticPredict(weights, withIntercept(applyStandardizer(standardizer, row.features))));
+    const fitted = fitCalibratedFold(design, trainLabels, penalty);
+    if (!fitted) return [];
+    return usable.slice(predict[0], predict[1]).map((row) => {
+      const raw = logisticPredict(fitted.weights, withIntercept(applyStandardizer(standardizer, row.features)));
+      return fitted.calibrator ? applyPlattScaling(fitted.calibrator, raw) : raw;
+    });
   });
   if (predictions.length < 250) return null;
 
@@ -337,6 +404,14 @@ function evaluateClassifier(
   // before each prediction, not the frequency over the scored window, which
   // would leak the answer into the thing it is being compared against.
   const baseRates = predictions.map((entry) => mean(usableLabels.slice(0, Math.max(entry.index - WALK_FORWARD.embargo, 1))));
+
+  // Whether the model beats the base rate is a question about a difference of
+  // two loss series, not about which number is smaller.
+  const comparison = dieboldMariano(
+    pointwiseLogLoss(probabilities, outcomes),
+    pointwiseLogLoss(baseRates, outcomes),
+    horizon,
+  );
 
   const modelScores = {
     logLoss: logLoss(probabilities, outcomes),
@@ -390,10 +465,12 @@ function evaluateClassifier(
           ? null
           : modelScores.accuracy - baselineScores.accuracy,
     },
-    beatsBaseline:
-      modelScores.logLoss !== null &&
-      baselineScores.logLoss !== null &&
-      modelScores.logLoss < baselineScores.logLoss,
+    horizon,
+    comparison,
+    falseDiscoveryRate: null,
+    // Significance, not a bare inequality. The q-value that finally gates this
+    // is applied across all targets once they have each been scored.
+    beatsBaseline: comparison !== null && comparison.meanAdvantage > 0 && comparison.pValue < 0.05,
     calibration: reliabilityByQuantile(probabilities, outcomes, 5),
     confident: {
       threshold: confidenceThreshold,
@@ -561,56 +638,89 @@ async function buildPayload() {
     directionLabels(rows),
     "direction",
     "Will the next session close higher?",
+    1,
   );
   const direction5d = evaluateClassifier(
     rows,
     direction5dLabels(rows),
     "direction5d",
     "Will the index close higher over the next 5 sessions?",
+    5,
   );
   const direction20d = evaluateClassifier(
     rows,
     direction20dLabels(rows),
     "direction20d",
     "Will the index close higher over the next 20 sessions?",
+    20,
   );
   const continuation = evaluateClassifier(
     rows,
     continuationLabels(rows),
     "continuation",
     "Will the next session move in the same direction as this one?",
+    1,
   );
   const volatilityExpansion = evaluateClassifier(
     rows,
     volatilityExpansionLabels(rows),
     "volatilityExpansion",
     "Will 5-day realized volatility expand above the 20-day baseline?",
+    5,
   );
   const wideRangeDay = evaluateClassifier(
     rows,
     wideRangeDayLabels(rows),
     "wideRangeDay",
     "Will the next session be an explosive wide-range day (>1.5x 20d ATR)?",
+    1,
   );
   const rallySpike5d = evaluateClassifier(
     rows,
     rallySpike5dLabels(rows),
     "rallySpike5d",
     "Will the index experience an explosive 5-day rally spike (>= +3%)?",
+    5,
   );
   const downsideTail = evaluateClassifier(
     rows,
     downsideTailLabels(rows),
     "downsideTail",
     "Will the next session fall by an unusually large amount?",
+    1,
   );
   const drawdown5d = evaluateClassifier(
     rows,
     drawdown5dLabels(rows),
     "drawdown5d",
     "Will the next five sessions contain a material drawdown?",
+    5,
   );
   const volatility = evaluateVolatility(rows);
+
+  // Nine targets are each tested against their own base rate, so at a nominal
+  // five percent a couple would be expected to clear the bar on noise alone.
+  // The verdict shown is the one that survives the correction, not the raw test.
+  const scored = [
+    direction,
+    direction5d,
+    direction20d,
+    continuation,
+    volatilityExpansion,
+    wideRangeDay,
+    rallySpike5d,
+    downsideTail,
+    drawdown5d,
+  ].filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const qValues = benjaminiHochberg(scored.map((entry) => entry.comparison?.pValue ?? null));
+  scored.forEach((entry, index) => {
+    entry.falseDiscoveryRate = qValues[index];
+    entry.beatsBaseline =
+      entry.comparison !== null &&
+      entry.comparison.meanAdvantage > 0 &&
+      qValues[index] !== null &&
+      qValues[index]! < 0.05;
+  });
 
   const dailyLabels = directionLabels(rows);
   const evalIndexes = dailyLabels
@@ -790,18 +900,29 @@ async function buildPayload() {
   const liveVol = Math.max(lastRow.features[FEATURE_INDEX["realized vol 20d"]] / 100, 0.005);
   const dirProb = directionProbability ?? 0.55;
   const dirBase = directionFit?.baseRate ?? 0.55;
-  const rawSizingSignal = (dirProb - dirBase) / (liveVol * 2);
+  // Sizing is gated on the daily direction model having measurably beaten its
+  // own base rate out of sample. It has not: the evaluation puts its ROC-AUC at
+  // roughly a half. Scaling a position by the gap between two numbers that are
+  // statistically the same number is how a chart of noise becomes an
+  // instruction, so the gap is only allowed to move the position once the test
+  // says the gap is real. If the model ever earns it, this turns itself on.
+  const directionHasSkill = direction?.beatsBaseline ?? false;
+  const rawSizingSignal = directionHasSkill ? (dirProb - dirBase) / (liveVol * 2) : 0;
   const currentPositionScale = Math.min(Math.max(rawSizingSignal, -1.0), 1.0);
   const positionPct = Math.round(currentPositionScale * 100);
   const cashPct = Math.max(0, 100 - Math.abs(positionPct));
-  const exposureLabel =
-    positionPct > 50
+  const exposureLabel = !directionHasSkill
+    ? "No measured edge — cash"
+    : positionPct > 50
       ? "Strong Long"
       : positionPct > 15
         ? "Moderate Long"
         : positionPct < -15
           ? "Defensive Short / Cash"
           : "Neutral / Cash";
+  const exposureBasis = directionHasSkill
+    ? "Sized from the daily direction model's edge over its base rate, scaled by realized volatility."
+    : "The daily direction model has not beaten its base rate out of sample, so no position is recommended.";
 
   return {
     modelVersion: MODEL_VERSION,
@@ -835,6 +956,8 @@ async function buildPayload() {
         positionPct,
         cashPct,
         exposureLabel,
+        basis: exposureBasis,
+        hasMeasuredEdge: directionHasSkill,
         volatilityScale: Number(liveVol.toFixed(4)),
       },
     },
