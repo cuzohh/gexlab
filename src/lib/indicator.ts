@@ -77,6 +77,9 @@ left_bars = input.int(300, "Bars drawn to the left (when unanchored)", minval=0,
 right_bars = input.int(30, "Bars projected to the right", minval=0, maxval=500, group="Style")
 extend_right = input.bool(false, "Extend lines indefinitely", group="Style")
 stagger_labels = input.bool(true, "Stagger crowded labels", group="Style")
+label_lanes = input.int(4, "Label lanes", minval=1, maxval=8, group="Style", tooltip="How many columns crowded labels are allowed to spread across. A run of levels closer together than a label is tall walks sideways through the lanes instead of stacking.")
+label_char_bars = input.float(0.8, "Label width per character (bars)", minval=0.2, maxval=4.0, step=0.1, group="Style", tooltip="Lane spacing is the longest caption in the set times this. Text is measured in pixels and lanes in bars, so the conversion depends on horizontal zoom: raise it if labels still overlap, lower it if they sit too far apart.")
+label_backdrop = input.bool(true, "Solid label background", group="Style", tooltip="Fills the label with the chart background so a label in front hides the one behind it. Transparent labels let overlapping text mash together into something unreadable.")
 show_prices = input.bool(true, "Price in label", group="Style")
 c_call = input.color(#2f6b5f, "Call side", group="Style")
 c_put = input.color(#a0443b, "Put side", group="Style")
@@ -377,6 +380,10 @@ var bool profile_both = false
 var int profile_shown = 0
 var int profile_lanes = 1
 
+// Bars between label lanes, derived from the longest caption actually in the
+// set rather than fixed, so the stagger clears the text beside it.
+var int label_pitch = 10
+
 f_emit(price, text_value, kind, half, weight, from_index, from_confirm) =>
     array.push(merged_price, price)
     array.push(merged_label, text_value)
@@ -439,11 +446,11 @@ f_render(index) =>
         caption = (agreed ? "✓ " : "") + array.get(merged_label, index) +
           (show_prices ? "  " + str.tostring(price, format.mintick) : "")
         array.push(drawn_labels, label.new(
-          x=f_future(right_bars + 2 + (show_profile ? profile_bars * profile_lanes + 3 : 0) + array.get(merged_slot, index) * 9),
+          x=f_future(right_bars + 2 + (show_profile ? profile_bars * profile_lanes + 3 : 0) + array.get(merged_slot, index) * label_pitch),
           y=price,
           text=caption,
           style=label.style_label_left,
-          color=color.new(tone, 100),
+          color=label_backdrop ? color.new(chart.bg_color, 10) : color.new(tone, 100),
           textcolor=dim ? color.new(tone, 25) : tone,
           size=size.small))
 
@@ -570,22 +577,6 @@ if barstate.islast
                             array.set(merged_agreed, left, true)
                             array.set(merged_agreed, right, true)
 
-        // Levels now arrive grouped by book, so the stagger walks them in price
-        // order: a run closer together than a label is tall gets stepped
-        // sideways rather than stacked.
-        by_merged = array.sort_indices(merged_price, order.ascending)
-        float previous_price = na
-        int stagger = 0
-        for rank = 0 to total - 1
-            index = array.get(by_merged, rank)
-            price = array.get(merged_price, index)
-            if not na(previous_price) and stagger_labels and label_gap > 0 and price - previous_price < label_gap
-                stagger := stagger >= 3 ? 0 : stagger + 1
-            else
-                stagger := 0
-            array.set(merged_slot, index, stagger)
-            previous_price := price
-
     distances = array.new_float()
     if total > 0
         for index = 0 to total - 1
@@ -593,6 +584,45 @@ if barstate.islast
     nearest = total > 0 ? array.sort_indices(distances, order.ascending) : array.new_int()
     drawn = max_levels > 0 ? math.min(max_levels, total) : total
     if drawn > 0
+        // Lanes are assigned over the levels that survive the nearest-N cut, in
+        // price order. Reserving a lane for a level that never draws would push
+        // its neighbours sideways for nothing.
+        keeps = array.new_bool(total, false)
+        for rank = 0 to drawn - 1
+            array.set(keeps, array.get(nearest, rank), true)
+
+        // Lane pitch comes from the longest caption in the set. A fixed step
+        // narrower than the text is what let a crowded run overlap even when it
+        // was staggered: four lanes nine bars apart is one label's width.
+        int widest = 0
+        for index = 0 to total - 1
+            if array.get(keeps, index)
+                chars = str.length(array.get(merged_label, index)) + (show_prices ? 12 : 0) + 4
+                widest := chars > widest ? chars : widest
+        label_pitch := math.max(6, math.round(widest * label_char_bars))
+
+        // First lane whose last label sits at least a label's height below this
+        // one. Walking price ascending means a lane is free as soon as the run
+        // that filled it has been cleared, so an isolated level returns to lane 0.
+        lane_price = array.new_float(label_lanes, -1e18)
+        by_merged = array.sort_indices(merged_price, order.ascending)
+        for rank = 0 to total - 1
+            index = array.get(by_merged, rank)
+            if array.get(keeps, index)
+                price = array.get(merged_price, index)
+                int lane = 0
+                if stagger_labels and label_gap > 0
+                    lane := -1
+                    for candidate = 0 to label_lanes - 1
+                        if lane < 0 and price - array.get(lane_price, candidate) >= label_gap
+                            lane := candidate
+                    // Every lane still occupied within a label's height. Take the
+                    // one holding the lowest label, the one this is furthest from.
+                    if lane < 0
+                        lane := array.indexof(lane_price, array.min(lane_price))
+                array.set(lane_price, lane, price)
+                array.set(merged_slot, index, lane)
+
         for rank = 0 to drawn - 1
             f_render(array.get(nearest, rank))
 
@@ -618,7 +648,11 @@ if barstate.islast
                     // which is the whole reason the two are drawn apart: an ETF
                     // bar covering ~41 index points is not the same read as an
                     // index bar covering 10, and stacking them would imply it.
-                    half = math.max(nz(f_map_width(array.get(book_step, book)), 0) * 0.45, syminfo.mintick)
+                    // A full half-increment, so bins tile with no gap and a zone
+                    // at the default width is exactly one bin tall. A hairline
+                    // gap here made a wall's zone look mismatched against the bar
+                    // it was measured from.
+                    half = math.max(nz(f_map_width(array.get(book_step, book)), 0) * 0.5, syminfo.mintick)
                     tone = exposure > 0 ? c_call : c_put
                     length = math.max(1, math.round(math.abs(exposure) / 100 * profile_bars))
                     grows_left = profile_both and book == 0

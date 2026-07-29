@@ -725,6 +725,40 @@ test("TradingView bridge script draws the histogram, expected move and agreement
   assert.doesNotMatch(PINE_SCRIPT, /table\.new|table\.cell|show_monitor|show_level_table/);
 });
 
+test("a wall's zone is exactly as tall as the histogram bin it was measured from", () => {
+  // A zone at the default width spans one mapped strike increment: half-width
+  // step/2. The bins have to use the same half or a wall's band reads as
+  // mismatched against its own bar. They also tile with no gap, which is what a
+  // distribution should look like.
+  assert.match(PINE_SCRIPT, /f_map_width\(array\.get\(book_step, book\)\), 0\) \* 0\.5/);
+  assert.doesNotMatch(PINE_SCRIPT, /f_map_width\(array\.get\(book_step, book\)\), 0\) \* 0\.4/);
+  // Both widths read the one step the block declared, so they cannot diverge by
+  // being measured from different places.
+  assert.match(PINE_SCRIPT, /array\.set\(book_step, role, step\)/);
+  assert.match(PINE_SCRIPT, /array\.push\(lv_step, step\)/);
+});
+
+test("crowded labels are spaced by the width of the text rather than a fixed step", () => {
+  // The stagger existed but stepped a fixed nine bars, which is about one
+  // label's width: a crowded run overlapped anyway. The pitch now comes from the
+  // longest caption actually drawn.
+  assert.doesNotMatch(PINE_SCRIPT, /merged_slot, index\) \* 9\b/);
+  assert.match(PINE_SCRIPT, /merged_slot, index\) \* label_pitch/);
+  assert.match(PINE_SCRIPT, /label_pitch := math\.max\(6, math\.round\(widest \* label_char_bars\)\)/);
+  // Lanes are picked by which one is actually free, not by cycling, so a level
+  // cannot be assigned a lane that still holds a label at the same height.
+  assert.match(PINE_SCRIPT, /lane_price = array\.new_float\(label_lanes, -1e18\)/);
+  assert.match(PINE_SCRIPT, /if lane < 0 and price - array\.get\(lane_price, candidate\) >= label_gap/);
+  assert.match(PINE_SCRIPT, /lane := array\.indexof\(lane_price, array\.min\(lane_price\)\)/);
+  // Only levels that survive the nearest-N cut reserve a lane; a dropped level
+  // pushing its neighbours sideways would waste the lanes.
+  assert.match(PINE_SCRIPT, /keeps = array\.new_bool\(total, false\)/);
+  assert.match(PINE_SCRIPT, /if array\.get\(keeps, index\)/);
+  // Overlap is survivable rather than illegible: a filled label hides the one
+  // behind it instead of mashing two sets of glyphs together.
+  assert.match(PINE_SCRIPT, /label_backdrop \? color\.new\(chart\.bg_color, 10\)/);
+});
+
 test("TradingView bridge script renders each book in its own style and survives gapped history", () => {
   // The index chain is a definite price and draws as a line; the ETF chain is
   // rescaled onto it and draws as the band that conversion is actually good to.
