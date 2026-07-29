@@ -712,23 +712,22 @@ test("TradingView bridge script renders each book in its own style and survives 
   // into one message rather than the loop firing once and being suppressed.
   assert.match(PINE_SCRIPT, /if touched != ""/);
   assert.match(PINE_SCRIPT, /alert\("GEXLab " \+ syminfo\.ticker \+ ": " \+ touched/);
-  // Requesting the cash index on an intraday chart overruns the default
-  // historical buffer thousands of bars back.
-  assert.match(PINE_SCRIPT, /indicator\("GEXLab V3 Option Levels", overlay=true, max_bars_back=1000/);
+  assert.match(PINE_SCRIPT, /indicator\("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000/);
   // A moving average over a gapped series goes blind whenever its window
   // straddles the overnight gap, so the ratio window holds only live samples.
   assert.doesNotMatch(PINE_SCRIPT, /ta\.sma\(ratio_sample/);
   assert.match(PINE_SCRIPT, /held_ratio := array\.avg\(ratio_window\)/);
-  // Both legs of the mapping are requested on the daily timeframe. Requesting
-  // the cash index at the chart's own resolution pairs a 24-hour futures
-  // session with a regular-hours index, and the offset Pine must reach back
-  // through then grows with the chart until it overruns any fixed buffer. This
-  // has regressed twice; the two requests must stay on "D" and there must be no
-  // timeframe.period request left behind.
-  assert.match(PINE_SCRIPT, /request\.security\(cash_symbol, "D", close/);
-  assert.match(PINE_SCRIPT, /request\.security\(syminfo\.tickerid, "D", close/);
-  assert.doesNotMatch(PINE_SCRIPT, /request\.security\([^)]*timeframe\.period/);
-  assert.doesNotMatch(PINE_SCRIPT, /barmerge\.gaps_on/);
+  // The ratio is sampled live, because it is the current relationship between
+  // the two instruments and a level converted through a stale one drifts.
+  assert.match(PINE_SCRIPT, /array\.push\(ratio_window, close \/ cash_close\)/);
+  // Extended hours on the cash leg, so the secondary series covers more of a
+  // 24-hour chart's bars.
+  assert.match(PINE_SCRIPT, /ticker\.modify\(cash_symbol, session\.extended\)/);
+  // The offset Pine reaches back through grows with the chart, so it is bounded
+  // by capping the calculation window rather than by guessing a buffer size:
+  // within 5,000 calculated bars no offset can exceed 5,000. This has regressed
+  // twice, both times by raising the buffer alone.
+  assert.match(PINE_SCRIPT, /max_bars_back=5000, calc_bars_count=5000/);
 });
 
 test("the strike increment is the modal gap, so a missing strike cannot widen it", () => {
