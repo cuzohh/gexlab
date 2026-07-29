@@ -666,17 +666,14 @@ test("TradingView bridge script uses Pine v6 and self-identifying payload price 
   assert.doesNotMatch(PINE_SCRIPT, /x=bar_index \+ right_bars/);
   assert.doesNotMatch(PINE_SCRIPT, /x2=bar_index \+ right_bars/);
   // Pine cannot assign to a global scalar from inside a function, so the block
-  // parser hands its results back by mutating arrays instead.
-  assert.match(PINE_SCRIPT, /array\.set\(meta_levels, 0, call_wall\)/);
-  assert.match(PINE_SCRIPT, /array\.set\(meta_names, role, name\)/);
+  // parser hands its results back by mutating an array instead.
+  assert.match(PINE_SCRIPT, /array\.set\(meta_levels, 1, f_price\(fields, 2\)\)/);
 });
 
-test("TradingView bridge script draws the histogram, regime, expected move and agreement", () => {
+test("TradingView bridge script draws the histogram, expected move and agreement", () => {
   // The exposure profile the walls are peaks of.
   assert.match(PINE_SCRIPT, /show_profile = input\.bool/);
   assert.match(PINE_SCRIPT, /array\.push\(hist_strike, strike\)/);
-  // Regime shading has to be global scope: bgcolor cannot be called in a block.
-  assert.match(PINE_SCRIPT, /\nbgcolor\(regime_active \?/);
   // Expected move arrives pre-scaled in bps so a 0DTE move is not rounded up.
   assert.match(PINE_SCRIPT, /sigma_bps \/ 10000\.0/);
   // Greek-lettered level names: gamma and delta have symbols, vanna and charm
@@ -693,10 +690,17 @@ test("TradingView bridge script draws the histogram, regime, expected move and a
   assert.match(PINE_SCRIPT, /agreed = from_index and from_confirm/);
   assert.match(PINE_SCRIPT, /agreed \? "✓ " : ""/);
   // Lines start where the snapshot was taken, not at an arbitrary lookback.
+  // With the monitor gone this is also the only staleness cue left: a short
+  // line means a fresh payload.
   assert.match(PINE_SCRIPT, /anchor_snapshot and snapshot_bar > 0 \? snapshot_bar/);
-  assert.match(PINE_SCRIPT, /payload_epoch \* 1000 < time_tradingday/);
-  // One alert stream that names whichever level was reached.
-  assert.match(PINE_SCRIPT, /alert\("GEXLab " \+ syminfo\.ticker/);
+  // Alerts, the background tint and both tables are gone: the indicator draws
+  // levels and nothing else.
+  assert.doesNotMatch(PINE_SCRIPT, /alertcondition|alert\(|alerts_on/);
+  // bgcolor= survives as box.new's fill argument; it is the bgcolor() call that
+  // painted the background and had to go.
+  assert.doesNotMatch(PINE_SCRIPT, /bgcolor\(|regime/);
+  assert.match(PINE_SCRIPT, /bgcolor=color\.new/);
+  assert.doesNotMatch(PINE_SCRIPT, /table\.new|table\.cell|show_monitor|show_level_table/);
 });
 
 test("TradingView bridge script renders each book in its own style and survives gapped history", () => {
@@ -717,10 +721,6 @@ test("TradingView bridge script renders each book in its own style and survives 
     (PINE_SCRIPT.match(/extend=extend_right \? extend\.right : extend\.none/g) ?? []).length,
     2,
   );
-  // alert() throttles by call site, so every level touched in a bar is gathered
-  // into one message rather than the loop firing once and being suppressed.
-  assert.match(PINE_SCRIPT, /if touched != ""/);
-  assert.match(PINE_SCRIPT, /alert\("GEXLab " \+ syminfo\.ticker \+ ": " \+ touched/);
   assert.match(PINE_SCRIPT, /indicator\("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000/);
   // A moving average over a gapped series goes blind whenever its window
   // straddles the overnight gap, so the ratio window holds only live samples.

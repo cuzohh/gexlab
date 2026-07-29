@@ -50,9 +50,6 @@ show_profile = input.bool(true, "Exposure histogram", group="Overlays", tooltip=
 profile_bars = input.int(40, "Histogram length (bars)", minval=5, maxval=200, group="Overlays")
 show_expected_move = input.bool(true, "Expected move", group="Overlays", tooltip="Front-expiry ATM implied volatility scaled to that expiry's own year fraction, so a 0DTE move is not rounded up to a whole session.")
 move_sigmas = input.int(2, "Expected-move bands", minval=1, maxval=3, group="Overlays")
-show_regime = input.bool(true, "Γ regime shading", group="Overlays", tooltip="Tints the background by which side of the Γ flip price is on: above it dealer hedging dampens moves, below it amplifies them.")
-regime_transparency = input.int(93, "Regime shading transparency", minval=70, maxval=99, group="Overlays")
-
 max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60, group="Filter", tooltip="Keeps the levels closest to price. The rest are still parsed and still appear in the level table.")
 max_distance = input.float(3.0, "Maximum distance from price (%, 0 = off)", minval=0.0, step=0.25, group="Filter")
 min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops Γ and Δ clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
@@ -86,11 +83,6 @@ c_vanna = input.color(#315f78, "Vanna magnet", group="Style")
 c_delta = input.color(#4b6ea9, "Δ concentration", group="Style")
 c_move = input.color(#7a7f8a, "Expected move", group="Style")
 
-show_monitor = input.bool(true, "Mapping monitor", group="Tables")
-show_level_table = input.bool(true, "Level table", group="Tables")
-level_table_rows = input.int(10, "Level table rows", minval=1, maxval=20, group="Tables")
-alerts_on = input.bool(true, "Name the level in alert() messages", group="Alerts", tooltip="Attach the script with \"Any alert() function call\" and the alert text names whichever level price reached.")
-
 // Level kinds. Parallel arrays stand in for a record type, which Pine has no
 // direct equivalent of.
 //   0 call wall    1 put wall     2 gamma flip   3 max pain   4 vanna
@@ -109,17 +101,14 @@ var float[] hist_strike = array.new_float()
 var float[] hist_value = array.new_float()
 
 var bool parsed = false
-var bool payload_ok = false
 var bool payload_is_futures = false
 var float payload_ref = 0.0
 var float payload_epoch = 0.0
 
 // Pine functions may mutate a global array by reference but may not assign to a
 // global scalar, so the values the block parser has to hand back live here.
-//   0 call wall  1 put wall  2 gamma flip  3 one-sigma bps  4 front DTE
-//   5 primary spot  6 primary strike increment
-var float[] meta_levels = array.new_float(7, na)
-var string[] meta_names = array.new_string(2, "")
+//   0 one-sigma bps  1 primary spot  2 primary strike increment
+var float[] meta_levels = array.new_float(3, na)
 
 f_str(items, index) =>
     array.size(items) > index ? array.get(items, index) : ""
@@ -168,18 +157,14 @@ f_parse_block(block) =>
         role = f_str(fields, 1) == "C" ? 1 : 0
         step = f_number(fields, 3)
         prefix = role == 1 ? name + " " : ""
-        array.set(meta_names, role, name)
 
         aggregate = str.split(f_str(fields, 4), ",")
         call_wall = f_price(aggregate, 0)
         put_wall = f_price(aggregate, 1)
         flip = f_price(aggregate, 2)
         if role == 0
-            array.set(meta_levels, 0, call_wall)
-            array.set(meta_levels, 1, put_wall)
-            array.set(meta_levels, 2, flip)
-            array.set(meta_levels, 5, f_price(fields, 2))
-            array.set(meta_levels, 6, step)
+            array.set(meta_levels, 1, f_price(fields, 2))
+            array.set(meta_levels, 2, step)
         f_push(call_wall, prefix + "Call Wall", 0, 1.0, role, step)
         f_push(put_wall, prefix + "Put Wall", 1, 1.0, role, step)
         f_push(flip, prefix + "Γ Flip", 2, 1.0, role, step)
@@ -224,8 +209,7 @@ f_parse_block(block) =>
 
         if role == 0 and array.size(fields) >= 11
             move = str.split(f_str(fields, 10), ",")
-            array.set(meta_levels, 3, f_number(move, 0))
-            array.set(meta_levels, 4, f_number(move, 1))
+            array.set(meta_levels, 0, f_number(move, 0))
 
 // Parsed once. Any change to the payload input recompiles the whole script, so
 // there is nothing to invalidate.
@@ -237,7 +221,6 @@ if not parsed
         payload_is_futures := f_str(header, 1) == "F"
         payload_ref := f_number(header, 3)
         payload_epoch := f_number(header, 4)
-        payload_ok := true
         if array.size(blocks) > 1
             for block_index = 1 to array.size(blocks) - 1
                 f_parse_block(array.get(blocks, block_index))
@@ -268,8 +251,6 @@ var float[] ratio_window = array.new_float()
 var float[] basis_window = array.new_float()
 var float held_ratio = na
 var float held_basis = na
-var float held_cash = na
-var float held_chart = na
 if not na(cash_close) and cash_close > 0
     array.push(ratio_window, close / cash_close)
     array.push(basis_window, close - cash_close)
@@ -278,17 +259,12 @@ if not na(cash_close) and cash_close > 0
         array.shift(basis_window)
     held_ratio := array.avg(ratio_window)
     held_basis := array.avg(basis_window)
-    held_cash := cash_close
-    held_chart := close
 
 // The last bar at or before the snapshot. Levels measured then did not apply to
 // the price action before it, so that is where their lines begin.
 var int snapshot_bar = 0
 if payload_epoch > 0 and time <= payload_epoch * 1000
     snapshot_bar := bar_index
-// A payload from before this trading day opened is describing yesterday's book.
-payload_before_session = payload_epoch > 0 and payload_epoch * 1000 < time_tradingday
-
 // How far this chart trades from the payload's own reference price. Near 1 the
 // chart is already in the payload's price space and nothing needs mapping;
 // around 0.024 it is the ETF, around 1.005 the front future.
@@ -455,20 +431,6 @@ f_render(index) =>
           textcolor=dim ? color.new(tone, 25) : tone,
           size=size.small))
 
-var table monitor = table.new(position.bottom_right, 2, 8, border_width=0)
-var table levels_table = table.new(position.top_right, 3, 21, border_width=0)
-
-f_monitor_row(row, name, value, tone) =>
-    table.cell(monitor, 0, row, name, text_color=color.gray, text_size=size.tiny, text_halign=text.align_left)
-    table.cell(monitor, 1, row, value, text_color=tone, text_size=size.tiny, text_halign=text.align_right)
-
-// Gamma regime. Above the flip dealer hedging leans against price, below it
-// leans with price, and that single fact reframes every other level on the
-// chart. Only shaded forward of the snapshot, where the flip actually applied.
-regime_price = f_map(array.get(meta_levels, 2))
-regime_active = show_regime and not na(regime_price) and (snapshot_bar == 0 or bar_index >= snapshot_bar)
-bgcolor(regime_active ? (close > regime_price ? color.new(c_call, regime_transparency) : color.new(c_put, regime_transparency)) : na)
-
 // Redraw on every realtime tick. A realtime tick rolls the script back to the
 // start of the bar, which destroys anything drawn on the previous tick, so the
 // levels have to be recreated rather than drawn once when the bar opens.
@@ -584,7 +546,7 @@ if barstate.islast
     // isolated spike, and the lines alone cannot say which is which.
     if show_profile and drawing and array.size(hist_strike) > 0
         profile_left = f_future(right_bars + 2)
-        bar_half = math.max(nz(f_map_width(array.get(meta_levels, 6)), 0) * 0.45, syminfo.mintick)
+        bar_half = math.max(nz(f_map_width(array.get(meta_levels, 2)), 0) * 0.45, syminfo.mintick)
         for point_index = 0 to array.size(hist_strike) - 1
             level = f_map(array.get(hist_strike, point_index))
             exposure = array.get(hist_value, point_index)
@@ -601,8 +563,8 @@ if barstate.islast
 
     // Expected move. The walls say where hedging sits; this says whether today
     // has the volatility to reach them.
-    sigma_bps = array.get(meta_levels, 3)
-    move_anchor = f_map(array.get(meta_levels, 5))
+    sigma_bps = array.get(meta_levels, 0)
+    move_anchor = f_map(array.get(meta_levels, 1))
     if show_expected_move and drawing and not na(move_anchor) and not na(sigma_bps) and sigma_bps > 0
         for band = 1 to move_sigmas
             reach = move_anchor * (sigma_bps / 10000.0) * band
@@ -624,64 +586,4 @@ if barstate.islast
                   color=color.new(c_move, 100),
                   textcolor=color.new(c_move, 20),
                   size=size.tiny))
-
-    table.clear(monitor, 0, 0, 1, 7)
-    if show_monitor
-        age_hours = payload_epoch > 0 ? (timenow / 1000 - payload_epoch) / 3600 : float(na)
-        drift = payload_ref > 0 and not na(map_factor) and not na(map_offset) ? math.abs((payload_ref * map_factor + map_offset) / close - 1) * 100 : float(na)
-        primary_name = array.get(meta_names, 0)
-        confirm_name = array.get(meta_names, 1)
-        f_monitor_row(0, "PAYLOAD", payload_ok ? (primary_name == "" ? "LOADED" : primary_name) + (confirm_name == "" ? "" : " + " + confirm_name) : "PASTE GX2 BRIDGE", payload_ok ? color.white : color.orange)
-        f_monitor_row(1, "SESSION", not payload_ok ? "—" : payload_before_session ? "PRIOR SESSION" : "CURRENT", payload_before_session ? color.orange : color.white)
-        f_monitor_row(2, "AGE", na(age_hours) ? "—" : str.tostring(age_hours, "#.#") + "h", na(age_hours) or age_hours > 24 ? color.orange : color.white)
-        f_monitor_row(3, "REGIME", na(regime_price) ? "—" : close > regime_price ? "POSITIVE Γ" : "NEGATIVE Γ", na(regime_price) ? color.gray : close > regime_price ? color.white : color.orange)
-        f_monitor_row(4, "MAPPING", active_mode + (map_mode == "Auto" ? " (auto)" : ""), na(map_factor) or na(map_offset) ? color.orange : color.white)
-        f_monitor_row(5, "FACTOR", str.tostring(map_factor, "#.######") + (map_offset != 0 ? "  " + str.tostring(map_offset, "#.##") : ""), color.white)
-        f_monitor_row(6, "CASH / CHART", str.tostring(held_cash, "#.##") + " / " + str.tostring(held_chart, "#.##"), color.white)
-        // A large drift means the payload's own reference price no longer maps
-        // onto this chart, which is the signal that the levels are stale or that
-        // the wrong mapping mode is selected.
-        f_monitor_row(7, "DRIFT", na(drift) ? "—" : str.tostring(drift, "#.##") + "%", na(drift) or drift > 1.5 ? color.orange : color.white)
-
-    table.clear(levels_table, 0, 0, 2, 20)
-    if show_level_table and total > 0
-        table.cell(levels_table, 0, 0, "LEVEL", text_color=color.gray, text_size=size.tiny, text_halign=text.align_left)
-        table.cell(levels_table, 1, 0, "PRICE", text_color=color.gray, text_size=size.tiny, text_halign=text.align_right)
-        table.cell(levels_table, 2, 0, "DIST", text_color=color.gray, text_size=size.tiny, text_halign=text.align_right)
-        listed = math.min(level_table_rows, total)
-        for rank = 0 to listed - 1
-            index = array.get(nearest, rank)
-            price = array.get(merged_price, index)
-            tone = f_tone(array.get(merged_kind, index), array.get(merged_index, index), array.get(merged_confirm, index))
-            distance = close > 0 ? (price / close - 1) * 100 : 0.0
-            table.cell(levels_table, 0, rank + 1, (array.get(merged_index, index) and array.get(merged_confirm, index) ? "✓ " : "") + array.get(merged_label, index), text_color=tone, text_size=size.tiny, text_halign=text.align_left)
-            table.cell(levels_table, 1, rank + 1, str.tostring(price, format.mintick), text_color=color.white, text_size=size.tiny, text_halign=text.align_right)
-            table.cell(levels_table, 2, rank + 1, (distance >= 0 ? "+" : "") + str.tostring(distance, "#.##") + "%", text_color=color.gray, text_size=size.tiny, text_halign=text.align_right)
-
-    // One alert covering every drawn level, naming whichever price reached.
-    // Attach the script with "Any alert() function call".
-    // One alert per bar carrying every level the bar reached. alert() throttles
-    // by call site rather than by message, so firing inside the loop would
-    // report whichever level happened to be nearest and silently drop the rest.
-    if alerts_on and drawn > 0
-        string touched = ""
-        for rank = 0 to drawn - 1
-            index = array.get(nearest, rank)
-            price = array.get(merged_price, index)
-            if high >= price and low <= price
-                touched := touched + (touched == "" ? "" : ", ") + array.get(merged_label, index) +
-                  " " + str.tostring(price, format.mintick)
-        if touched != ""
-            alert("GEXLab " + syminfo.ticker + ": " + touched, alert.freq_once_per_bar)
-
-// Static alerts for the primary book's structural levels, for anyone who wants
-// them wired individually rather than through one alert() stream.
-call_price = f_map(array.get(meta_levels, 0))
-put_price = f_map(array.get(meta_levels, 1))
-flip_price = f_map(array.get(meta_levels, 2))
-flip_guard = nz(flip_price, close)
-alertcondition(not na(call_price) and high >= call_price and low <= call_price, "Call wall touched", "GEXLab: price reached the call wall")
-alertcondition(not na(put_price) and high >= put_price and low <= put_price, "Put wall touched", "GEXLab: price reached the put wall")
-alertcondition(not na(flip_price) and ta.crossover(close, flip_guard), "Crossed above Γ flip", "GEXLab: closed above the Γ flip")
-alertcondition(not na(flip_price) and ta.crossunder(close, flip_guard), "Crossed below Γ flip", "GEXLab: closed below the Γ flip")
 `;
