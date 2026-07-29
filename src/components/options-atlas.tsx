@@ -559,6 +559,9 @@ export function OptionsAtlas() {
   const [shelf, setShelf] = useState<Shelf>("levels");
   const [surfaceView, setSurfaceView] = useState<"smile" | "surface">("smile");
   const [notice, setNotice] = useState("");
+  // Which action confirmed, so the tick lands on the button that was pressed.
+  const [confirmed, setConfirmed] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
   const [marketData, setMarketData] = useState<LiveOptionsData | null>(null);
   const [comparisonData, setComparisonData] = useState<LiveOptionsData | null>(null);
   const [comparisonError, setComparisonError] = useState("");
@@ -1028,10 +1031,36 @@ export function OptionsAtlas() {
     0.01,
   );
 
-  async function copy(value: string, message: string) {
-    await navigator.clipboard.writeText(value);
+  useEffect(() => () => {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+  }, []);
+
+  // Copying is the one action here with no visible result — the payload goes to
+  // the clipboard and the page looks unchanged. The button that fired confirms
+  // in place so the feedback is where the click was, and the footer carries the
+  // wording. One shared timer, because a second copy before the first expired
+  // used to have the older timeout clear the newer notice.
+  function announce(message: string, id: string | null) {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
     setNotice(message);
-    window.setTimeout(() => setNotice(""), 2200);
+    setConfirmed(id);
+    noticeTimer.current = window.setTimeout(() => {
+      setNotice("");
+      setConfirmed(null);
+      noticeTimer.current = null;
+    }, 2200);
+  }
+
+  async function copy(value: string, message: string, id: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // Denied permission, or a context the API refuses to run in. Saying so
+      // beats a silent no-op that looks like the copy worked.
+      announce("Clipboard blocked by the browser", null);
+      return;
+    }
+    announce(message, id);
   }
 
   function exportCsv() {
@@ -1053,7 +1082,7 @@ export function OptionsAtlas() {
     anchor.download = `gexlab-${marketData.symbol}-${marketData.expiry}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
-    setNotice("Snapshot exported");
+    announce("Snapshot exported", "csv");
   }
 
   return (
@@ -1883,26 +1912,45 @@ export function OptionsAtlas() {
               </div>
               <div className="indicator-actions">
                 <button
+                  data-confirmed={confirmed === "bridge" || undefined}
                   disabled={dataState !== "ready" || !marketData || (priceScale === "futures" && !futuresAnchor)}
-                  onClick={() => copy(bridgePayload, `${instrument} bridge copied`)}
+                  onClick={() => copy(bridgePayload, `${instrument} bridge copied`, "bridge")}
                 >
-                  Copy bridge
+                  <span>Copy bridge</span>
+                  <i aria-hidden="true" />
                 </button>
-                <button onClick={() => copy(PINE_SCRIPT, "Pine script copied")}>Copy Pine</button>
                 <button
+                  data-confirmed={confirmed === "pine" || undefined}
+                  onClick={() => copy(PINE_SCRIPT, "Pine script copied", "pine")}
+                >
+                  <span>Copy Pine</span>
+                  <i aria-hidden="true" />
+                </button>
+                <button
+                  data-confirmed={confirmed === "study" || undefined}
                   title="Java study source for MotiveWave. Save as GexLabLevels.java, compile against mwave_sdk.jar, and place the classes in your MotiveWave Extensions folder."
-                  onClick={() => copy(MOTIVEWAVE_STUDY, "MotiveWave study copied")}
+                  onClick={() => copy(MOTIVEWAVE_STUDY, "MotiveWave study copied", "study")}
                 >
-                  Copy MotiveWave
+                  <span>Copy MotiveWave</span>
+                  <i aria-hidden="true" />
                 </button>
                 <button
+                  data-confirmed={confirmed === "legacy" || undefined}
                   disabled={dataState !== "ready" || !marketData || (priceScale === "futures" && !futuresAnchor)}
                   title="The MotiveWave study reads the earlier fixed-width payload rather than the one the Pine indicator now uses."
-                  onClick={() => copy(legacyBridgePayload, `${instrument} MotiveWave bridge copied`)}
+                  onClick={() => copy(legacyBridgePayload, `${instrument} MotiveWave bridge copied`, "legacy")}
                 >
-                  Copy MotiveWave bridge
+                  <span>Copy MotiveWave bridge</span>
+                  <i aria-hidden="true" />
                 </button>
-                <button disabled={!marketData} onClick={exportCsv}>Export CSV</button>
+                <button
+                  data-confirmed={confirmed === "csv" || undefined}
+                  disabled={!marketData}
+                  onClick={exportCsv}
+                >
+                  <span>Export CSV</span>
+                  <i aria-hidden="true" />
+                </button>
               </div>
             </div>
           )}
@@ -1921,7 +1969,12 @@ export function OptionsAtlas() {
               : "Connecting to market data"}
         </span>
         <span>NDX / NDXP → NQ · SPX / SPXW → ES · QQQ / SPY confirm and ship in the bridge</span>
-        <span>{notice || "Select a strike to inspect"}</span>
+        <span aria-live="polite" className="status-notice">
+          {/* Keyed so React remounts the text and the settle animation replays,
+              which is what makes a changed notice read as new rather than as
+              text that was always there. */}
+          <em key={notice}>{notice || "Select a strike to inspect"}</em>
+        </span>
       </footer>
     </section>
   );

@@ -89,6 +89,26 @@ button {
   font: inherit;
 }
 
+/* One transition for every control, so a hover state reads as a change rather
+   than a jump. Colours and borders only: transforms are opted into per control,
+   because a blanket one would animate layout the page did not ask to move.
+   The reduced-motion block near the end of the file neutralises all of this. */
+button,
+a,
+summary,
+label {
+  transition:
+    background-color 160ms var(--ease-out),
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    opacity 160ms var(--ease-out);
+}
+
+button:not(:disabled),
+summary {
+  cursor: pointer;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -246,6 +266,22 @@ h3 {
 
 .theme-toggle:hover {
   color: var(--map);
+}
+
+/* The theme flips instantly, so the mark turning is the only thing that ties the
+   click to the change. Rotating a radially symmetric sun by an eighth of a turn
+   lands it back on itself, which is why it can spin every press without ever
+   needing to be reset. */
+.theme-toggle svg {
+  transition: rotate 420ms var(--ease-out);
+}
+
+.theme-toggle:hover svg {
+  rotate: 22.5deg;
+}
+
+.theme-toggle:active svg {
+  rotate: 45deg;
 }
 
 .page-shell {
@@ -2838,10 +2874,21 @@ h3 {
 }
 
 .indicator-actions button {
+  align-items: center;
   background: transparent;
   border: 1px solid var(--rule-strong);
+  display: inline-flex;
   font-size: 0.68rem;
+  gap: 0;
   padding: 0.65rem 0.85rem;
+}
+
+.indicator-actions button:not(:disabled):hover {
+  border-color: var(--ink);
+}
+
+.indicator-actions button:not(:disabled):active {
+  transform: translateY(1px);
 }
 
 .indicator-actions button:first-child {
@@ -2856,6 +2903,71 @@ h3 {
   border-color: var(--rule);
   color: var(--ink-muted);
   cursor: not-allowed;
+}
+
+/* Copying leaves the page looking untouched, so the button that fired draws a
+   tick beside its own label. The label slides out of the way rather than the
+   button growing, because a row of buttons reflowing on every copy is a bigger
+   movement than the confirmation is worth. */
+.indicator-actions button i {
+  display: block;
+  height: 0.62rem;
+  opacity: 0;
+  position: relative;
+  transition:
+    margin-left 260ms var(--ease-out),
+    opacity 200ms var(--ease-out),
+    width 260ms var(--ease-out);
+  width: 0;
+}
+
+.indicator-actions button i::before,
+.indicator-actions button i::after {
+  background: currentcolor;
+  content: "";
+  position: absolute;
+  transform-origin: bottom left;
+  transform: scaleY(0);
+  width: 1px;
+}
+
+.indicator-actions button i::before {
+  bottom: 0.14rem;
+  height: 0.24rem;
+  left: 0.04rem;
+  rotate: -45deg;
+}
+
+.indicator-actions button i::after {
+  bottom: 0.14rem;
+  height: 0.44rem;
+  left: 0.21rem;
+  rotate: 40deg;
+}
+
+.indicator-actions button[data-confirmed] i {
+  margin-left: 0.45rem;
+  opacity: 1;
+  width: 0.42rem;
+}
+
+/* Short leg first, then the long one, so it reads as a stroke being drawn
+   rather than a glyph appearing. */
+.indicator-actions button[data-confirmed] i::before {
+  animation: tick-stroke 120ms var(--ease-out) 60ms both;
+}
+
+.indicator-actions button[data-confirmed] i::after {
+  animation: tick-stroke 170ms var(--ease-out) 160ms both;
+}
+
+@keyframes tick-stroke {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
 }
 
 .atlas-status {
@@ -2879,6 +2991,28 @@ h3 {
   border-radius: 50%;
   height: 0.35rem;
   width: 0.35rem;
+}
+
+/* The dot breathes only while a fetch is genuinely in flight. A permanent pulse
+   would say "working" when nothing is. */
+.atlas-status[data-refreshing] i {
+  animation: status-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes status-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.status-notice em {
+  animation: value-settle 260ms var(--ease-out) both;
+  display: inline-block;
+  font-style: normal;
 }
 
 .structure-explorer {
@@ -5857,6 +5991,10 @@ h3 {
     font-size: 1.35rem;
     line-height: 1;
     padding: 0.7rem 0;
+  }
+
+  .workspace-nav a:hover {
+    color: var(--ink);
   }
 
   .workspace-nav a[data-active] {

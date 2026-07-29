@@ -725,6 +725,41 @@ test("TradingView bridge script draws the histogram, expected move and agreement
   assert.doesNotMatch(PINE_SCRIPT, /table\.new|table\.cell|show_monitor|show_level_table/);
 });
 
+test("copying confirms on the button that fired and survives a refused clipboard", () => {
+  const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
+  // Copying leaves the page looking untouched, so the pressed button carries the
+  // confirmation rather than only the footer, which is metres away from the click.
+  assert.match(atlas, /data-confirmed=\{confirmed === "bridge" \|\| undefined\}/);
+  assert.match(atlas, /data-confirmed=\{confirmed === "csv" \|\| undefined\}/);
+  // navigator.clipboard rejects on a denied permission or an insecure context.
+  // Unhandled, that read as a successful copy and lost the payload silently.
+  assert.match(atlas, /await navigator\.clipboard\.writeText\(value\);\n {4}\} catch \{/);
+  assert.match(atlas, /announce\("Clipboard blocked by the browser", null\)/);
+  // A second copy inside the dismissal window used to let the older timeout
+  // clear the newer notice, so the timer is shared and cancelled.
+  assert.match(atlas, /if \(noticeTimer\.current !== null\) window\.clearTimeout\(noticeTimer\.current\)/);
+  assert.doesNotMatch(atlas, /window\.setTimeout\(\(\) => setNotice\(""\), 2200\)/);
+});
+
+test("motion is opt-in for transforms and switched off when the reader asks", () => {
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  // Every new animation relies on this one guard, so it has to keep covering
+  // descendants and pseudo-elements rather than only the elements themselves.
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*,\n {2}\*::before,\n {2}\*::after \{/,
+  );
+  assert.match(css, /animation-iteration-count: 1 !important/);
+  // The looping pulse is gated on a fetch actually being in flight. Unconditional
+  // it would claim the app was working while it sat idle.
+  assert.match(css, /\.atlas-status\[data-refreshing\] i \{\n {2}animation: status-breathe/);
+  // The shared control transition covers colour only. A blanket transform here
+  // would animate layout on elements that never asked to move.
+  const shared = css.match(/^button,\na,\nsummary,\nlabel \{\n {2}transition:[^}]+\}/m);
+  assert.ok(shared, "the shared control transition is declared");
+  assert.doesNotMatch(shared[0], /transform|width|height|margin|padding|inset|top|left/);
+});
+
 test("a wall's zone is exactly as tall as the histogram bin it was measured from", () => {
   // A zone at the default width spans one mapped strike increment: half-width
   // step/2. The bins have to use the same half or a wall's band reads as
