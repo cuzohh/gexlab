@@ -1,0 +1,10 @@
+node_modules/
+.next/
+out/
+*.log
+.env*
+!.env.example
+data/
+tsconfig.tsbuildinfo
+.chrome-qa
+.chrome-qa-history

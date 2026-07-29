@@ -1,0 +1,1018 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  easternDate,
+  isRegularMarketOpen,
+  latestMarketObservationTime,
+  latestCompletedTradingDate,
+  nextQuarterHour,
+  parseUtcTimestamp,
+} from "@/lib/market-time";
+import {
+  buildSmile,
+  calculateMaxPain,
+  interpolateZero,
+  modelGamma,
+  modelGreeks,
+  type Smile,
+  yearsToExpiry,
+} from "@/lib/options-math";
+import { dedupeRequest } from "@/lib/server/request-deduper";
+import { loadMacroSeries } from "@/lib/server/macro-sources";
+import {
+  getSnapshot,
+  listSnapshotHistory,
+  readSnapshotHistory,
+  loadSurfaceHistory,
+  putSnapshot,
+  saveEngineFeatures,
+  saveIntradayFeatures,
+  saveSurfaceHistory,
+  snapshotIsFresh,
+} from "@/lib/server/snapshot-store";
+
+export const runtime = "nodejs";
+
+type RawOption = {
+  option?: string;
+  open_interest?: number;
+  volume?: number;
+  iv?: number;
+  delta?: number;
+  gamma?: number;
+  vega?: number;
+  theta?: number;
+  bid?: number;
+  ask?: number;
+  last_trade_price?: number;
+};
+
+type ParsedContract = {
+  root: string;
+  expiry: string;
+  type: "call" | "put";
+  strike: number;
+  oi: number;
+  volume: number;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  vega: number | null;
+  theta: number;
+  bid: number;
+  ask: number;
+  last: number;
+};
+
+type StrikeRow = {
+  strike: number;
+  gamma: number;
+  delta: number;
+  vanna: number;
+  charm: number;
+  vega: number;
+  speed: number;
+  zomma: number;
+  vomma: number;
+  callOi: number;
+  putOi: number;
+  callVolume: number;
+  putVolume: number;
+  callIvWeighted: number;
+  putIvWeighted: number;
+  callIvWeight: number;
+  putIvWeight: number;
+};
+
+type ExposureMetric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma";
+
+const SYMBOLS = {
+  NDX: { endpoint: "_NDX", dividendYield: 0.006 },
+  SPX: { endpoint: "_SPX", dividendYield: 0.012 },
+  QQQ: { endpoint: "QQQ", dividendYield: 0.005 },
+  SPY: { endpoint: "SPY", dividendYield: 0.011 },
+} as const;
+
+const DEFAULT_RISK_FREE_RATE = 0.045;
+const USER_AGENT = "Mozilla/5.0 (compatible; GEXLab/3.0)";
+const METHODOLOGY_VERSION = "options-exposure-v3.4.0";
+type UpdateMode = "eod" | "live";
+
+function number(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function optionalNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseContract(raw: RawOption): ParsedContract | null {
+  const symbol = String(raw.option ?? "").replaceAll(" ", "");
+  const match = symbol.match(/^([A-Z]+)(\d{6})([CP])(\d{8})$/);
+  if (!match) return null;
+
+  const [, root, date, cp, strike] = match;
+  const year = 2000 + Number(date.slice(0, 2));
+  const month = date.slice(2, 4);
+  const day = date.slice(4, 6);
+
+  return {
+    root,
+    expiry: `${year}-${month}-${day}`,
+    type: cp === "C" ? "call" : "put",
+    strike: Number(strike) / 1000,
+    oi: number(raw.open_interest),
+    volume: number(raw.volume),
+    iv: optionalNumber(raw.iv),
+    delta: optionalNumber(raw.delta),
+    gamma: optionalNumber(raw.gamma),
+    vega: optionalNumber(raw.vega),
+    theta: number(raw.theta),
+    bid: number(raw.bid),
+    ask: number(raw.ask),
+    last: number(raw.last_trade_price),
+  };
+}
+
+function aggregate(
+  contracts: ParsedContract[],
+  spot: number,
+  dividendYield: number,
+  valuationTime: number,
+  riskFreeRate: number,
+) {
+  const rows = new Map<number, StrikeRow>();
+
+  for (const contract of contracts) {
+    if (contract.strike < spot * 0.72 || contract.strike > spot * 1.28) continue;
+    const sign = contract.type === "call" ? 1 : -1;
+    const weight = contract.oi;
+    const modeled = modelGreeks({
+      spot,
+      strike: contract.strike,
+      years: yearsToExpiry(contract.expiry, valuationTime, contract.root),
+      iv: contract.iv && contract.iv > 0 ? contract.iv : 0.2,
+      type: contract.type,
+      riskFreeRate,
+      dividendYield,
+    });
+    const gamma = contract.gamma !== null && contract.gamma > 0 ? contract.gamma : modeled.gamma;
+    const delta = contract.delta ?? modeled.delta;
+    const vegaPerVolPoint =
+      contract.vega ?? modeled.vega / 100;
+    const row = rows.get(contract.strike) ?? {
+      strike: contract.strike,
+      gamma: 0,
+      delta: 0,
+      vanna: 0,
+      charm: 0,
+      vega: 0,
+      speed: 0,
+      zomma: 0,
+      vomma: 0,
+      callOi: 0,
+      putOi: 0,
+      callVolume: 0,
+      putVolume: 0,
+      callIvWeighted: 0,
+      putIvWeighted: 0,
+      callIvWeight: 0,
+      putIvWeight: 0,
+    };
+
+    row.gamma += sign * weight * gamma * 100 * spot * spot * 0.01;
+    row.delta += weight * delta * 100 * spot;
+    row.vanna += sign * weight * modeled.vanna * 100 * spot;
+    row.charm += sign * weight * modeled.charm * 100 * spot;
+    row.vega += sign * weight * vegaPerVolPoint * 100;
+    row.speed += sign * weight * modeled.speed * 100 * spot * spot * 0.01;
+    row.zomma += sign * weight * modeled.zomma * 100 * spot * spot * 0.01;
+    row.vomma += sign * weight * modeled.vomma * 100;
+
+    if (contract.type === "call") {
+      row.callOi += contract.oi;
+      row.callVolume += contract.volume;
+      if (contract.iv !== null && contract.iv > 0) {
+        row.callIvWeighted += contract.iv * Math.max(contract.oi, 1);
+        row.callIvWeight += Math.max(contract.oi, 1);
+      }
+    } else {
+      row.putOi += contract.oi;
+      row.putVolume += contract.volume;
+      if (contract.iv !== null && contract.iv > 0) {
+        row.putIvWeighted += contract.iv * Math.max(contract.oi, 1);
+        row.putIvWeight += Math.max(contract.oi, 1);
+      }
+    }
+    rows.set(contract.strike, row);
+  }
+
+  return [...rows.values()]
+    .map((row) => ({
+      strike: row.strike,
+      gamma: row.gamma,
+      delta: row.delta,
+      vanna: row.vanna,
+      charm: row.charm,
+      vega: row.vega,
+      speed: row.speed,
+      zomma: row.zomma,
+      vomma: row.vomma,
+      callOi: row.callOi,
+      putOi: row.putOi,
+      callVolume: row.callVolume,
+      putVolume: row.putVolume,
+      callIv: row.callIvWeight ? row.callIvWeighted / row.callIvWeight : null,
+      putIv: row.putIvWeight ? row.putIvWeighted / row.putIvWeight : null,
+    }))
+    .sort((left, right) => left.strike - right.strike);
+}
+
+function nearestProfileCrossing(rows: ReturnType<typeof aggregate>, metric: ExposureMetric, spot: number) {
+  const crossings: number[] = [];
+  for (let index = 1; index < rows.length; index += 1) {
+    const left = number(rows[index - 1][metric]);
+    const right = number(rows[index][metric]);
+    if (!left || !right || Math.sign(left) === Math.sign(right)) continue;
+    const leftStrike = rows[index - 1].strike;
+    const rightStrike = rows[index].strike;
+    const crossing = interpolateZero(leftStrike, left, rightStrike, right);
+    if (crossing !== null) crossings.push(crossing);
+  }
+  if (!crossings.length) return null;
+  return crossings.reduce((best, value) =>
+    Math.abs(value - spot) < Math.abs(best - spot) ? value : best,
+  );
+}
+
+function calculateGammaFlip(
+  contracts: ParsedContract[],
+  spot: number,
+  dividendYield: number,
+  valuationTime: number,
+  riskFreeRate: number,
+) {
+  const eligible = contracts
+    .filter(
+      (contract) =>
+        contract.oi > 0 &&
+        contract.iv !== null &&
+        contract.iv >= 0.01 &&
+        contract.strike >= spot * 0.7 &&
+        contract.strike <= spot * 1.3,
+    )
+    .map((contract) => ({
+      contract,
+      years: yearsToExpiry(contract.expiry, valuationTime, contract.root),
+    }));
+  if (!eligible.length) return null;
+
+  const exposureAt = (candidateSpot: number) =>
+    eligible.reduce((total, item) => {
+      const { contract, years } = item;
+      const gamma = modelGamma({
+        spot: candidateSpot,
+        strike: contract.strike,
+        years,
+        iv: contract.iv!,
+        riskFreeRate,
+        dividendYield,
+      });
+      return total + (contract.type === "call" ? 1 : -1) * contract.oi * gamma;
+    }, 0);
+
+  const samples = 64;
+  const low = spot * 0.85;
+  const high = spot * 1.15;
+  const crossings: number[] = [];
+  let leftSpot = low;
+  let leftValue = exposureAt(leftSpot);
+  for (let index = 1; index <= samples; index += 1) {
+    const rightSpot = low + ((high - low) * index) / samples;
+    const rightValue = exposureAt(rightSpot);
+    if (leftValue === 0) {
+      crossings.push(leftSpot);
+    } else if (rightValue === 0 || Math.sign(leftValue) !== Math.sign(rightValue)) {
+      let bracketLeft = leftSpot;
+      let bracketRight = rightSpot;
+      let bracketLeftValue = leftValue;
+      for (let iteration = 0; iteration < 20; iteration += 1) {
+        const middle = (bracketLeft + bracketRight) / 2;
+        const middleValue = exposureAt(middle);
+        if (Math.sign(middleValue) === Math.sign(bracketLeftValue)) {
+          bracketLeft = middle;
+          bracketLeftValue = middleValue;
+        } else {
+          bracketRight = middle;
+        }
+      }
+      crossings.push((bracketLeft + bracketRight) / 2);
+    }
+    leftSpot = rightSpot;
+    leftValue = rightValue;
+  }
+  if (!crossings.length) return null;
+  return crossings.reduce((best, value) =>
+    Math.abs(value - spot) < Math.abs(best - spot) ? value : best,
+  );
+}
+
+function strongest(
+  rows: ReturnType<typeof aggregate>,
+  metric: ExposureMetric,
+  predicate: (row: ReturnType<typeof aggregate>[number]) => boolean,
+) {
+  const candidates = rows.filter(predicate);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, row) =>
+    Math.abs(number(row[metric])) > Math.abs(number(best[metric])) ? row : best,
+  ).strike;
+}
+
+function calculateLevels(
+  rows: ReturnType<typeof aggregate>,
+  contracts: ParsedContract[],
+  spot: number,
+  dividendYield: number,
+  valuationTime: number,
+  riskFreeRate: number,
+) {
+  // Primary walls are intended as nearby trading levels. Extreme tail strikes
+  // remain in concentrations/CSV but cannot displace an actionable wall solely
+  // because a large, far-OTM open-interest print dominates the scale.
+  const nearbyRows = rows.filter(
+    (row) => row.strike >= spot * 0.94 && row.strike <= spot * 1.06,
+  );
+  return {
+    callWall:
+      strongest(nearbyRows, "gamma", (row) => row.strike >= spot && row.gamma > 0) ??
+      strongest(nearbyRows, "gamma", (row) => row.strike >= spot) ??
+      strongest(rows, "gamma", (row) => row.strike >= spot && row.gamma > 0) ??
+      strongest(rows, "gamma", (row) => row.strike >= spot),
+    putWall:
+      strongest(nearbyRows, "gamma", (row) => row.strike <= spot && row.gamma < 0) ??
+      strongest(nearbyRows, "gamma", (row) => row.strike <= spot) ??
+      strongest(rows, "gamma", (row) => row.strike <= spot && row.gamma < 0) ??
+      strongest(rows, "gamma", (row) => row.strike <= spot),
+    gammaFlip: calculateGammaFlip(
+      contracts,
+      spot,
+      dividendYield,
+      valuationTime,
+      riskFreeRate,
+    ),
+    profileCrossing: nearestProfileCrossing(rows, "gamma", spot),
+    maxPain: calculateMaxPain(contracts),
+    vannaMagnet: strongest(rows, "vanna", () => true),
+  };
+}
+
+type RawPayload = {
+  timestamp?: string;
+  data?: {
+    current_price?: number;
+    options?: RawOption[];
+  };
+};
+
+// Per-expiry levels are a pure function of one stored snapshot, so a composite
+// request reuses whatever a narrower selection already computed. Only the
+// newest snapshots are retained; older keys fall out in insertion order.
+function memoize<T>(limit: number) {
+  const entries = new Map<string, T>();
+  return (key: string, compute: () => T): T => {
+    const cached = entries.get(key);
+    if (cached !== undefined) {
+      entries.delete(key);
+      entries.set(key, cached);
+      return cached;
+    }
+    const value = compute();
+    entries.set(key, value);
+    while (entries.size > limit) {
+      const oldest = entries.keys().next().value;
+      if (oldest === undefined) break;
+      entries.delete(oldest);
+    }
+    return value;
+  };
+}
+
+type ExpiryLevels = {
+  expiry: string;
+  contractCount: number;
+  levels: ReturnType<typeof calculateLevels>;
+};
+
+type SurfaceSlice = {
+  expiry: string;
+  dte: number;
+  years: number;
+  forward: number;
+  atmIv: number;
+  putIv25: number | null;
+  callIv25: number | null;
+  riskReversal25: number | null;
+  butterfly25: number | null;
+  points: Smile["points"];
+};
+
+const memoContracts = memoize<ParsedContract[]>(8);
+const memoSurface = memoize<SurfaceSlice | null>(400);
+const memoSelection = memoize<{
+  rows: ReturnType<typeof aggregate>;
+  levels: ReturnType<typeof calculateLevels>;
+  contractCount: number;
+  openInterestContracts: number;
+  roots: string[];
+}>(32);
+// Positioning summary for the forecast recorder, keyed by snapshot so a
+// session is aggregated once no matter how many requests arrive.
+const memoPositioning = memoize<{
+  levels: ReturnType<typeof calculateLevels>;
+  netGamma: number;
+  callGamma: number;
+  putGamma: number;
+  netVanna: number;
+  netCharm: number;
+  openInterest: number;
+  expiries: number;
+} | null>(8);
+const memoExpiryLevels = memoize<ExpiryLevels>(400);
+const memoPriorSession = memoize<{
+  observationDate: string;
+  sourceTime: string;
+  spot: number;
+  levels: ReturnType<typeof calculateLevels>;
+} | null>(16);
+const memoExpiryStats = memoize<{
+  expiry: string;
+  atmIv: number | null;
+  openInterest: number;
+  volume: number;
+}>(400);
+
+async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
+  if (updateMode === "live" && !isRegularMarketOpen()) {
+    return fetchRaw(symbol, "eod");
+  }
+  const key = `${symbol}:${updateMode}:market-asof`;
+  const stored = getSnapshot<RawPayload>("options-raw", key);
+  const targetEod = latestCompletedTradingDate();
+  const storedMarketDate = stored?.sourceTime
+    ? easternDate(new Date(stored.sourceTime))
+    : null;
+  const fresh =
+    updateMode === "eod"
+      ? Boolean(stored && storedMarketDate && storedMarketDate >= targetEod)
+      : Boolean(stored && snapshotIsFresh(stored));
+  if (fresh && stored) return { ...stored, stale: false };
+
+  return dedupeRequest(`options:${key}`, async () => {
+    const rechecked = getSnapshot<RawPayload>("options-raw", key);
+    if (
+      rechecked &&
+      (updateMode === "live"
+        ? snapshotIsFresh(rechecked)
+        : Boolean(
+            rechecked.sourceTime &&
+              easternDate(new Date(rechecked.sourceTime)) >= latestCompletedTradingDate(),
+          ))
+    ) {
+      return { ...rechecked, stale: false };
+    }
+
+    try {
+      const endpoint = SYMBOLS[symbol].endpoint;
+      // The origin supports conditional requests, so a poll that finds nothing
+      // new costs one 304 instead of re-downloading roughly thirteen megabytes.
+      const validator = getSnapshot<{ etag: string }>("http-validators", key);
+      const response = await fetch(
+        `https://cdn.cboe.com/api/global/delayed_quotes/options/${endpoint}.json`,
+        {
+          cache: "no-store",
+          headers: {
+            Accept: "application/json",
+            Referer: "https://www.cboe.com/",
+            "User-Agent": USER_AGENT,
+            ...(stored && validator?.payload.etag
+              ? { "If-None-Match": validator.payload.etag }
+              : {}),
+          },
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+      if (response.status === 304 && stored) {
+        // Unchanged upstream. Hold the existing snapshot and defer the next
+        // check rather than re-parsing identical data.
+        putSnapshot({
+          namespace: "options-raw",
+          key,
+          payload: stored.payload,
+          sourceTime: stored.sourceTime,
+          fetchedAt: new Date().toISOString(),
+          refreshAfter: new Date(
+            Date.now() + (updateMode === "live" ? 15 * 60 * 1000 : 6 * 60 * 60 * 1000),
+          ).toISOString(),
+          methodologyVersion: METHODOLOGY_VERSION,
+        });
+        return { ...stored, stale: false };
+      }
+      if (!response.ok) throw new Error(`Market-data request returned ${response.status}`);
+      const etag = response.headers.get("etag");
+      const payload = (await response.json()) as RawPayload;
+      const generatedAt = parseUtcTimestamp(payload.timestamp);
+      const sourceTime = generatedAt ? latestMarketObservationTime(generatedAt) : null;
+      if (!payload.data?.options?.length || !number(payload.data.current_price)) {
+        throw new Error("Market-data snapshot was empty or incomplete.");
+      }
+      const fetchedAt = new Date().toISOString();
+      const unchanged = Boolean(stored?.sourceTime && sourceTime === stored.sourceTime);
+      const refreshAfter =
+        updateMode === "live"
+          ? unchanged
+            ? new Date(Date.now() + 60 * 60 * 1000).toISOString()
+            : nextQuarterHour(new Date(), 20).toISOString()
+          : new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
+      putSnapshot({
+        namespace: "options-raw",
+        key,
+        payload,
+        sourceTime,
+        fetchedAt,
+        refreshAfter,
+        methodologyVersion: METHODOLOGY_VERSION,
+      });
+      if (etag) {
+        putSnapshot({
+          namespace: "http-validators",
+          key,
+          payload: { etag },
+          sourceTime,
+          fetchedAt,
+          refreshAfter,
+          methodologyVersion: METHODOLOGY_VERSION,
+        });
+      }
+      return {
+        namespace: "options-raw",
+        key,
+        payload,
+        sourceTime,
+        fetchedAt,
+        refreshAfter,
+        methodologyVersion: METHODOLOGY_VERSION,
+        stale: false,
+      };
+    } catch (error) {
+      if (stored) return { ...stored, stale: true };
+      throw error;
+    }
+  });
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ symbol: string }> },
+) {
+  const { symbol: requested } = await context.params;
+  const symbol = requested.toUpperCase() as keyof typeof SYMBOLS;
+  if (!(symbol in SYMBOLS)) {
+    return NextResponse.json({ error: "Supported sources are NDX, SPX, QQQ, and SPY." }, { status: 404 });
+  }
+
+  try {
+    const updateMode: UpdateMode =
+      request.nextUrl.searchParams.get("updates") === "live" ? "live" : "eod";
+    const [stored, rateSeries] = await Promise.all([
+      fetchRaw(symbol, updateMode),
+      loadMacroSeries("DGS3MO").catch(() => []),
+    ]);
+    const raw = stored.payload;
+    const spot = number(raw.data?.current_price);
+    const sourceTime = stored.sourceTime ?? new Date(stored.fetchedAt).toISOString();
+    const snapshotKey = `${symbol}:${sourceTime}:${stored.fetchedAt}`;
+    const contracts = memoContracts(snapshotKey, () =>
+      (raw.data?.options ?? [])
+        .map(parseContract)
+        .filter((contract): contract is ParsedContract => Boolean(contract)),
+    );
+    const valuationTime = Date.parse(sourceTime);
+    const observationDate = easternDate(new Date(valuationTime));
+    const today = [observationDate, easternDate()].sort().at(-1)!;
+    const riskFreeObservation = rateSeries.filter((row) => row.date <= observationDate).at(-1);
+    const riskFreeRate =
+      riskFreeObservation && riskFreeObservation.value >= 0
+        ? riskFreeObservation.value / 100
+        : DEFAULT_RISK_FREE_RATE;
+    const expiries = [...new Set(contracts.map((contract) => contract.expiry))]
+      .filter((expiry) => expiry >= today)
+      .sort();
+    if (!expiries.length) {
+      return NextResponse.json(
+        { error: `No unexpired ${symbol} contracts were present in the saved snapshot.` },
+        { status: 422 },
+      );
+    }
+    const requestedExpiry = request.nextUrl.searchParams.get("expiry");
+    const requestedThrough = request.nextUrl.searchParams.get("through");
+    const requestedExpiryList = request.nextUrl.searchParams
+      .get("expiries")
+      ?.split(",")
+      .filter(Boolean);
+    const allowPartialExpiries =
+      request.nextUrl.searchParams.get("partialExpiries") === "1";
+    const invalidExpiries = [
+      ...(requestedExpiry && !expiries.includes(requestedExpiry) ? [requestedExpiry] : []),
+      ...(requestedThrough && !expiries.includes(requestedThrough) ? [requestedThrough] : []),
+      ...(requestedExpiryList?.filter((date) => !expiries.includes(date)) ?? []),
+    ];
+    if (
+      invalidExpiries.length &&
+      (!allowPartialExpiries || Boolean(requestedExpiry) || Boolean(requestedThrough))
+    ) {
+      return NextResponse.json(
+        {
+          error: `${symbol} does not list the requested expiry: ${[...new Set(invalidExpiries)].join(", ")}.`,
+          expiries,
+        },
+        { status: 400 },
+      );
+    }
+    const requestedExpiries = requestedExpiryList?.filter((date) => expiries.includes(date));
+    if (requestedExpiryList?.length && !requestedExpiries?.length) {
+      return NextResponse.json(
+        {
+          error: `${symbol} has no contracts for any selected expiry.`,
+          expiries,
+        },
+        { status: 400 },
+      );
+    }
+    const mode = requestedExpiries?.length ? "custom" : requestedThrough ? "through" : "single";
+    const expiry =
+      mode === "custom"
+        ? requestedExpiries?.at(-1) ?? expiries[0]
+        : mode === "through"
+        ? requestedThrough ?? expiries[0]
+        : requestedExpiry ?? expiries[0];
+    const selectedExpiries =
+      mode === "custom"
+        ? [...new Set(requestedExpiries)].sort()
+        : mode === "through"
+          ? expiries.filter((date) => date <= expiry)
+          : [expiry];
+    const sliceKey = `${snapshotKey}:${riskFreeRate}`;
+    // The aggregate profile and its gamma flip dominate a wide selection, so
+    // the whole result is keyed by the exact expiry set the caller asked for.
+    const selection = memoSelection(`${sliceKey}:set:${selectedExpiries.join(",")}`, () => {
+      const selected = contracts.filter((contract) => selectedExpiries.includes(contract.expiry));
+      const aggregated = aggregate(
+        selected,
+        spot,
+        SYMBOLS[symbol].dividendYield,
+        valuationTime,
+        riskFreeRate,
+      );
+      return {
+        rows: aggregated,
+        levels: calculateLevels(
+          aggregated,
+          selected,
+          spot,
+          SYMBOLS[symbol].dividendYield,
+          valuationTime,
+          riskFreeRate,
+        ),
+        contractCount: selected.length,
+        openInterestContracts: selected.filter((contract) => contract.oi > 0).length,
+        roots: [...new Set(selected.map((contract) => contract.root))],
+      };
+    });
+    const { rows, levels } = selection;
+    const expiryLevels = selectedExpiries.map((date) =>
+      memoExpiryLevels(`${sliceKey}:${date}`, () => {
+        const sliceContracts = contracts.filter((contract) => contract.expiry === date);
+        const sliceRows = aggregate(
+          sliceContracts,
+          spot,
+          SYMBOLS[symbol].dividendYield,
+          valuationTime,
+          riskFreeRate,
+        );
+        return {
+          expiry: date,
+          contractCount: sliceContracts.length,
+          levels: calculateLevels(
+            sliceRows,
+            sliceContracts,
+            spot,
+            SYMBOLS[symbol].dividendYield,
+            valuationTime,
+            riskFreeRate,
+          ),
+        };
+      }),
+    );
+    // One smile per listed expiry. Together these are the volatility surface:
+    // the term axis comes from the expiry list, the strike axis from each
+    // slice's own out-of-the-money quotes. Pooling strikes across expiries
+    // would average away exactly the structure the surface is meant to show.
+    const surface = expiries
+      .map((date) =>
+        memoSurface(`${sliceKey}:${date}`, () => {
+          const sliceContracts = contracts.filter((contract) => contract.expiry === date);
+          if (!sliceContracts.length) return null;
+          const years = yearsToExpiry(date, valuationTime, sliceContracts[0].root);
+          const smile = buildSmile({
+            contracts: sliceContracts,
+            spot,
+            years,
+            riskFreeRate,
+            dividendYield: SYMBOLS[symbol].dividendYield,
+          });
+          if (!smile) return null;
+          return {
+            expiry: date,
+            dte: Math.max(
+              0,
+              Math.round(
+                (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000,
+              ),
+            ),
+            years,
+            forward: smile.forward,
+            atmIv: smile.atmIv,
+            putIv25: smile.putIv25,
+            callIv25: smile.callIv25,
+            riskReversal25: smile.riskReversal25,
+            butterfly25: smile.butterfly25,
+            points: smile.points,
+          };
+        }),
+      )
+      .filter((slice): slice is SurfaceSlice => slice !== null);
+
+    // Record the shape summary so later sessions can compare against it. The
+    // primary key is (symbol, snapshot, expiry), so replaying the same snapshot
+    // rewrites the same rows instead of accumulating duplicates.
+    saveSurfaceHistory(symbol, sourceTime, observationDate, surface);
+
+    // Prior observations are matched at a constant days-to-expiry, since the
+    // calendar expiry that was 3DTE yesterday is 2DTE today.
+    const frontSlice = surface.find((slice) => slice.dte > 0) ?? surface[0] ?? null;
+    const surfaceHistory = frontSlice
+      ? loadSurfaceHistory(symbol, { dte: frontSlice.dte, dteTolerance: 1, limit: 60 }).filter(
+          (row) => row.observationDate !== observationDate,
+        )
+      : [];
+    const priorSurface = surfaceHistory[0] ?? null;
+    const surfaceChange =
+      frontSlice && priorSurface
+        ? {
+            comparedTo: priorSurface.observationDate,
+            dte: frontSlice.dte,
+            atmIv: frontSlice.atmIv - priorSurface.atmIv,
+            riskReversal25:
+              frontSlice.riskReversal25 !== null && priorSurface.riskReversal25 !== null
+                ? frontSlice.riskReversal25 - priorSurface.riskReversal25
+                : null,
+            butterfly25:
+              frontSlice.butterfly25 !== null && priorSurface.butterfly25 !== null
+                ? frontSlice.butterfly25 - priorSurface.butterfly25
+                : null,
+          }
+        : null;
+
+    // Positioning features for the forecast engine.
+    //
+    // No public archive carries a past option chain, so unlike every price
+    // series on this site these cannot be backfilled: the only way to have a
+    // year of dealer-gamma history is to have recorded a year of sessions. The
+    // book measured here is fixed at every expiry inside forty-five days
+    // regardless of what the caller asked for, so the value stored for a
+    // session does not depend on which request happened to trigger it.
+    {
+      const positioning = memoPositioning(`${snapshotKey}:engine-features`, () => {
+        const horizon = expiries.filter(
+          (date) =>
+            (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${observationDate}T12:00:00Z`)) /
+              86_400_000 <=
+            45,
+        );
+        const book = contracts.filter((contract) => horizon.includes(contract.expiry));
+        if (!book.length) return null;
+        const bookRows = aggregate(
+          book,
+          spot,
+          SYMBOLS[symbol].dividendYield,
+          valuationTime,
+          riskFreeRate,
+        );
+        const bookLevels = calculateLevels(
+          bookRows,
+          book,
+          spot,
+          SYMBOLS[symbol].dividendYield,
+          valuationTime,
+          riskFreeRate,
+        );
+        const netGamma = bookRows.reduce((total, row) => total + row.gamma, 0);
+        return {
+          rows: bookRows,
+          levels: bookLevels,
+          netGamma,
+          callGamma: bookRows.reduce((total, row) => total + Math.max(row.gamma, 0), 0),
+          putGamma: bookRows.reduce((total, row) => total + Math.min(row.gamma, 0), 0),
+          netVanna: bookRows.reduce((total, row) => total + row.vanna, 0),
+          netCharm: bookRows.reduce((total, row) => total + row.charm, 0),
+          openInterest: bookRows.reduce((total, row) => total + row.callOi + row.putOi, 0),
+          expiries: horizon.length,
+        };
+      });
+      if (positioning) {
+        const flip = positioning.levels.gammaFlip;
+        const frontSurface = surface.find((slice) => slice.dte > 0) ?? surface[0] ?? null;
+        const measured = {
+          spot,
+          netGamma: positioning.netGamma,
+          callGamma: positioning.callGamma,
+          putGamma: positioning.putGamma,
+          netVanna: positioning.netVanna,
+          netCharm: positioning.netCharm,
+          openInterest: positioning.openInterest,
+          expiriesInBook: positioning.expiries,
+          gammaFlip: flip,
+          // Distance to the flip is the part that transfers across sessions:
+          // the level itself moves with spot, the gap to it is comparable.
+          flipDistancePercent: flip !== null && spot > 0 ? ((spot - flip) / spot) * 100 : null,
+          callWallDistancePercent:
+            positioning.levels.callWall !== null && spot > 0
+              ? ((positioning.levels.callWall - spot) / spot) * 100
+              : null,
+          putWallDistancePercent:
+            positioning.levels.putWall !== null && spot > 0
+              ? ((positioning.levels.putWall - spot) / spot) * 100
+              : null,
+          frontAtmIv: frontSurface?.atmIv ?? null,
+          frontRiskReversal25: frontSurface?.riskReversal25 ?? null,
+          frontButterfly25: frontSurface?.butterfly25 ?? null,
+          frontDte: frontSurface?.dte ?? null,
+        };
+        // Every distinct snapshot time is kept, which is what makes the sample
+        // grow at the rate the data actually arrives rather than once a day.
+        saveIntradayFeatures(sourceTime, observationDate, symbol, measured);
+        // The settled snapshot is additionally kept as that session's single
+        // end-of-day reading, so daily and intraday models read separate,
+        // unambiguous tables.
+        if (updateMode === "eod") {
+          saveEngineFeatures(observationDate, symbol, sourceTime, measured);
+        }
+      }
+    }
+
+    const expiryStats = expiries.map((date) => memoExpiryStats(`${sliceKey}:${date}`, () => {
+      const expiryContracts = contracts.filter((contract) => contract.expiry === date);
+      const listedStrikes = [...new Set(expiryContracts.map((contract) => contract.strike))];
+      const atmStrike = listedStrikes.reduce(
+        (best, strike) => Math.abs(strike - spot) < Math.abs(best - spot) ? strike : best,
+        listedStrikes[0] ?? spot,
+      );
+      const atmContracts = expiryContracts.filter((contract) => contract.strike === atmStrike);
+      const weightedIv = atmContracts.reduce(
+        (accumulator, contract) => {
+          const weight = Math.max(contract.oi, 1);
+          if (contract.iv !== null && contract.iv > 0) {
+            accumulator.ivTotal += contract.iv * weight;
+            accumulator.ivWeight += weight;
+          }
+          return accumulator;
+        },
+        { ivTotal: 0, ivWeight: 0 },
+      );
+      return {
+        expiry: date,
+        atmIv: weightedIv.ivWeight ? weightedIv.ivTotal / weightedIv.ivWeight : null,
+        openInterest: expiryContracts.reduce((total, contract) => total + contract.oi, 0),
+        volume: expiryContracts.reduce((total, contract) => total + contract.volume, 0),
+      };
+    }));
+    // The same walls measured on the previous session's chain. Where a wall has
+    // moved is itself the signal: a call wall that rolled up overnight is a
+    // different market from one that has been pinned for a week. Recomputed from
+    // the stored raw snapshot rather than stored separately, so it always
+    // reflects the current methodology and the caller's own expiry selection.
+    const priorSession = memoPriorSession(
+      `${snapshotKey}:prior:${riskFreeRate}:${selectedExpiries.join(",")}`,
+      () => {
+        try {
+          const revision = listSnapshotHistory("options-raw", stored.key).find((entry) => {
+            const observedAt = entry.sourceTime ?? entry.fetchedAt;
+            return easternDate(new Date(observedAt)) < observationDate;
+          });
+          if (!revision) return null;
+          const previous = readSnapshotHistory<RawPayload>(revision.id);
+          if (!previous) return null;
+          const previousSpot = number(previous.payload.data?.current_price);
+          if (!Number.isFinite(previousSpot) || previousSpot <= 0) return null;
+          const previousTime = previous.sourceTime ?? previous.fetchedAt;
+          const previousContracts = (previous.payload.data?.options ?? [])
+            .map(parseContract)
+            .filter((contract): contract is ParsedContract => Boolean(contract))
+            .filter((contract) => selectedExpiries.includes(contract.expiry));
+          if (!previousContracts.length) return null;
+          const previousValuation = Date.parse(previousTime);
+          const previousLevels = calculateLevels(
+            aggregate(
+              previousContracts,
+              previousSpot,
+              SYMBOLS[symbol].dividendYield,
+              previousValuation,
+              riskFreeRate,
+            ),
+            previousContracts,
+            previousSpot,
+            SYMBOLS[symbol].dividendYield,
+            previousValuation,
+            riskFreeRate,
+          );
+          return {
+            observationDate: easternDate(new Date(previousTime)),
+            sourceTime: previousTime,
+            spot: previousSpot,
+            levels: previousLevels,
+          };
+        } catch {
+          // A prior revision is a convenience. A malformed one must never take
+          // the current session's levels down with it.
+          return null;
+        }
+      },
+    );
+    const invalidStrike = rows.find((row) =>
+      Object.values(row).some(
+        (value) => value !== null && typeof value === "number" && !Number.isFinite(value),
+      ),
+    );
+    const invalidLevel = [
+      ...Object.values(levels),
+      ...expiryLevels.flatMap((slice) => Object.values(slice.levels)),
+    ].some((value) => value !== null && !Number.isFinite(value));
+    if (!Number.isFinite(spot) || invalidStrike || invalidLevel) {
+      throw new Error("An option exposure calculation produced a non-finite value.");
+    }
+
+    return NextResponse.json({
+      source: "Options market snapshot",
+      symbol,
+      roots: selection.roots,
+      spot,
+      timestamp: sourceTime,
+      retrievedAt: stored.fetchedAt,
+      updateMode,
+      stale: stored.stale,
+      nextRefreshAt: stored.refreshAfter,
+      methodologyVersion: METHODOLOGY_VERSION,
+      expiry,
+      expiries,
+      selection: {
+        mode,
+        start: selectedExpiries[0],
+        end: selectedExpiries.at(-1),
+        expiries: selectedExpiries,
+        omittedExpiries: requestedExpiryList?.filter((date) => !expiries.includes(date)) ?? [],
+      },
+      expiryLevels,
+      expiryStats,
+      surface,
+      surfaceChange,
+      surfaceHistoryDays: new Set(surfaceHistory.map((row) => row.observationDate)).size,
+      contractCount: selection.contractCount,
+      openInterestContracts: selection.openInterestContracts,
+      assumptions: {
+        dealerSign: "calls positive / puts negative",
+        riskFreeRate,
+        riskFreeRateDate: riskFreeObservation?.date ?? null,
+        riskFreeRateSource: riskFreeObservation ? "3-month Treasury constant maturity" : "documented fallback",
+        dividendYield: SYMBOLS[symbol].dividendYield,
+        higherGreeks: "Black-Scholes-Merton from snapshot IV; AM/PM settlement follows the option root",
+        standardGreeks: "Snapshot supplied where available; missing delta, gamma, and vega are modeled",
+        gammaFlip: "Nearest zero of the full selected book after repricing gamma across ±15% spot",
+        walls: "Largest signed strike gamma on the appropriate side of spot within ±6%; tail concentrations remain available separately",
+      },
+      levels,
+      priorSession,
+      strikes: rows,
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to load the option chain.",
+        source: "Options market snapshot",
+      },
+      { status: 502 },
+    );
+  }
+}
