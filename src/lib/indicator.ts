@@ -425,10 +425,8 @@ f_render(index) =>
               width=thickness,
               extend=extend_right ? extend.right : extend.none,
               style=dim ? line.style_dashed : structural ? line.style_solid : line.style_dotted))
-        distance = close > 0 ? (price / close - 1) * 100 : 0.0
         caption = (agreed ? "✓ " : "") + array.get(merged_label, index) +
-          (show_prices ? "  " + str.tostring(price, format.mintick) : "") +
-          "  (" + (distance >= 0 ? "+" : "") + str.tostring(distance, "#.##") + "%)"
+          (show_prices ? "  " + str.tostring(price, format.mintick) : "")
         array.push(drawn_labels, label.new(
           x=f_future(right_bars + 2 + (show_profile ? profile_bars + 3 : 0) + array.get(merged_slot, index) * 9),
           y=price,
