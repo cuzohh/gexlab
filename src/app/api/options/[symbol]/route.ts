@@ -23,6 +23,7 @@ import {
   listSnapshotHistory,
   readSnapshotHistory,
   loadSurfaceHistory,
+  pruneSnapshotHistory,
   putSnapshot,
   saveEngineFeatures,
   saveIntradayFeatures,
@@ -95,6 +96,9 @@ const SYMBOLS = {
 const DEFAULT_RISK_FREE_RATE = 0.045;
 const USER_AGENT = "Mozilla/5.0 (compatible; GEXLab/3.0)";
 const METHODOLOGY_VERSION = "options-exposure-v3.4.0";
+// Roughly a month of trading kept as raw chains. Enough to recompute derived
+// tables under a changed methodology; past that the storage is not worth it.
+const RAW_HISTORY_SESSIONS = Number(process.env.GEXLAB_RAW_SESSIONS || 20);
 type UpdateMode = "eod" | "live";
 
 function number(value: unknown) {
@@ -545,6 +549,15 @@ async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
         refreshAfter,
         methodologyVersion: METHODOLOGY_VERSION,
       });
+      // Bound the history here rather than leaving it to a script somebody has
+      // to remember: a chain revision is several megabytes, and this runs only
+      // when a genuinely new snapshot lands, not on cached reads. Reclaiming
+      // the freed pages still needs "npm run prune:history", which VACUUMs.
+      try {
+        pruneSnapshotHistory("options-raw", { retainSessions: RAW_HISTORY_SESSIONS });
+      } catch {
+        // Housekeeping must never fail the request that triggered it.
+      }
       if (etag) {
         putSnapshot({
           namespace: "http-validators",

@@ -319,6 +319,92 @@ export function listSnapshotHistory(
     });
 }
 
+function easternDayOf(iso: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+/**
+ * Bounds stored snapshot history, which nothing previously did.
+ *
+ * Two rules. Sessions older than `retainRecentDays` collapse to their final
+ * revision, because a live session writes one every quarter hour and only the
+ * last one of a settled day is ever read back — that is what the prior-session
+ * walls are measured from. Then sessions beyond `retainSessions` are dropped
+ * outright.
+ *
+ * The second rule is the one that matters for option chains. A single session
+ * costs roughly 24MB across the four symbols, so retention rather than
+ * deduplication is what keeps the file from growing without limit. The window
+ * has to cover the previous session for the walls plus enough depth to
+ * recompute derived tables if the methodology changes; past that the data is
+ * unrecoverable in the sense that it can never be re-fetched, which is why the
+ * window is generous rather than tight.
+ *
+ * Deleting rows does not shrink the file on its own, since SQLite reuses the
+ * freed pages. `npm run prune:history` runs this and then VACUUMs.
+ */
+export function pruneSnapshotHistory(
+  namespace: string,
+  options: { retainRecentDays?: number; retainSessions?: number } = {},
+) {
+  const retainRecentDays = options.retainRecentDays ?? 2;
+  const retainSessions = options.retainSessions ?? Number.POSITIVE_INFINITY;
+  const rows = database()
+    .prepare(`
+      SELECT id, cache_key, source_time, fetched_at
+      FROM snapshot_history
+      WHERE namespace = ?
+      ORDER BY id ASC
+    `)
+    .all(namespace) as Array<{
+      id: number;
+      cache_key: string;
+      source_time: string | null;
+      fetched_at: string;
+    }>;
+  if (rows.length < 2) return 0;
+
+  const sessionOf = (row: (typeof rows)[number]) =>
+    easternDayOf(row.source_time ?? row.fetched_at);
+  const cutoff = easternDayOf(
+    new Date(Date.now() - retainRecentDays * 86_400_000).toISOString(),
+  );
+  // Rows are ordered oldest first, so the last id seen for a session is that
+  // session's final revision and the one worth keeping.
+  // Sessions are ranked across the namespace rather than per key, so a cache
+  // key left behind by an older naming scheme ages out with everything else
+  // instead of surviving forever by virtue of having only one revision.
+  const sessions = [...new Set(rows.map(sessionOf))].sort().reverse();
+  const retained = new Set(
+    Number.isFinite(retainSessions) ? sessions.slice(0, retainSessions) : sessions,
+  );
+  const survivor = new Map<string, number>();
+  for (const row of rows) {
+    const day = sessionOf(row);
+    if (day >= cutoff) continue;
+    survivor.set(`${row.cache_key} ${day}`, row.id);
+  }
+  const doomed = rows.filter((row) => {
+    const day = sessionOf(row);
+    if (day >= cutoff) return false;
+    if (!retained.has(day)) return true;
+    return survivor.get(`${row.cache_key} ${day}`) !== row.id;
+  });
+  if (!doomed.length) return 0;
+
+  const statement = database().prepare("DELETE FROM snapshot_history WHERE id = ?");
+  for (const row of doomed) statement.run(row.id);
+  return doomed.length;
+}
+
 export function readSnapshotHistory<T>(id: number): StoredSnapshot<T> | null {
   const row = database()
     .prepare(`

@@ -11,6 +11,7 @@
     "sync:motivewave": "node scripts/sync-motivewave.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "check": "npm run lint && npm test && npm run build",
+    "prune:history": "node scripts/prune-history.mjs",
     "collect": "node scripts/collect-daily.mjs",
     "collect:intraday": "node scripts/collect-intraday.mjs"
   },
