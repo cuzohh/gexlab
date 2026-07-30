@@ -741,6 +741,36 @@ test("copying confirms on the button that fired and survives a refused clipboard
   assert.doesNotMatch(atlas, /window\.setTimeout\(\(\) => setNotice\(""\), 2200\)/);
 });
 
+test("a settled expiry leaves the listing at settlement, not at midnight", () => {
+  const route = readFileSync(
+    new URL("../src/app/api/options/[symbol]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // The listing filtered on the expiry date alone, so at 20:00 ET the 0DTE book
+  // was still selectable and still contributing gamma it no longer had.
+  assert.doesNotMatch(route, /\.filter\(\(expiry\) => expiry >= today\)/);
+  assert.match(route, /const settles = Date\.parse\(expirationIso\(contract\.expiry, contract\.root\) \?\? ""\)/);
+  assert.match(route, /return !Number\.isFinite\(settles\) \|\| settles > now/);
+  // Per contract, not per date: NDX (AM-settled, gone at 09:30) and NDXP
+  // (PM-settled, trades to 16:00) share an expiry date, so one cutoff for the
+  // date would be wrong for one of them.
+  assert.match(route, /const contracts = parsedContracts\.filter\(\(contract\) => \{/);
+  // A date the clock invalidated is not a bad request. Erroring stranded anyone
+  // holding the 0DTE book across the close with no way back.
+  assert.match(route, /const settledDates = new Set\(/);
+  assert.match(route, /if \(requestedExpiry && settledDates\.has\(requestedExpiry\)\) requestedExpiry = null/);
+  assert.match(route, /settledExpiries,/);
+
+  // The two settlement styles the filter depends on.
+  const amSettled = Date.parse(expirationIso("2026-07-29", "NDX"));
+  const pmSettled = Date.parse(expirationIso("2026-07-29", "NDXP"));
+  const evening = Date.parse("2026-07-30T00:08:00Z"); // 20:08 ET on the 29th
+  const midMorning = Date.parse("2026-07-29T14:30:00Z"); // 10:30 ET on the 29th
+  assert.ok(amSettled < midMorning, "an AM-settled monthly is gone by mid-morning");
+  assert.ok(pmSettled > midMorning, "its PM-settled family still trades then");
+  assert.ok(pmSettled < evening, "and is gone in the evening");
+});
+
 test("selecting a strike is confirmed everywhere it can be selected from", () => {
   const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
   // The chart never received the selection, so the band that was clicked looked

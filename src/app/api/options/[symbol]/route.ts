@@ -10,6 +10,7 @@ import {
 import {
   buildSmile,
   calculateMaxPain,
+  expirationIso,
   interpolateZero,
   modelGamma,
   modelGreeks,
@@ -599,7 +600,7 @@ export async function GET(
     const spot = number(raw.data?.current_price);
     const sourceTime = stored.sourceTime ?? new Date(stored.fetchedAt).toISOString();
     const snapshotKey = `${symbol}:${sourceTime}:${stored.fetchedAt}`;
-    const contracts = memoContracts(snapshotKey, () =>
+    const parsedContracts = memoContracts(snapshotKey, () =>
       (raw.data?.options ?? [])
         .map(parseContract)
         .filter((contract): contract is ParsedContract => Boolean(contract)),
@@ -612,23 +613,65 @@ export async function GET(
       riskFreeObservation && riskFreeObservation.value >= 0
         ? riskFreeObservation.value / 100
         : DEFAULT_RISK_FREE_RATE;
-    const expiries = [...new Set(contracts.map((contract) => contract.expiry))]
-      .filter((expiry) => expiry >= today)
-      .sort();
+    // A contract stops mattering when it settles, not at the end of the day it
+    // settles on. This filtered on the expiry date alone, so the 0DTE book
+    // stayed selectable all evening: at 20:00 ET you could still read hedging
+    // pressure off options that had ceased to exist at the close, which is
+    // exactly the wrong picture to carry into an Asia session.
+    //
+    // The instant comes from expirationIso, which already knows that NDX and SPX
+    // monthlies are AM-settled on the opening print and so are gone from 09:30
+    // ET, while their PM-settled families (NDXP, SPXW) and the ETF books trade
+    // to 16:00. Both roots share an expiry date, so this has to be per contract
+    // rather than per date. Wall clock, not the snapshot time: whether a
+    // contract still exists is a fact about now, even when the chain being read
+    // is an end-of-day file.
+    const now = Date.now();
+    const contracts = parsedContracts.filter((contract) => {
+      const settles = Date.parse(expirationIso(contract.expiry, contract.root) ?? "");
+      // An unparseable expiry is kept rather than silently dropped; the pricing
+      // path has its own fallback for it.
+      return !Number.isFinite(settles) || settles > now;
+    });
+    const expiries = [...new Set(contracts.map((contract) => contract.expiry))].sort();
     if (!expiries.length) {
       return NextResponse.json(
-        { error: `No unexpired ${symbol} contracts were present in the saved snapshot.` },
+        {
+          error:
+            parsedContracts.length > 0
+              ? `Every ${symbol} contract in the saved snapshot has settled. The next chain publishes after the following session opens.`
+              : `No unexpired ${symbol} contracts were present in the saved snapshot.`,
+        },
         { status: 422 },
       );
     }
-    const requestedExpiry = request.nextUrl.searchParams.get("expiry");
-    const requestedThrough = request.nextUrl.searchParams.get("through");
-    const requestedExpiryList = request.nextUrl.searchParams
+    let requestedExpiry = request.nextUrl.searchParams.get("expiry");
+    let requestedThrough = request.nextUrl.searchParams.get("through");
+    let requestedExpiryList = request.nextUrl.searchParams
       .get("expiries")
       ?.split(",")
       .filter(Boolean);
     const allowPartialExpiries =
       request.nextUrl.searchParams.get("partialExpiries") === "1";
+
+    // A date the snapshot lists but that has since settled is not a bad request,
+    // it is a selection the clock invalidated: a reader holding the 0DTE book at
+    // 15:59 would otherwise get a hard error on the next poll and no way back.
+    // Those fall through to the nearest live expiry and are reported. A date the
+    // snapshot never listed at all is still a 400.
+    const settledDates = new Set(
+      parsedContracts.map((contract) => contract.expiry).filter((date) => !expiries.includes(date)),
+    );
+    const settledRequests = [
+      ...(requestedExpiry && settledDates.has(requestedExpiry) ? [requestedExpiry] : []),
+      ...(requestedThrough && settledDates.has(requestedThrough) ? [requestedThrough] : []),
+      ...(requestedExpiryList?.filter((date) => settledDates.has(date)) ?? []),
+    ];
+    const settledExpiries = [...new Set(settledRequests)].sort();
+    if (requestedExpiry && settledDates.has(requestedExpiry)) requestedExpiry = null;
+    if (requestedThrough && settledDates.has(requestedThrough)) requestedThrough = null;
+    requestedExpiryList = requestedExpiryList?.filter((date) => !settledDates.has(date));
+
     const invalidExpiries = [
       ...(requestedExpiry && !expiries.includes(requestedExpiry) ? [requestedExpiry] : []),
       ...(requestedThrough && !expiries.includes(requestedThrough) ? [requestedThrough] : []),
@@ -936,6 +979,8 @@ export async function GET(
         end: selectedExpiries.at(-1),
         expiries: selectedExpiries,
         omittedExpiries: requestedExpiryList?.filter((date) => !expiries.includes(date)) ?? [],
+        /** Requested dates that had settled by the time of the request. */
+        settledExpiries,
       },
       expiryLevels,
       expiryStats,

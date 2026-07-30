@@ -89,6 +89,8 @@ type LiveOptionsData = {
     end: string;
     expiries: string[];
     omittedExpiries?: string[];
+    /** Requested dates that had settled by the time of the request. */
+    settledExpiries?: string[];
   };
   expiryLevels: {
     expiry: string;
@@ -723,6 +725,20 @@ export function OptionsAtlas() {
         setMarketData(payload);
         setDataState("ready");
         setRefreshing(false);
+
+        // The clock can invalidate a selection while it is being held: hold the
+        // 0DTE book through the close and the server drops it and answers with
+        // the nearest live expiry. Drop it here too, or every later poll keeps
+        // asking for a settled date and keeps being corrected.
+        const settled = payload.selection.settledExpiries ?? [];
+        if (settled.length) {
+          setSelectedExpiries((current) => current.filter((date) => !settled.includes(date)));
+          setScope((current) => (settled.includes(current) ? payload.selection.start : current));
+          announce(
+            `${settled.map(shortExpiry).join(", ")} settled · showing ${shortExpiry(payload.selection.start)}`,
+            null,
+          );
+        }
 
         // Bind the ETF request to the primary response's exact effective scope.
         // This prevents a missing ETF expiry from silently becoming a different date.
