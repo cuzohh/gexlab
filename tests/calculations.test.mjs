@@ -19,6 +19,9 @@ import {
   interpolateZero,
   modelGamma,
   modelGreeks,
+  // There are two of these. The pricing one sets every delta on the chart; the
+  // forecast one only turns a test statistic into a p-value. Both are graded.
+  normalCdf as pricingNormalCdf,
   yearsToExpiry,
 } from "../src/lib/options-math.ts";
 import {
@@ -139,6 +142,151 @@ test("Black-Scholes-Merton gamma is positive and identical for calls and puts", 
   assert.ok(call.delta > 0);
   assert.ok(put.delta < 0);
   for (const value of Object.values(call)) assert.ok(Number.isFinite(value));
+});
+
+// A high-precision standard normal CDF (Hart 1968), used only as a reference to
+// grade the fast rational fit the library ships. Accurate to roughly 1e-15.
+function referenceNormalCdf(x) {
+  const z = Math.abs(x);
+  if (z > 37) return x > 0 ? 1 : 0;
+  const e = Math.exp((-z * z) / 2);
+  let n;
+  if (z < 7.07106781186547) {
+    let b = 3.52624965998911e-2 * z + 0.700383064443688;
+    b = b * z + 6.37396220353165; b = b * z + 33.912866078383;
+    b = b * z + 112.079291497871; b = b * z + 221.213596169931;
+    b = b * z + 220.206867912376;
+    let c = 8.83883476483184e-2 * z + 1.75566716318264;
+    c = c * z + 16.064177579207; c = c * z + 86.7807322029461;
+    c = c * z + 296.564248779674; c = c * z + 637.333633378831;
+    c = c * z + 793.826512519948; c = c * z + 440.413735824752;
+    n = (e * b) / c;
+  } else {
+    let b = z + 0.65;
+    b = z + 4 / b; b = z + 3 / b; b = z + 2 / b; b = z + 1 / b;
+    n = e / (b * 2.506628274631);
+  }
+  return x > 0 ? 1 - n : n;
+}
+
+function bsmPrice(spot, strike, years, iv, rate, yield_, type) {
+  const d1 =
+    (Math.log(spot / strike) + (rate - yield_ + (iv * iv) / 2) * years) / (iv * Math.sqrt(years));
+  const d2 = d1 - iv * Math.sqrt(years);
+  return type === "call"
+    ? spot * Math.exp(-yield_ * years) * referenceNormalCdf(d1) -
+        strike * Math.exp(-rate * years) * referenceNormalCdf(d2)
+    : strike * Math.exp(-rate * years) * referenceNormalCdf(-d2) -
+        spot * Math.exp(-yield_ * years) * referenceNormalCdf(-d1);
+}
+
+const GREEK_CASES = [
+  { name: "ATM 30d", spot: 27200, strike: 27200, years: 30 / 365, iv: 0.22, riskFreeRate: 0.043, dividendYield: 0.006 },
+  { name: "OTM 7d", spot: 27200, strike: 28000, years: 7 / 365, iv: 0.19, riskFreeRate: 0.043, dividendYield: 0.006 },
+  { name: "ITM 90d", spot: 27200, strike: 29000, years: 90 / 365, iv: 0.25, riskFreeRate: 0.043, dividendYield: 0.006 },
+  { name: "1y no carry", spot: 100, strike: 100, years: 1, iv: 0.2, riskFreeRate: 0, dividendYield: 0 },
+];
+
+test("both normal CDF fits stay inside their documented error, and inside [0, 1]", () => {
+  // options-math prices every option on the chart; forecast turns a test
+  // statistic into a p-value. They are separate copies of the same
+  // approximation, so both are graded rather than assuming they agree.
+  for (const [name, fit] of [["pricing", pricingNormalCdf], ["forecast", normalCdf]]) {
+    let worst = 0;
+    let previous = -1;
+    for (let x = -40; x <= 40; x += 0.002) {
+      const value = fit(x);
+      worst = Math.max(worst, Math.abs(value - referenceNormalCdf(x)));
+      // A probability outside [0, 1] would put a negative delta on a call.
+      assert.ok(value >= 0 && value <= 1, `${name} out of range at ${x}: ${value}`);
+      assert.ok(value >= previous - 1e-15, `${name} not monotone at ${x}`);
+      previous = value;
+    }
+    // Abramowitz & Stegun 7.1.26 is documented at 1.5e-7 absolute.
+    assert.ok(worst < 1.5e-7, `${name} absolute error ${worst}`);
+  }
+});
+
+test("first-order greeks match a central difference of the Black-Scholes price", () => {
+  for (const shared of GREEK_CASES) {
+    for (const type of ["call", "put"]) {
+      const greeks = modelGreeks({ ...shared, type });
+      const { spot, strike, years, iv, riskFreeRate, dividendYield } = shared;
+      const price = (s = spot, v = iv) =>
+        bsmPrice(s, strike, years, v, riskFreeRate, dividendYield, type);
+      const hs = spot * 1e-5;
+      const hv = 1e-5;
+      const near = (analytic, numeric, what) => {
+        const scale = Math.max(Math.abs(analytic), Math.abs(numeric), 1e-12);
+        assert.ok(
+          Math.abs(analytic - numeric) / scale < 1e-5,
+          `${shared.name} ${type} ${what}: ${analytic} vs ${numeric}`,
+        );
+      };
+      near(greeks.delta, (price(spot + hs) - price(spot - hs)) / (2 * hs), "delta");
+      near(greeks.gamma, (price(spot + hs) - 2 * price() + price(spot - hs)) / (hs * hs), "gamma");
+      // Vega is per unit of volatility, not per volatility point. The route
+      // divides by 100 before mixing it with the provider's, which quotes points.
+      near(greeks.vega, (price(spot, iv + hv) - price(spot, iv - hv)) / (2 * hv), "vega");
+    }
+  }
+});
+
+test("higher-order greeks are the derivatives of the first-order ones", () => {
+  // Differencing the price twice puts two rounds of cancellation noise onto a
+  // third-order quantity, so these are graded against the first-order greeks,
+  // which the test above has already tied to the price itself.
+  for (const shared of GREEK_CASES) {
+    for (const type of ["call", "put"]) {
+      const greeks = modelGreeks({ ...shared, type });
+      const at = (over) => modelGreeks({ ...shared, ...over, type });
+      const hs = shared.spot * 1e-4;
+      const hv = 1e-4;
+      const ht = shared.years * 1e-4;
+      const slope = (read, step) => (read(step) - read(-step)) / (2 * step);
+      const near = (analytic, numeric, what) => {
+        const scale = Math.max(Math.abs(analytic), Math.abs(numeric), 1e-12);
+        assert.ok(
+          Math.abs(analytic - numeric) / scale < 1e-4,
+          `${shared.name} ${type} ${what}: ${analytic} vs ${numeric}`,
+        );
+      };
+      near(greeks.vanna, slope((e) => at({ iv: shared.iv + e }).delta, hv), "vanna");
+      near(greeks.speed, slope((e) => at({ spot: shared.spot + e }).gamma, hs), "speed");
+      near(greeks.zomma, slope((e) => at({ iv: shared.iv + e }).gamma, hv), "zomma");
+      near(greeks.vomma, slope((e) => at({ iv: shared.iv + e }).vega, hv), "vomma");
+      // Charm is delta decay as time passes, which is the negative of the
+      // derivative with respect to time remaining. Getting this sign backwards
+      // is the easy mistake: it reads as a perfectly clean 200% error.
+      near(greeks.charm, -slope((e) => at({ years: shared.years + e }).delta, ht), "charm");
+    }
+  }
+});
+
+test("greeks respect their sign and bound constraints across the aggregation window", () => {
+  // aggregate() keeps strikes within 28% of spot, so that is the range that has
+  // to be well behaved. A call with a negative delta would flip a wall's side.
+  for (let moneyness = 0.72; moneyness <= 1.28; moneyness += 0.01) {
+    for (const years of [1 / 365, 7 / 365, 30 / 365, 180 / 365]) {
+      for (const iv of [0.08, 0.2, 0.5, 1.2]) {
+        const shared = { spot: 27200, strike: 27200 * moneyness, years, iv, riskFreeRate: 0.043, dividendYield: 0.006 };
+        const call = modelGreeks({ ...shared, type: "call" });
+        const put = modelGreeks({ ...shared, type: "put" });
+        const where = `moneyness ${moneyness.toFixed(2)} years ${years.toFixed(4)} iv ${iv}`;
+        assert.ok(call.delta >= 0 && call.delta <= 1, `call delta ${call.delta} at ${where}`);
+        assert.ok(put.delta <= 0 && put.delta >= -1, `put delta ${put.delta} at ${where}`);
+        assert.ok(call.gamma >= 0 && put.gamma >= 0, `gamma at ${where}`);
+        assert.ok(call.vega >= 0 && put.vega >= 0, `vega at ${where}`);
+        // Put-call parity, which holds whatever the formulas are.
+        assert.ok(
+          Math.abs(call.delta - put.delta - Math.exp(-shared.dividendYield * years)) < 1e-12,
+          `parity at ${where}`,
+        );
+        assert.ok(Math.abs(call.gamma - put.gamma) < 1e-18, `gamma parity at ${where}`);
+        assert.ok(Math.abs(call.vanna - put.vanna) < 1e-18, `vanna parity at ${where}`);
+      }
+    }
+  }
 });
 
 test("zero crossing uses linear interpolation and rejects non-crossings", () => {
