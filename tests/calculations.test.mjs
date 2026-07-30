@@ -187,24 +187,47 @@ const GREEK_CASES = [
   { name: "1y no carry", spot: 100, strike: 100, years: 1, iv: 0.2, riskFreeRate: 0, dividendYield: 0 },
 ];
 
-test("both normal CDF fits stay inside their documented error, and inside [0, 1]", () => {
-  // options-math prices every option on the chart; forecast turns a test
-  // statistic into a p-value. They are separate copies of the same
-  // approximation, so both are graded rather than assuming they agree.
-  for (const [name, fit] of [["pricing", pricingNormalCdf], ["forecast", normalCdf]]) {
-    let worst = 0;
-    let previous = -1;
-    for (let x = -40; x <= 40; x += 0.002) {
-      const value = fit(x);
-      worst = Math.max(worst, Math.abs(value - referenceNormalCdf(x)));
-      // A probability outside [0, 1] would put a negative delta on a call.
-      assert.ok(value >= 0 && value <= 1, `${name} out of range at ${x}: ${value}`);
-      assert.ok(value >= previous - 1e-15, `${name} not monotone at ${x}`);
-      previous = value;
-    }
-    // Abramowitz & Stegun 7.1.26 is documented at 1.5e-7 absolute.
-    assert.ok(worst < 1.5e-7, `${name} absolute error ${worst}`);
+test("the normal CDF is accurate in the tail, not only in the middle", () => {
+  // The pricing and forecasting modules must resolve to one implementation.
+  // They used to carry a copy each, and only one of the two was under test.
+  assert.equal(pricingNormalCdf, normalCdf, "both modules share one implementation");
+
+  let worst = 0;
+  let previous = -1;
+  for (let x = -40; x <= 40; x += 0.002) {
+    const value = normalCdf(x);
+    worst = Math.max(worst, Math.abs(value - referenceNormalCdf(x)));
+    // Out of range would hand a call a delta above one or below zero, and the
+    // walls are picked by the sign of the aggregated exposure.
+    assert.ok(value >= 0 && value <= 1, `out of range at ${x}: ${value}`);
+    assert.ok(value >= previous - 1e-15, `not monotone at ${x}`);
+    previous = value;
   }
+  assert.ok(worst < 1e-14, `absolute error ${worst}`);
+
+  // Absolute error says nothing about a tail whose true value is smaller than
+  // the error itself. Delta is this function at d1, so a far out-of-the-money
+  // delta is only as good as the relative accuracy out here. Values are exact
+  // to seventeen figures, taken independently of the implementation.
+  const exact = [
+    [1, 0.84134474606854293],
+    [-1, 0.15865525393145707],
+    [1.96, 0.97500210485177952],
+    [2.5, 0.99379033467422384],
+    [-3, 0.0013498980316300946],
+    [-5, 2.8665157187919392e-7],
+    [-6, 9.8658764503769814e-10],
+    [-8, 6.2209605742717841e-16],
+    [-10, 7.619853024160526e-24],
+  ];
+  assert.equal(normalCdf(0), 0.5);
+  for (const [x, truth] of exact) {
+    const relative = Math.abs(normalCdf(x) - truth) / truth;
+    // The predecessor carried 7e-8 of absolute error, so it returned a
+    // meaningless number by five standard deviations and a flat zero by ten.
+    assert.ok(relative < 1e-8, `relative error ${relative} at x = ${x}`);
+  }
+  assert.ok(normalCdf(-10) > 0, "the ten-sigma tail is a number, not zero");
 });
 
 test("first-order greeks match a central difference of the Black-Scholes price", () => {
