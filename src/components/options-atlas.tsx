@@ -95,6 +95,8 @@ type LiveOptionsData = {
   expiryLevels: {
     expiry: string;
     contractCount: number;
+    /** ISO instant this expiry settles, so an exported payload can outlive it. */
+    settlesAt?: string | null;
     levels: OptionLevels;
   }[];
   expiryStats: {
@@ -960,10 +962,12 @@ export function OptionsAtlas() {
           label: `${calendarDte(slice.expiry, dteBase)}DTE`,
           dte: calendarDte(slice.expiry, dteBase),
           levels: slice.levels,
+          settlesAt: slice.settlesAt ?? null,
         })),
         frontAtmIv: frontSurface?.atmIv ?? null,
         frontYears: frontSurface?.years ?? null,
-        frontDte: front ? calendarDte(front, dteBase) : null,
+        frontSettlesAt:
+          snapshot.expiryLevels.find((slice) => slice.expiry === front)?.settlesAt ?? null,
       },
     ];
   };

@@ -725,6 +725,38 @@ test("TradingView bridge script draws the histogram, expected move and agreement
   assert.doesNotMatch(PINE_SCRIPT, /table\.new|table\.cell|show_monitor|show_level_table/);
 });
 
+test("the indicator withdraws levels whose expiry has settled", () => {
+  // Days to expiry cannot express this: the DTE weighting gives a 0DTE wall 1.0,
+  // the boldest line drawn, for hours after its contracts stopped existing.
+  assert.match(PINE_SCRIPT, /settles = array\.size\(slice\) >= 6 \? f_number\(slice, 5\) : 0\.0/);
+  assert.match(PINE_SCRIPT, /array\.push\(lv_settles, settles\)/);
+  // Against the chart's clock, not the snapshot's: whether a contract exists is a
+  // fact about now. Zero means the payload said nothing, which is not evidence of
+  // expiry, so the level stays drawn.
+  assert.match(PINE_SCRIPT, /f_settled\(settles\) =>\n {4}settles > 0 and timenow >= settles \* 1000/);
+  assert.match(PINE_SCRIPT, /settled_mode = input\.string\("Hide", "Settled expiries", options=\["Hide", "Dim", "Draw"\]/);
+  assert.match(PINE_SCRIPT, /not \(settled and settled_mode == "Hide"\)/);
+  // Only the dated walls carry one. The combined levels span the whole selection,
+  // so no single instant describes them and they are never withdrawn on this test.
+  assert.match(PINE_SCRIPT, /f_push\(call_wall, prefix \+ "Call Wall", 0, 1\.0, role, step, 0\.0\)/);
+  assert.match(PINE_SCRIPT, /f_push\(f_price\(slice, 1\), label_text \+ " Call Wall", 9, weight, role, step, settles\)/);
+  // One live member keeps a merged group live.
+  assert.match(PINE_SCRIPT, /group_settled := group_settled and settled/);
+  // Dimmed rather than silently thinned: a settled level is not a weak level.
+  assert.match(PINE_SCRIPT, /settled \? " \(settled\)" : ""/);
+  // Dim fades and never bolds; Draw keeps full weight. Without splitting these
+  // the two modes rendered identically.
+  assert.match(PINE_SCRIPT, /faded = settled and settled_mode == "Dim"/);
+  assert.match(PINE_SCRIPT, /thickness = faded \? 1 :/);
+  // The band is the front expiry's own volatility, so it goes when that settles.
+  assert.match(PINE_SCRIPT, /move_settled = f_settled\(nz\(array\.get\(meta_levels, 2\), 0\)\)/);
+  assert.match(PINE_SCRIPT, /if show_expected_move and drawing and not move_settled/);
+  // The dead subfield is gone from both sides of the contract.
+  assert.doesNotMatch(PINE_SCRIPT, /frontDte/);
+  const bridge = readFileSync(new URL("../src/lib/bridge-payload.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(bridge, /frontDte/);
+});
+
 test("copying confirms on the button that fired and survives a refused clipboard", () => {
   const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
   // Copying leaves the page looking untouched, so the pressed button carries the
@@ -739,6 +771,52 @@ test("copying confirms on the button that fired and survives a refused clipboard
   // clear the newer notice, so the timer is shared and cancelled.
   assert.match(atlas, /if \(noticeTimer\.current !== null\) window\.clearTimeout\(noticeTimer\.current\)/);
   assert.doesNotMatch(atlas, /window\.setTimeout\(\(\) => setNotice\(""\), 2200\)/);
+});
+
+test("the bridge carries settlement instants so a payload cannot outlive its contracts", () => {
+  const emptyLevels = {
+    callWall: null, putWall: null, gammaFlip: null, maxPain: null, vannaMagnet: null,
+  };
+  const source = {
+    name: "NDX",
+    role: "P",
+    spot: 23000,
+    strikes: [
+      { strike: 22975, gamma: -60, delta: -6 },
+      { strike: 23025, gamma: 80, delta: 8 },
+    ],
+    levels: { ...emptyLevels, callWall: 23200, putWall: 22800 },
+    expiries: [
+      // PM-settled, so 16:00 ET on the 29th.
+      { label: "0DTE", dte: 0, levels: { ...emptyLevels, callWall: 23100 }, settlesAt: "2026-07-29T20:00:00.000Z" },
+      // A slice whose settlement the caller could not determine.
+      { label: "1DTE", dte: 1, levels: { ...emptyLevels, callWall: 23150 }, settlesAt: null },
+    ],
+    frontAtmIv: 0.16,
+    frontYears: 1 / 365,
+    frontSettlesAt: "2026-07-29T20:00:00.000Z",
+  };
+  const payload = buildBridgePayload([source], {
+    space: "N",
+    instrument: "NQ",
+    referenceSpot: 23000,
+    generatedAt: new Date("2026-07-29T19:55:00Z"),
+    parts: DEFAULT_BRIDGE_PARTS,
+  });
+  const fields = payload.split("#")[1].split("|")[1].split("~");
+  const [zeroDte, oneDte] = fields[7].split(";");
+  // 2026-07-29T20:00:00Z in epoch seconds.
+  assert.equal(zeroDte.split(",")[5], "1785355200");
+  // Unknown stays zero rather than becoming a spurious instant. The indicator
+  // reads zero as no evidence and keeps the level drawn.
+  assert.equal(oneDte.split(",")[5], "0");
+  // The header is five minutes before settlement, so age alone can never detect
+  // this: the payload is fresh and its front expiry is about to cease to exist.
+  assert.equal(payload.split("#")[1].split("|")[0].split("~")[4], "1785354900");
+  assert.ok(Number(zeroDte.split(",")[5]) > 1785354900);
+  // The expected-move band is scaled to the front expiry's own volatility, so it
+  // is withdrawn on the same instant.
+  assert.equal(fields[10].split(",")[1], "1785355200");
 });
 
 test("a settled expiry leaves the listing at settlement, not at midnight", () => {
@@ -1080,13 +1158,17 @@ test("the bridge payload rescales every book onto one reference price with its o
   assert.equal(indexFields[2], "23000");
   assert.equal(indexFields[3], "25");
   assert.equal(indexFields[4], "23200,22800,23050,23000,0");
-  assert.equal(indexFields[7], "0DTE,23100,22900,0,0");
+  // label,call,put,flip,dte,settlesEpoch. This fixture states no settlement, so
+  // the instant is zero, which the indicator reads as no evidence and draws.
+  assert.equal(indexFields[7], "0DTE,23100,22900,0,0,0");
   // Histogram: every near strike, normalized so the largest print is ±100.
   assert.equal(indexFields[8], "22950,-56;22975,-89;23025,100;23050,67");
   // Volume walls: the heaviest traded call above spot and put below it, which
   // are different strikes from the open-interest walls in field 4.
   assert.equal(indexFields[9], "23050,22950");
-  // 16% annualized over one session is ~84bps, and the DTE rides along.
+  // 16% annualized over one session is ~84bps. The second subfield was the front
+  // expiry's days to expiry, which nothing ever read; it now carries the front
+  // settlement so a band scaled to a settled expiry can be withdrawn.
   assert.equal(indexFields[10], "84,0");
 
   const etfFields = blocks[2].split("~");
@@ -1194,9 +1276,9 @@ test("the bridge payload drops the level groups that are switched off", () => {
   assert.equal(fields[4], "23200,22800,0,0,0");
   assert.equal(fields[5], "");
   assert.equal(fields[6], "");
-  // The expiry record survives because the DTE always ships, but every price in
-  // it is zeroed by the switches.
-  assert.equal(fields[7], "0DTE,0,0,0,0");
+  // The expiry record survives because the DTE and the settlement always ship,
+  // but every price in it is zeroed by the switches.
+  assert.equal(fields[7], "0DTE,0,0,0,0,0");
   // A switched-off group leaves an empty field rather than being omitted, so
   // field positions stay fixed no matter what the user included.
   assert.equal(fields.length, 11);

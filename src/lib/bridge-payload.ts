@@ -19,10 +19,16 @@
 //     agg         call,put,flip,pain,vanna       (0 = absent)
 //     gamma       strike,weight,sign;…           weight 0-100, sign ±1
 //     delta       strike,weight,sign;…
-//     expiries    label,call,put,flip,dte;…
+//     expiries    label,call,put,flip,dte,settlesEpoch;…   settles 0 = unknown
 //     profile     strike,exposure;…              exposure -100…100 of the peak
 //     volume      callVolumeWall,putVolumeWall
-//     move        oneSigmaBps,frontDte           bps of spot, already √-scaled
+//     move        oneSigmaBps,frontSettlesEpoch  bps of spot, already √-scaled
+//
+// Settlement travels because a payload outlives its own contracts. Exported at
+// 15:55 it is four hours old at 20:00 — fresh by any age test — while its 0DTE
+// walls describe options that ceased to exist at the close. Days to expiry
+// cannot express that, and an overnight session's real exposure belongs to the
+// next expiry, not the one that just settled.
 //
 // Fields past the eighth are additive: a reader that only understands the first
 // eight still parses a newer payload correctly.
@@ -112,12 +118,25 @@ export type BridgeSource = {
   spot: number;
   strikes: BridgeStrikeRow[];
   levels: BridgeLevelSet;
-  expiries: { label: string; dte?: number; levels: BridgeLevelSet }[];
+  expiries: {
+    label: string;
+    dte?: number;
+    levels: BridgeLevelSet;
+    /**
+     * When this expiry settles, as an ISO instant. A payload is a snapshot that
+     * outlives its own contracts: exported at 15:55 it is four hours old at
+     * 20:00 by any staleness measure, while its 0DTE walls describe options that
+     * stopped existing at the close. The reader needs the settlement instant to
+     * tell those apart, because days to expiry cannot.
+     */
+    settlesAt?: string | null;
+  }[];
   /** ATM implied volatility of the front selected expiry, as a decimal. */
   frontAtmIv?: number | null;
   /** Year fraction to that expiry, so a 0DTE move is not rounded up to a day. */
   frontYears?: number | null;
-  frontDte?: number | null;
+  /** When the front expiry settles. An expected-move band outlives it. */
+  frontSettlesAt?: string | null;
 };
 
 export type BridgeOptions = {
@@ -310,6 +329,13 @@ export function volumeWalls(rows: BridgeStrikeRow[], spot: number) {
  * by the year fraction here rather than in the indicator keeps a 0DTE move from
  * being rounded up to a whole session.
  */
+/** Epoch seconds, or 0 when the instant is absent or unparseable. */
+function epochSeconds(iso: string | null | undefined) {
+  if (!iso) return 0;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? Math.round(parsed / 1000) : 0;
+}
+
 export function oneSigmaBps(atmIv: number | null | undefined, years: number | null | undefined) {
   if (!atmIv || !years || atmIv <= 0 || years <= 0) return null;
   return Math.round(atmIv * Math.sqrt(years) * 10_000);
@@ -364,6 +390,10 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
         // Days to expiry travels as its own subfield rather than being scraped
         // back out of the label, which may carry a book prefix.
         String(Math.max(0, Math.round(slice.dte ?? 0))),
+        // Settlement, in epoch seconds to match the header. Zero when unknown,
+        // which the reader treats as "cannot tell" and leaves drawn rather than
+        // silently hiding a level it has no evidence against.
+        String(epochSeconds(slice.settlesAt)),
       ].join(","),
     )
     .join(";");
@@ -387,7 +417,10 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
       })()
     : "";
   const sigma = parts.expectedMove ? oneSigmaBps(source.frontAtmIv, source.frontYears) : null;
-  const move = sigma === null ? "" : `${sigma},${Math.max(0, Math.round(source.frontDte ?? 0))}`;
+  // The second subfield used to be the front expiry's days to expiry, which no
+  // reader ever parsed. It carries the front settlement instead, so a band
+  // scaled to an expiry that has since settled can be withdrawn.
+  const move = sigma === null ? "" : `${sigma},${epochSeconds(source.frontSettlesAt)}`;
   return [
     source.name,
     source.role,

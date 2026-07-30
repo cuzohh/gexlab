@@ -753,6 +753,16 @@ export async function GET(
         return {
           expiry: date,
           contractCount: sliceContracts.length,
+          // When this slice ceases to exist, so a chart reading an exported
+          // payload can drop it rather than drawing walls for contracts that
+          // have settled. The latest instant among the contracts still live:
+          // an AM-settled root has already been filtered out by then, and it is
+          // the last one standing that decides when the slice is finished.
+          settlesAt: sliceContracts.reduce<string | null>((latest, contract) => {
+            const settles = expirationIso(date, contract.root);
+            if (!settles) return latest;
+            return latest === null || settles > latest ? settles : latest;
+          }, null),
           levels: calculateLevels(
             sliceRows,
             sliceContracts,

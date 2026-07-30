@@ -19,10 +19,17 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //     agg       call,put,flip,maxpain,vanna
 //     gamma     strike,weight,sign;…   weight 0-100, sign +1 / -1
 //     delta     strike,weight,sign;…
-//     expiries  label,call,put,flip,dte;…
+//     expiries  label,call,put,flip,dte,settlesEpoch;…   settles 0 = unknown
 //     profile   strike,exposure;…      exposure -100…100 of the peak
 //     volume    callVolumeWall,putVolumeWall
-//     move      oneSigmaBps,frontDte
+//     move      oneSigmaBps,frontSettlesEpoch
+//
+// A payload outlives its own contracts, and payload age cannot detect it: one
+// exported at 15:55 is four hours old at 20:00 while its 0DTE walls describe
+// options that ceased to exist at the close. So each dated wall travels with the
+// instant its expiry settles and is withdrawn once that has passed. The combined
+// levels span the whole selection and carry no settlement, which is why the
+// subfield is per expiry rather than per block.
 //
 // Every block carries its own strike increment, measured from the chain rather
 // than assumed: on a recent snapshot NDX listed a modal 10-point grid across its
@@ -56,6 +63,7 @@ max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60
 max_distance = input.float(3.0, "Maximum distance from price (%, 0 = off)", minval=0.0, step=0.25, group="Filter")
 min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops Γ and Δ clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
 hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Filter")
+settled_mode = input.string("Hide", "Settled expiries", options=["Hide", "Dim", "Draw"], group="Filter", tooltip="A payload is a snapshot that outlives its own contracts. Exported at 15:55 it is only four hours old at 20:00, and passes any freshness test, while its 0DTE walls describe options that stopped existing at the close — the worst read to carry into an overnight session, where the exposure that matters belongs to the next expiry. Each dated wall now travels with the instant its expiry settles and is withdrawn once that passes. Only dated walls carry one; the combined levels span the whole selection.")
 
 // How each book renders. The index book is measured on the chain the chart
 // actually tracks, so it draws as a line: a definite price. The ETF book is
@@ -101,6 +109,10 @@ var int[] lv_kind = array.new_int()
 var float[] lv_weight = array.new_float()
 var int[] lv_role = array.new_int()
 var float[] lv_step = array.new_float()
+// When the level's expiry settles, in epoch seconds. Zero means the payload did
+// not say, which is treated as no evidence rather than as expired. Only the
+// dated walls carry one: the aggregate levels span the whole selection.
+var float[] lv_settles = array.new_float()
 
 // The strike-by-strike exposure profile of the primary book.
 var float[] hist_strike = array.new_float()
@@ -118,8 +130,8 @@ var float payload_epoch = 0.0
 
 // Pine functions may mutate a global array by reference but may not assign to a
 // global scalar, so the values the block parser has to hand back live here.
-//   0 one-sigma bps  1 primary spot
-var float[] meta_levels = array.new_float(2, na)
+//   0 one-sigma bps  1 primary spot  2 front-expiry settlement, epoch seconds
+var float[] meta_levels = array.new_float(3, na)
 
 f_str(items, index) =>
     array.size(items) > index ? array.get(items, index) : ""
@@ -133,7 +145,9 @@ f_number(items, index) =>
     value = str.tonumber(str.trim(f_str(items, index)))
     na(value) ? 0.0 : value
 
-f_push(price, text_value, kind, weight, role, step) =>
+// settles travels with every level, zero where the payload has nothing to say,
+// so lv_settles stays the same length as the arrays beside it.
+f_push(price, text_value, kind, weight, role, step, settles) =>
     if not na(price)
         array.push(lv_price, price)
         array.push(lv_label, text_value)
@@ -141,6 +155,7 @@ f_push(price, text_value, kind, weight, role, step) =>
         array.push(lv_weight, weight)
         array.push(lv_role, role)
         array.push(lv_step, step)
+        array.push(lv_settles, settles)
 
 f_add_concentrations(raw, kind_positive, kind_negative, name_positive, name_negative, prefix, role, step) =>
     records = str.split(raw, ";")
@@ -156,10 +171,10 @@ f_add_concentrations(raw, kind_positive, kind_negative, name_positive, name_nega
                 if not na(price)
                     if sign >= 0
                         positive_rank := positive_rank + 1
-                        f_push(price, prefix + name_positive + str.tostring(positive_rank), kind_positive, weight, role, step)
+                        f_push(price, prefix + name_positive + str.tostring(positive_rank), kind_positive, weight, role, step, 0.0)
                     else
                         negative_rank := negative_rank + 1
-                        f_push(price, prefix + name_negative + str.tostring(negative_rank), kind_negative, weight, role, step)
+                        f_push(price, prefix + name_negative + str.tostring(negative_rank), kind_negative, weight, role, step, 0.0)
 
 f_parse_block(block) =>
     fields = str.split(block, "~")
@@ -179,11 +194,13 @@ f_parse_block(block) =>
         flip = f_price(aggregate, 2)
         if role == 0
             array.set(meta_levels, 1, f_price(fields, 2))
-        f_push(call_wall, prefix + "Call Wall", 0, 1.0, role, step)
-        f_push(put_wall, prefix + "Put Wall", 1, 1.0, role, step)
-        f_push(flip, prefix + "Γ Flip", 2, 1.0, role, step)
-        f_push(f_price(aggregate, 3), prefix + "Max Pain", 3, 1.0, role, step)
-        f_push(f_price(aggregate, 4), prefix + "Vanna Magnet", 4, 1.0, role, step)
+        // The aggregate levels span the whole selection, so no single settlement
+        // instant describes them and they are never withdrawn on this test.
+        f_push(call_wall, prefix + "Call Wall", 0, 1.0, role, step, 0.0)
+        f_push(put_wall, prefix + "Put Wall", 1, 1.0, role, step, 0.0)
+        f_push(flip, prefix + "Γ Flip", 2, 1.0, role, step, 0.0)
+        f_push(f_price(aggregate, 3), prefix + "Max Pain", 3, 1.0, role, step, 0.0)
+        f_push(f_price(aggregate, 4), prefix + "Vanna Magnet", 4, 1.0, role, step, 0.0)
 
         f_add_concentrations(f_str(fields, 5), 5, 6, "Γ+", "Γ−", prefix, role, step)
         f_add_concentrations(f_str(fields, 6), 7, 8, "Δ+", "Δ−", prefix, role, step)
@@ -198,9 +215,13 @@ f_parse_block(block) =>
                     // dated wall is drawn progressively fainter and thinner.
                     dte = array.size(slice) >= 5 ? f_number(slice, 4) : 0.0
                     weight = math.max(0.3, 1.0 - dte / 30.0)
-                    f_push(f_price(slice, 1), label_text + " Call Wall", 9, weight, role, step)
-                    f_push(f_price(slice, 2), label_text + " Put Wall", 10, weight, role, step)
-                    f_push(f_price(slice, 3), label_text + " Γ Flip", 11, weight, role, step)
+                    // When this expiry settles. Days to expiry cannot stand in:
+                    // a 0DTE wall is weighted 1.0 — the boldest line drawn — for
+                    // hours after the contracts behind it have ceased to exist.
+                    settles = array.size(slice) >= 6 ? f_number(slice, 5) : 0.0
+                    f_push(f_price(slice, 1), label_text + " Call Wall", 9, weight, role, step, settles)
+                    f_push(f_price(slice, 2), label_text + " Put Wall", 10, weight, role, step, settles)
+                    f_push(f_price(slice, 3), label_text + " Γ Flip", 11, weight, role, step, settles)
 
         // Both books carry a profile; the drawing picks one.
         if array.size(fields) >= 9
@@ -218,12 +239,17 @@ f_parse_block(block) =>
 
         if array.size(fields) >= 10
             volume = str.split(f_str(fields, 9), ",")
-            f_push(f_price(volume, 0), prefix + "Volume Call Wall", 12, 1.0, role, step)
-            f_push(f_price(volume, 1), prefix + "Volume Put Wall", 13, 1.0, role, step)
+            f_push(f_price(volume, 0), prefix + "Volume Call Wall", 12, 1.0, role, step, 0.0)
+            f_push(f_price(volume, 1), prefix + "Volume Put Wall", 13, 1.0, role, step, 0.0)
 
         if role == 0 and array.size(fields) >= 11
             move = str.split(f_str(fields, 10), ",")
             array.set(meta_levels, 0, f_number(move, 0))
+            // The band is one standard deviation of the front expiry's own
+            // implied volatility, so once that expiry settles it is a range for
+            // a contract that no longer trades. This subfield was the front
+            // expiry's days to expiry, which nothing read.
+            array.set(meta_levels, 2, f_number(move, 1))
 
 // Parsed once. Any change to the payload input recompiles the whole script, so
 // there is nothing to invalidate.
@@ -319,6 +345,13 @@ f_visible(kind) =>
 f_weight_filtered(kind, weight) =>
     (kind >= 5 and kind <= 8) and weight * 100 < min_weight
 
+// Has this level's expiry settled? Zero means the payload did not say, which is
+// no evidence rather than evidence of expiry, so the level stays. The comparison
+// is against the chart's own clock, because whether a contract exists is a fact
+// about now and not about when the snapshot was taken.
+f_settled(settles) =>
+    settles > 0 and timenow >= settles * 1000
+
 // Which book a level belongs to: 0 the index chain, 1 the confirmation chain.
 // Style, colour and emphasis all follow from this.
 f_class(kind, role) =>
@@ -373,6 +406,9 @@ var bool[] merged_index = array.new_bool()
 var bool[] merged_confirm = array.new_bool()
 var bool[] merged_agreed = array.new_bool()
 var int[] merged_slot = array.new_int()
+// Whether every level in the group has settled. A group holding one live member
+// is live, so a dated wall merged onto a combined wall is not withdrawn.
+var bool[] merged_settled = array.new_bool()
 
 // Histogram layout, resolved before the levels draw because their labels sit to
 // the right of it and have to clear whatever width it takes.
@@ -384,7 +420,7 @@ var int profile_lanes = 1
 // set rather than fixed, so the stagger clears the text beside it.
 var int label_pitch = 10
 
-f_emit(price, text_value, kind, half, weight, from_index, from_confirm) =>
+f_emit(price, text_value, kind, half, weight, from_index, from_confirm, settled) =>
     array.push(merged_price, price)
     array.push(merged_label, text_value)
     array.push(merged_kind, kind)
@@ -392,6 +428,7 @@ f_emit(price, text_value, kind, half, weight, from_index, from_confirm) =>
     array.push(merged_weight, weight)
     array.push(merged_index, from_index)
     array.push(merged_confirm, from_confirm)
+    array.push(merged_settled, settled)
 
 f_left_edge() =>
     anchor_snapshot and snapshot_bar > 0 ? snapshot_bar : math.max(bar_index - left_bars, 0)
@@ -409,6 +446,7 @@ f_render(index) =>
     from_index = array.get(merged_index, index)
     from_confirm = array.get(merged_confirm, index)
     agreed = array.get(merged_agreed, index)
+    settled = array.get(merged_settled, index)
     // A merged level draws whatever any of its contributing books asks for, so
     // an index line and an ETF zone on the same price render as a line inside
     // its confirmation band rather than one of the two silently winning.
@@ -419,9 +457,15 @@ f_render(index) =>
     draw_line = wants_line or not draw_zone
     if draw_line or draw_zone
         tone = f_tone(kind, from_index, from_confirm)
-        dim = not from_index
-        structural = f_priority(kind) <= 1
-        thickness = (structural or weight >= 0.66 ? 2 : 1) + (agreed ? 1 : 0)
+        // Dim draws a settled level as faintly as the ETF book and never bolds
+        // it, because whatever weight its days to expiry earned it, the contracts
+        // behind it are gone. Draw keeps its full weight, for reading back where
+        // a wall stood. Either way the caption says so: that is a fact about the
+        // level, not a rendering preference.
+        faded = settled and settled_mode == "Dim"
+        dim = not from_index or faded
+        structural = f_priority(kind) <= 1 and not faded
+        thickness = faded ? 1 : (structural or weight >= 0.66 ? 2 : 1) + (agreed ? 1 : 0)
         left_edge = f_left_edge()
         right_edge = f_future(right_bars)
         if draw_zone
@@ -443,7 +487,10 @@ f_render(index) =>
               width=thickness,
               extend=extend_right ? extend.right : extend.none,
               style=dim ? line.style_dashed : structural ? line.style_solid : line.style_dotted))
+        // Said outright rather than left to the reader to infer from a thinner
+        // line: a level whose contracts have settled is not a weak level.
         caption = (agreed ? "✓ " : "") + array.get(merged_label, index) +
+          (settled ? " (settled)" : "") +
           (show_prices ? "  " + str.tostring(price, format.mintick) : "")
         array.push(drawn_labels, label.new(
           x=f_future(right_bars + 2 + (show_profile ? profile_bars * profile_lanes + 3 : 0) + array.get(merged_slot, index) * label_pitch),
@@ -465,6 +512,7 @@ f_merge_book(by_price, visible_price, visible_source, book_pass) =>
     int group_priority = 99
     float group_half = 0.0
     float group_weight = 0.0
+    bool group_settled = false
     for rank = 0 to array.size(by_price) - 1
         slot = array.get(by_price, rank)
         price = array.get(visible_price, slot)
@@ -475,9 +523,10 @@ f_merge_book(by_price, visible_price, visible_source, book_pass) =>
             priority = f_priority(kind)
             half = f_half_width(array.get(lv_step, source_index))
             weight = array.get(lv_weight, source_index)
+            settled = f_settled(array.get(lv_settles, source_index))
             tolerance = merge_tolerance > 0 ? merge_tolerance : group_half * 1.2
             if group_open and price - group_anchor > tolerance
-                f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1)
+                f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1, group_settled)
                 group_open := false
             if not group_open
                 group_open := true
@@ -488,16 +537,21 @@ f_merge_book(by_price, visible_price, visible_source, book_pass) =>
                 group_priority := priority
                 group_half := half
                 group_weight := weight
+                group_settled := settled
             else
                 group_text := group_text + "  ·  " + array.get(lv_label, source_index)
                 group_half := math.max(group_half, half)
                 group_weight := math.max(group_weight, weight)
+                // One live member keeps the whole group live: a dated wall that
+                // has settled onto a combined wall that has not is still a price
+                // the combined book is holding.
+                group_settled := group_settled and settled
                 if priority < group_priority
                     group_priority := priority
                     group_kind := kind
                     group_price := price
     if group_open
-        f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1)
+        f_emit(group_price, group_text, group_kind, group_half, group_weight, book_pass == 0, book_pass == 1, group_settled)
 
 // Redraw on every realtime tick. A realtime tick rolls the script back to the
 // start of the bar, which destroys anything drawn on the previous tick, so the
@@ -513,6 +567,7 @@ if barstate.islast
     array.clear(merged_confirm)
     array.clear(merged_agreed)
     array.clear(merged_slot)
+    array.clear(merged_settled)
 
     drawing = not hide_outside_rth or session.ismarket
 
@@ -538,7 +593,8 @@ if barstate.islast
             kind = array.get(lv_kind, source_index)
             role = array.get(lv_role, source_index)
             weight = array.get(lv_weight, source_index)
-            if f_visible(kind) and (role == 0 or show_confirmation) and not f_weight_filtered(kind, weight)
+            settled = f_settled(array.get(lv_settles, source_index))
+            if f_visible(kind) and (role == 0 or show_confirmation) and not f_weight_filtered(kind, weight) and not (settled and settled_mode == "Hide")
                 mapped = f_map(array.get(lv_price, source_index))
                 if not na(mapped) and (max_distance <= 0 or (close > 0 and math.abs(mapped / close - 1) * 100 <= max_distance))
                     array.push(visible_price, mapped)
@@ -686,7 +742,12 @@ if barstate.islast
     // has the volatility to reach them.
     sigma_bps = array.get(meta_levels, 0)
     move_anchor = f_map(array.get(meta_levels, 1))
-    if show_expected_move and drawing and not na(move_anchor) and not na(sigma_bps) and sigma_bps > 0
+    // The band is one standard deviation of the front expiry's own implied
+    // volatility. Once that expiry settles it is the expected range of a contract
+    // that no longer trades, so it is withdrawn on the same test as a dated wall
+    // rather than left implying the next session will respect it.
+    move_settled = f_settled(nz(array.get(meta_levels, 2), 0))
+    if show_expected_move and drawing and not move_settled and not na(move_anchor) and not na(sigma_bps) and sigma_bps > 0
         for band = 1 to move_sigmas
             reach = move_anchor * (sigma_bps / 10000.0) * band
             for direction = 0 to 1
