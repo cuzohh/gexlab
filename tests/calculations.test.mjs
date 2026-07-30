@@ -757,6 +757,30 @@ test("the indicator withdraws levels whose expiry has settled", () => {
   assert.doesNotMatch(bridge, /frontDte/);
 });
 
+test("the indicator says when the payload cannot be trusted, and stays quiet otherwise", () => {
+  assert.match(PINE_SCRIPT, /show_warning = input\.bool\(true, "Warn when the payload cannot be trusted"/);
+  assert.match(PINE_SCRIPT, /stale_hours = input\.float\(24, "Treat the payload as stale after \(hours\)"/);
+  // Three independent failures. A malformed paste drew an empty chart and gave
+  // no reason for it.
+  assert.match(PINE_SCRIPT, /warning := "BRIDGE NOT RECOGNISED · EXPECTED A GX2 PAYLOAD"/);
+  // Age was parsed into payload_epoch and never shown.
+  assert.match(PINE_SCRIPT, /age_hours = payload_epoch > 0 \? \(timenow - payload_epoch \* 1000\) \/ 3600000\.0 : na/);
+  assert.match(PINE_SCRIPT, /if not na\(age_hours\) and age_hours > stale_hours/);
+  // Age cannot stand in for settlement: a payload copied at 15:55 is minutes old
+  // at 16:05 and its 0DTE walls are already gone. Both tests, independently.
+  assert.match(PINE_SCRIPT, /if dated_total > 0 and dated_settled == dated_total/);
+  assert.match(PINE_SCRIPT, /array\.push\(reasons, "EVERY DATED EXPIRY HAS SETTLED"\)/);
+  // Only the dated walls can settle, and one live expiry means the book still
+  // describes something that trades.
+  assert.match(PINE_SCRIPT, /if dated_kind >= 9 and dated_kind <= 11/);
+  // Silent while sound: the label is only pushed when a reason was collected.
+  assert.match(PINE_SCRIPT, /if str\.length\(warning\) > 0/);
+  // ta.* has to run on every bar or its window is wrong, so the extreme the
+  // warning anchors to is taken at global scope, not inside the drawing block.
+  assert.match(PINE_SCRIPT, /^chart_high = ta\.highest\(high, 200\)$/m);
+  assert.doesNotMatch(PINE_SCRIPT, /float warn_at = ta\.highest/);
+});
+
 test("copying confirms on the button that fired and survives a refused clipboard", () => {
   const atlas = readFileSync(new URL("../src/components/options-atlas.tsx", import.meta.url), "utf8");
   // Copying leaves the page looking untouched, so the pressed button carries the

@@ -63,6 +63,8 @@ max_levels = input.int(14, "Nearest levels drawn (0 = all)", minval=0, maxval=60
 max_distance = input.float(3.0, "Maximum distance from price (%, 0 = off)", minval=0.0, step=0.25, group="Filter")
 min_weight = input.int(0, "Minimum concentration weight (0-100)", minval=0, maxval=100, group="Filter", tooltip="Drops Γ and Δ clusters below this share of the strongest cluster. Walls, flips and max pain are never filtered by weight.")
 hide_outside_rth = input.bool(false, "Draw only during regular hours", group="Filter")
+show_warning = input.bool(true, "Warn when the payload cannot be trusted", group="Filter", tooltip="Silent while the payload is sound. A status line that is always on the chart stops being read, so this only appears when the levels are describing something other than the current book: nothing parsed, the snapshot is old, or every dated expiry in it has settled. Age alone cannot catch the last of those — a payload copied at 15:55 is minutes old at 16:05 and its 0DTE walls are already gone.")
+stale_hours = input.float(24, "Treat the payload as stale after (hours)", minval=0.5, maxval=336, step=0.5, group="Filter", tooltip="Measured from the snapshot time in the payload header, against the chart's clock. Open interest is published once a session, so a payload that has outlived one is describing a book that has since been traded through.")
 settled_mode = input.string("Hide", "Settled expiries", options=["Hide", "Dim", "Draw"], group="Filter", tooltip="A payload is a snapshot that outlives its own contracts. Exported at 15:55 it is only four hours old at 20:00, and passes any freshness test, while its 0DTE walls describe options that stopped existing at the close — the worst read to carry into an overnight session, where the exposure that matters belongs to the next expiry. Each dated wall now travels with the instant its expiry settles and is withdrawn once that passes. Only dated walls carry one; the combined levels span the whole selection.")
 
 // How each book renders. The index book is measured on the chain the chart
@@ -96,6 +98,7 @@ c_pain = input.color(#6f6378, "Max pain", group="Style")
 c_vanna = input.color(#315f78, "Vanna magnet", group="Style")
 c_delta = input.color(#4b6ea9, "Δ concentration", group="Style")
 c_move = input.color(#7a7f8a, "Expected move", group="Style")
+c_stale = input.color(#a0443b, "Payload warning", group="Style")
 
 // Level kinds. Parallel arrays stand in for a record type, which Pine has no
 // direct equivalent of.
@@ -380,7 +383,10 @@ f_half_width(step) =>
 
 // Roughly how far apart two labels have to be before they stop overlapping.
 // Derived from the recent range because Pine cannot see the pixel scale.
-label_gap = (ta.highest(high, 200) - ta.lowest(low, 200)) / 28
+// ta.* has to run on every bar or its window is wrong, so the recent extremes
+// are taken here rather than inside the drawing block that consumes them.
+chart_high = ta.highest(high, 200)
+label_gap = (chart_high - ta.lowest(low, 200)) / 28
 
 var line[] drawn_lines = array.new_line()
 var box[] drawn_boxes = array.new_box()
@@ -768,4 +774,54 @@ if barstate.islast
                   color=color.new(c_move, 100),
                   textcolor=color.new(c_move, 20),
                   size=size.tiny))
+
+    // Whether the payload can be trusted, said only when it cannot.
+    //
+    // Three failures, and no one of them implies the others. A malformed paste
+    // draws an empty chart and gives no reason for it. An old snapshot has every
+    // level measured against a book that has since been traded through, and
+    // nothing on the chart says so once the lines are extended. A payload whose
+    // dated expiries have all settled can be minutes old and still describe
+    // options that no longer exist, which is why age cannot stand in for it.
+    if show_warning
+        string warning = ""
+        if str.length(bridge) > 0 and not str.startswith(bridge, "GX2#")
+            warning := "BRIDGE NOT RECOGNISED · EXPECTED A GX2 PAYLOAD"
+        else
+            // Only the dated walls can settle, and the book is finished only when
+            // every one of them has. One live expiry means the payload still
+            // describes something that trades.
+            int dated_total = 0
+            int dated_settled = 0
+            if array.size(lv_price) > 0
+                for source_index = 0 to array.size(lv_price) - 1
+                    dated_kind = array.get(lv_kind, source_index)
+                    if dated_kind >= 9 and dated_kind <= 11
+                        dated_total := dated_total + 1
+                        if f_settled(array.get(lv_settles, source_index))
+                            dated_settled := dated_settled + 1
+            age_hours = payload_epoch > 0 ? (timenow - payload_epoch * 1000) / 3600000.0 : na
+            reasons = array.new_string()
+            if not na(age_hours) and age_hours > stale_hours
+                // "#" so a whole number of hours prints without a decimal tail.
+                array.push(reasons, "SNAPSHOT " + (age_hours < 48 ? str.tostring(age_hours, "#") + "H" : str.tostring(age_hours / 24, "#") + "D") + " OLD")
+            if dated_total > 0 and dated_settled == dated_total
+                array.push(reasons, "EVERY DATED EXPIRY HAS SETTLED")
+            if array.size(reasons) > 0
+                warning := array.join(reasons, "  ·  ")
+        if str.length(warning) > 0
+            // Above the highest level drawn, falling back to the recent range on
+            // a payload that produced none, so the warning is wherever the chart
+            // is actually looking.
+            float warn_at = chart_high
+            if array.size(merged_price) > 0
+                warn_at := math.max(warn_at, array.max(merged_price))
+            array.push(drawn_labels, label.new(
+              x=f_future(right_bars + 2),
+              y=warn_at,
+              text=warning,
+              style=label.style_label_left,
+              color=color.new(c_stale, 88),
+              textcolor=c_stale,
+              size=size.small))
 `;
