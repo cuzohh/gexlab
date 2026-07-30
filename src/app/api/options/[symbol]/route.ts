@@ -607,7 +607,6 @@ export async function GET(
     );
     const valuationTime = Date.parse(sourceTime);
     const observationDate = easternDate(new Date(valuationTime));
-    const today = [observationDate, easternDate()].sort().at(-1)!;
     const riskFreeObservation = rateSeries.filter((row) => row.date <= observationDate).at(-1);
     const riskFreeRate =
       riskFreeObservation && riskFreeObservation.value >= 0
@@ -792,12 +791,29 @@ export async function GET(
             dividendYield: SYMBOLS[symbol].dividendYield,
           });
           if (!smile) return null;
+          // Real time left, not the floored year fraction. yearsToExpiry clamps
+          // at an hour so it cannot tell eight minutes from sixty, and it is
+          // exactly the last few minutes where the implied volatility solve
+          // blows up. The history refuses a slice this close to settlement.
+          const settlesAt = Date.parse(expirationIso(date, sliceContracts[0].root) ?? "");
+          const secondsToSettlement = Number.isFinite(settlesAt)
+            ? (settlesAt - valuationTime) / 1000
+            : null;
           return {
             expiry: date,
+            secondsToSettlement,
+            // Measured from the observation, not from the wall clock. This used
+            // to run against max(observationDate, today), so reading a stale
+            // snapshot restated every expiry as nearer than it was when the
+            // chain was captured: the 24 July file, first read on the 27th, was
+            // recorded with every slice three days short and its 3DTE expiry
+            // labelled 0DTE. The table exists to compare surfaces at a constant
+            // days-to-expiry, so a bucket that shifts with the reading date is
+            // the one thing it cannot tolerate.
             dte: Math.max(
               0,
               Math.round(
-                (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000,
+                (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${observationDate}T12:00:00Z`)) / 86_400_000,
               ),
             ),
             years,
@@ -821,9 +837,14 @@ export async function GET(
     // Prior observations are matched at a constant days-to-expiry, since the
     // calendar expiry that was 3DTE yesterday is 2DTE today.
     const frontSlice = surface.find((slice) => slice.dte > 0) ?? surface[0] ?? null;
+    // The front slice already skips 0DTE; the baseline it is compared against
+    // has to as well. A 1DTE request with a tolerance of one used to match a
+    // stored 0DTE row, and those are the readings taken closest to settlement.
     const surfaceHistory = frontSlice
       ? loadSurfaceHistory(symbol, { dte: frontSlice.dte, dteTolerance: 1, limit: 60 }).filter(
-          (row) => row.observationDate !== observationDate,
+          (row) =>
+            row.observationDate !== observationDate &&
+            (frontSlice.dte === 0 || row.dte > 0),
         )
       : [];
     const priorSurface = surfaceHistory[0] ?? null;

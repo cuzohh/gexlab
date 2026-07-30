@@ -168,6 +168,39 @@ function database() {
         DELETE FROM snapshot_history WHERE namespace IN ('macro-series', 'macro-output');
       `);
     }
+    // Rows recorded on the expiry's own settlement, back when the listing kept
+    // an expiry until midnight rather than dropping it at settlement. The solve
+    // divides by the square root of the remaining year fraction, so these came
+    // back at 115%, 159%, 233% and 354% against a real 26-38%, and the
+    // constant-days-to-expiry lookup was reading them as the prior session's
+    // baseline. There is no way to recover a correct value after the fact — the
+    // quotes they were solved from are gone — so they are deleted rather than
+    // recomputed. Only same-day rows taken at or after 15:00 Eastern qualify:
+    // a 0DTE reading from the morning has hours left and is comparable.
+    const settledSurfaceMigration = "iv-surface-settled-rows-v1";
+    const surfaceClaim = db
+      .prepare(`
+        INSERT OR IGNORE INTO data_migrations (migration_id, applied_at)
+        VALUES (?, datetime('now'))
+      `)
+      .run(settledSurfaceMigration);
+    if (surfaceClaim.changes === 1) {
+      db.exec(`
+        DELETE FROM iv_surface_history
+        WHERE expiry <= observation_date
+          AND time(source_time) >= '19:00:00';
+      `);
+      // Days to expiry used to be measured from the reading date rather than the
+      // observation, so every row written from a stale snapshot was filed in a
+      // bucket nearer than the chain it came from. Unlike the readings above
+      // this is recoverable: the bucket is a pure function of two columns the
+      // row already carries, so it is recomputed instead of dropped.
+      db.exec(`
+        UPDATE iv_surface_history
+        SET dte = MAX(0, CAST(ROUND(julianday(expiry) - julianday(observation_date)) AS INTEGER))
+        WHERE dte <> MAX(0, CAST(ROUND(julianday(expiry) - julianday(observation_date)) AS INTEGER));
+      `);
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -376,11 +409,35 @@ export type SurfaceHistoryRow = {
   butterfly25: number | null;
 };
 
+/**
+ * Below this much time to settlement an at-the-money implied volatility stops
+ * meaning anything. The solve divides by the square root of the year fraction,
+ * so as that goes to zero any residual option value implies an unbounded vol.
+ * Measured on the recorded snapshots: NDX printed 354% at the settlement instant
+ * and 40% eight minutes before it, against 26% for the next day's expiry.
+ *
+ * Days to expiry cannot express this — a 0DTE slice at 10:00 has six hours left
+ * and compares fine against the next session's 0DTE at 10:00. It is proximity to
+ * settlement that breaks the solve, not the calendar. yearsToExpiry floors at an
+ * hour and so cannot tell eight minutes from sixty, which is why the caller
+ * measures the real remaining time.
+ *
+ * This table exists only to compare one session's surface shape against
+ * another's, so a reading that cannot be compared does not belong in it. The
+ * live response still carries the slice; it is only the history that refuses it.
+ */
+export const MINIMUM_COMPARABLE_SECONDS = 3600;
+
 export function saveSurfaceHistory(
   symbol: string,
   sourceTime: string,
   observationDate: string,
-  slices: Array<Omit<SurfaceHistoryRow, "observationDate" | "sourceTime">>,
+  slices: Array<
+    Omit<SurfaceHistoryRow, "observationDate" | "sourceTime"> & {
+      /** Real time left, unfloored. Undefined means the caller could not tell. */
+      secondsToSettlement?: number | null;
+    }
+  >,
 ) {
   if (!slices.length) return;
   const statement = database().prepare(`
@@ -392,6 +449,10 @@ export function saveSurfaceHistory(
   const retrievedAt = new Date().toISOString();
   for (const slice of slices) {
     if (!Number.isFinite(slice.atmIv) || !Number.isFinite(slice.forward)) continue;
+    // An unknown remaining time is kept: that is missing evidence, not evidence
+    // the reading is bad.
+    const secondsLeft = slice.secondsToSettlement;
+    if (typeof secondsLeft === "number" && secondsLeft < MINIMUM_COMPARABLE_SECONDS) continue;
     statement.run(
       symbol,
       sourceTime,
@@ -421,10 +482,17 @@ export function loadSurfaceHistory(
   const limit = options.limit ?? 400;
   const clauses = ["symbol = ?"];
   const params: Array<string | number> = [symbol];
+  // Ordering by dte ascending returned the shortest-dated row within the
+  // tolerance rather than the closest to the bucket asked for, so a request for
+  // 1DTE was answered with a 0DTE row whenever one existed — the one reading
+  // whose implied volatility is least trustworthy. Distance from the target,
+  // then the shorter side to break a tie.
+  let ordering = "ORDER BY observation_date DESC, dte ASC";
   if (options.dte !== undefined) {
     const tolerance = options.dteTolerance ?? 2;
     clauses.push("dte BETWEEN ? AND ?");
     params.push(options.dte - tolerance, options.dte + tolerance);
+    ordering = `ORDER BY observation_date DESC, ABS(dte - ${Number(options.dte)}) ASC, dte ASC`;
   }
   const rows = database()
     .prepare(`
@@ -432,7 +500,7 @@ export function loadSurfaceHistory(
              put_iv_25, call_iv_25, risk_reversal_25, butterfly_25
       FROM iv_surface_history
       WHERE ${clauses.join(" AND ")}
-      ORDER BY observation_date DESC, dte ASC
+      ${ordering}
       LIMIT ?
     `)
     .all(...params, limit) as Array<{

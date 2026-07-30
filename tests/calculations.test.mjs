@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import {
@@ -841,6 +842,89 @@ test("the bridge carries settlement instants so a payload cannot outlive its con
   // The expected-move band is scaled to the front expiry's own volatility, so it
   // is withdrawn on the same instant.
   assert.equal(fields[10].split(",")[1], "1785355200");
+});
+
+test("surface history is bucketed by the observation, not by when it was read", () => {
+  const route = readFileSync(
+    new URL("../src/app/api/options/[symbol]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // dte ran against max(observationDate, today), so reading a stale snapshot
+  // restated every expiry as nearer than it was when the chain was captured.
+  // The 24 July file, first read on the 27th, recorded its 3DTE expiry as 0DTE.
+  assert.match(route, /Date\.parse\(`\$\{observationDate\}T12:00:00Z`\)\) \/ 86_400_000/);
+  assert.doesNotMatch(route, /\[observationDate, easternDate\(\)\]\.sort\(\)/);
+
+  const store = readFileSync(new URL("../src/lib/server/snapshot-store.ts", import.meta.url), "utf8");
+  // An ATM implied volatility solved minutes from settlement is unbounded, and
+  // this table exists only for cross-session comparison, so it refuses one.
+  assert.match(store, /export const MINIMUM_COMPARABLE_SECONDS = 3600/);
+  assert.match(store, /secondsLeft < MINIMUM_COMPARABLE_SECONDS\) continue/);
+  // Unknown remaining time is missing evidence, not evidence of a bad reading.
+  assert.match(store, /typeof secondsLeft === "number"/);
+  // yearsToExpiry floors at an hour and cannot tell eight minutes from sixty,
+  // which is why the caller measures the real interval to settlement.
+  assert.match(route, /const secondsToSettlement = Number\.isFinite\(settlesAt\)/);
+  // The front slice skips 0DTE; the baseline it is compared against must too.
+  assert.match(route, /\(frontSlice\.dte === 0 \|\| row\.dte > 0\)/);
+});
+
+test("the surface lookup returns the closest bucket, and the migration repairs the old rows", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec(`CREATE TABLE iv_surface_history (
+    symbol TEXT, source_time TEXT, observation_date TEXT, expiry TEXT,
+    dte INTEGER, forward REAL, atm_iv REAL, put_iv_25 REAL, call_iv_25 REAL,
+    risk_reversal_25 REAL, butterfly_25 REAL, retrieved_at TEXT)`);
+  const add = (obs, expiry, dte, iv, time = "20:00:00.000Z") =>
+    db.prepare(`INSERT INTO iv_surface_history VALUES
+      ('NDX', ?, ?, ?, ?, 28000, ?, NULL, NULL, NULL, NULL, '')`)
+      .run(`${obs}T${time}`, obs, expiry, dte, iv);
+
+  // The shape that produced the bug: a 0DTE row solved at settlement sitting
+  // beside a sane 1DTE row from the same session.
+  add("2026-07-28", "2026-07-28", 0, 1.1476);
+  add("2026-07-28", "2026-07-29", 1, 0.3439);
+  add("2026-07-28", "2026-07-30", 2, 0.3200);
+
+  const ordered = (target) =>
+    db.prepare(`SELECT dte, atm_iv FROM iv_surface_history
+      WHERE dte BETWEEN ? AND ?
+      ORDER BY observation_date DESC, ABS(dte - ${target}) ASC, dte ASC`)
+      .all(target - 1, target + 1);
+  // Ordering by dte ascending handed back the 0DTE row for a 1DTE request,
+  // which is the single least trustworthy reading in the table.
+  assert.equal(ordered(1)[0].dte, 1, "the closest bucket wins, not the smallest");
+  assert.equal(ordered(1)[0].atm_iv, 0.3439);
+  assert.equal(ordered(2)[0].dte, 2);
+
+  // Deleting the readings taken on their own expiry's settlement.
+  db.exec(`DELETE FROM iv_surface_history
+    WHERE expiry <= observation_date AND time(source_time) >= '19:00:00'`);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM iv_surface_history").get().n, 2);
+
+  // A 0DTE reading from the morning has hours left and stays.
+  add("2026-07-27", "2026-07-27", 0, 0.2100, "14:30:00.000Z");
+  db.exec(`DELETE FROM iv_surface_history
+    WHERE expiry <= observation_date AND time(source_time) >= '19:00:00'`);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM iv_surface_history").get().n, 3);
+
+  // Mislabelled buckets are recoverable: dte is a pure function of two columns
+  // the row already carries, so it is recomputed rather than dropped.
+  add("2026-07-24", "2026-07-27", 0, 0.1753);
+  db.exec(`UPDATE iv_surface_history
+    SET dte = MAX(0, CAST(ROUND(julianday(expiry) - julianday(observation_date)) AS INTEGER))
+    WHERE dte <> MAX(0, CAST(ROUND(julianday(expiry) - julianday(observation_date)) AS INTEGER))`);
+  assert.equal(
+    db.prepare("SELECT dte FROM iv_surface_history WHERE observation_date = '2026-07-24'").get().dte,
+    3,
+    "a 24 July observation of a 27 July expiry is 3DTE, whenever it was read",
+  );
+  assert.equal(
+    db.prepare(`SELECT COUNT(*) n FROM iv_surface_history
+      WHERE dte <> MAX(0, CAST(ROUND(julianday(expiry) - julianday(observation_date)) AS INTEGER))`).get().n,
+    0,
+  );
+  db.close();
 });
 
 test("a settled expiry leaves the listing at settlement, not at midnight", () => {
