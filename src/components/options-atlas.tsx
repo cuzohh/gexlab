@@ -18,7 +18,7 @@ type Metric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma"
 type View = "spine" | "bars";
 type ExpiryMode = "single" | "through" | "custom" | "composite";
 type PriceScale = "native" | "futures";
-type Shelf = "levels" | "chain" | "volatility" | "term" | "indicator";
+type Shelf = "levels" | "chain" | "flow" | "volatility" | "term" | "indicator";
 type UpdateMode = "eod" | "live";
 
 type LiveStrike = {
@@ -92,6 +92,35 @@ type LiveOptionsData = {
     /** Requested dates that had settled by the time of the request. */
     settledExpiries?: string[];
   };
+  flow?: {
+    session: string;
+    resolvedAgainst: string;
+    rows: {
+      contract: string;
+      expiry: string;
+      strike: number;
+      type: "call" | "put";
+      volume: number;
+      priorOpenInterest: number;
+      openInterestChange: number | null;
+      intent: "opened" | "closed" | "churned" | "pending" | "expired" | "unexplained";
+      turnover: number | null;
+      notional: number | null;
+      extrinsicNotional: number | null;
+      moneyness: number;
+    }[];
+    summary: {
+      contracts: number;
+      callNotional: number;
+      putNotional: number;
+      openedNotional: number;
+      closedNotional: number;
+      callShare: number | null;
+      resolved: boolean;
+    };
+    method: string;
+    caveat: string;
+  } | null;
   expiryLevels: {
     expiry: string;
     contractCount: number;
@@ -242,6 +271,119 @@ const BRIDGE_PARTS_KEY = "gexlab:bridge-parts";
 
 function bridgeNumber(value: number | null) {
   return value === null || !Number.isFinite(value) ? "0" : String(Math.round(value * 100) / 100);
+}
+
+const INTENT_COPY: Record<string, { label: string; note: string; tone: string }> = {
+  opened: { label: "Opened", note: "Most of what traded stayed on", tone: "constructive" },
+  closed: { label: "Closed", note: "Most of what traded came off", tone: "stress" },
+  churned: { label: "Churned", note: "Traded heavily, left little behind", tone: "neutral" },
+  pending: { label: "Pending", note: "Resolves with the next session's open interest", tone: "neutral" },
+  expired: { label: "Expired", note: "Expired the day it traded; nothing left to resolve", tone: "neutral" },
+  unexplained: { label: "Unexplained", note: "Open interest moved by more than traded — exercise or a correction", tone: "caution" },
+};
+
+function compactDollars(value: number | null) {
+  if (value === null) return "—";
+  const absolute = Math.abs(value);
+  if (absolute >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+  if (absolute >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+  if (absolute >= 1e3) return `$${Math.round(value / 1e3)}k`;
+  return `$${Math.round(value)}`;
+}
+
+/**
+ * The session's largest option trades.
+ *
+ * Ordered by premium at risk rather than contracts or gross premium, and every
+ * row carries what it left behind in open interest, because size on its own
+ * cannot tell a position from a day trade. The two figures are from different
+ * sessions by necessity — open interest lags — and the header says so rather
+ * than letting the table imply they are simultaneous.
+ */
+const flowDate = (value: string) => shortExpiry(value).monthDay;
+
+function LargeTrades({ flow }: { flow: NonNullable<LiveOptionsData["flow"]> }) {
+  const { summary } = flow;
+  return (
+    <div className="large-trades">
+      <div className="large-trades-head">
+        <div>
+          <p className="section-kicker">
+            Session {flowDate(flow.session)} · open interest confirmed {flowDate(flow.resolvedAgainst)}
+          </p>
+          <h3>{summary.contracts} trades above the size floor</h3>
+        </div>
+        <div className="large-trades-totals">
+          <span>
+            <small>Call premium at risk</small>
+            <strong>{compactDollars(summary.callNotional)}</strong>
+          </span>
+          <span>
+            <small>Put premium at risk</small>
+            <strong>{compactDollars(summary.putNotional)}</strong>
+          </span>
+          <span>
+            <small>Opened</small>
+            <strong>{compactDollars(summary.openedNotional)}</strong>
+          </span>
+          <span>
+            <small>Closed</small>
+            <strong>{compactDollars(summary.closedNotional)}</strong>
+          </span>
+        </div>
+      </div>
+
+      <div className="large-trades-table" role="grid" aria-label="Largest option trades">
+        <div className="large-trades-row large-trades-row--head" role="row">
+          <span role="columnheader">Contract</span>
+          <span role="columnheader">Volume</span>
+          <span role="columnheader">Δ open interest</span>
+          <span role="columnheader">At risk</span>
+          <span role="columnheader">Intent</span>
+        </div>
+        {flow.rows.map((row) => {
+          const intent = INTENT_COPY[row.intent] ?? INTENT_COPY.pending;
+          return (
+            <div className="large-trades-row" role="row" key={row.contract} title={intent.note}>
+              <span role="gridcell">
+                <strong>
+                  {row.strike.toLocaleString()} {row.type === "call" ? "C" : "P"}
+                </strong>
+                <em>
+                  {flowDate(row.expiry)} · {row.moneyness > 0 ? "+" : ""}
+                  {row.moneyness.toFixed(1)}% from spot
+                </em>
+              </span>
+              <span role="gridcell">{row.volume.toLocaleString()}</span>
+              <span role="gridcell">
+                {row.openInterestChange === null
+                  ? "—"
+                  : `${row.openInterestChange > 0 ? "+" : ""}${row.openInterestChange.toLocaleString()}`}
+              </span>
+              <span role="gridcell">
+                {compactDollars(row.extrinsicNotional)}
+                {/* Gross premium only when it differs enough to matter: for a
+                    deep in-the-money strike most of the cheque is intrinsic. */}
+                {row.notional !== null &&
+                  row.extrinsicNotional !== null &&
+                  row.notional > row.extrinsicNotional * 1.25 && (
+                    <em>{compactDollars(row.notional)} gross</em>
+                  )}
+              </span>
+              <span role="gridcell">
+                <b className={`large-trades-intent large-trades-intent--${intent.tone}`}>
+                  {intent.label}
+                </b>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="data-disclaimer">{flow.method}</p>
+      <p className="data-disclaimer">{flow.caveat}</p>
+    </div>
+  );
 }
 
 function MarketProfileChart({
@@ -1761,6 +1903,7 @@ export function OptionsAtlas() {
           {([
             ["levels", "Levels"],
             ["chain", "Chain"],
+            ["flow", "Large trades"],
             ["volatility", "Volatility"],
             ["term", "Term structure"],
             ["indicator", "Indicator"],
@@ -1840,6 +1983,21 @@ export function OptionsAtlas() {
               ))}
               {!chainRows.length && <div className="data-pending"><strong>Loading option chain</strong></div>}
             </div>
+          )}
+
+          {shelf === "flow" && (
+            marketData?.flow ? (
+              <LargeTrades flow={marketData.flow} />
+            ) : (
+              <div className="data-pending">
+                <strong>Two sessions of chain history are needed</strong>
+                <p>
+                  A trade&apos;s intent comes from what it left behind in open interest, which
+                  arrives the session after it traded. This fills in once a second end-of-day
+                  chain has been captured.
+                </p>
+              </div>
+            )
           )}
 
           {shelf === "volatility" && (

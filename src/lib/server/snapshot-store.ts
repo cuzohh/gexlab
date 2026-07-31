@@ -342,6 +342,53 @@ function easternDayOf(iso: string) {
  * Deleting rows does not shrink the file on its own, since SQLite reuses the
  * freed pages. `npm run prune:history` runs this and then VACUUMs.
  */
+/**
+ * Recent distinct snapshots for one cache key, newest first.
+ *
+ * Exists for the flow panel, which needs a session's chain and the one after it
+ * to resolve what the session's volume left behind. Payloads are large, so this
+ * returns at most `limit` of them and the caller is expected to ask for two or
+ * three rather than a month.
+ *
+ * Rows written as markers rather than data are skipped: the same key carries a
+ * few hundred bytes of bookkeeping alongside the multi-megabyte chains, and a
+ * caller asking for the last two chains means the last two chains.
+ */
+export function loadSnapshotSeries<T>(
+  namespace: string,
+  cacheKey: string,
+  limit = 2,
+  minimumBytes = 100_000,
+): Array<{ sourceTime: string | null; fetchedAt: string; payload: T }> {
+  const rows = database()
+    .prepare(`
+      SELECT source_time, fetched_at, payload
+      FROM snapshot_history
+      WHERE namespace = ? AND cache_key = ? AND length(payload) >= ?
+      ORDER BY COALESCE(source_time, fetched_at) DESC
+      LIMIT ?
+    `)
+    .all(namespace, cacheKey, minimumBytes, limit) as Array<{
+      source_time: string | null;
+      fetched_at: string;
+      payload: string;
+    }>;
+  const parsed: Array<{ sourceTime: string | null; fetchedAt: string; payload: T }> = [];
+  for (const row of rows) {
+    try {
+      parsed.push({
+        sourceTime: row.source_time,
+        fetchedAt: row.fetched_at,
+        payload: JSON.parse(row.payload) as T,
+      });
+    } catch {
+      // A row that will not parse is a row that cannot be compared. Skipping it
+      // costs one session of history; throwing would cost the whole panel.
+    }
+  }
+  return parsed;
+}
+
 export function pruneSnapshotHistory(
   namespace: string,
   options: { retainRecentDays?: number; retainSessions?: number } = {},

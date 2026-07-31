@@ -17,10 +17,12 @@ import {
   type Smile,
   yearsToExpiry,
 } from "@/lib/options-math";
+import { sessionFlow, summariseFlow, type ChainContract } from "@/lib/block-flow";
 import { dedupeRequest } from "@/lib/server/request-deduper";
 import { loadMacroSeries } from "@/lib/server/macro-sources";
 import {
   getSnapshot,
+  loadSnapshotSeries,
   loadSurfaceHistory,
   pruneSnapshotHistory,
   putSnapshot,
@@ -94,7 +96,7 @@ const SYMBOLS = {
 
 const DEFAULT_RISK_FREE_RATE = 0.045;
 const USER_AGENT = "Mozilla/5.0 (compatible; GEXLab/3.0)";
-const METHODOLOGY_VERSION = "options-exposure-v3.4.0";
+const METHODOLOGY_VERSION = "options-exposure-v3.5.0";
 // Roughly a month of trading kept as raw chains. Enough to recompute derived
 // tables under a changed methodology; past that the storage is not worth it.
 const RAW_HISTORY_SESSIONS = Number(process.env.GEXLAB_RAW_SESSIONS || 20);
@@ -962,6 +964,75 @@ export async function GET(
       }
     }
 
+    // Large trades, from this session's chain and the one before it.
+    //
+    // Open interest in these snapshots lags a session, so the change between
+    // two consecutive chains is produced by the volume in the earlier one. The
+    // pair is therefore (older chain's volume, newer chain's open interest),
+    // which is what makes intent trustworthy rather than merely plausible.
+    // Reported for the whole book rather than the selected expiries: size shows
+    // up where it wants to, and filtering it to the current selection would
+    // hide the strike that mattered.
+    const flow = (() => {
+      const asContracts = (list: ParsedContract[]): ChainContract[] =>
+        list.map((contract) => ({
+          // Rebuild the OCC symbol, which is what pairs a contract across two
+          // sessions. Strike is carried in thousandths, so it is restored to
+          // the eight-digit form the source uses rather than printed as a
+          // number that would not match.
+          contract:
+            contract.root +
+            contract.expiry.replaceAll("-", "").slice(2) +
+            (contract.type === "call" ? "C" : "P") +
+            String(Math.round(contract.strike * 1000)).padStart(8, "0"),
+          expiry: contract.expiry,
+          strike: contract.strike,
+          type: contract.type,
+          openInterest: contract.oi,
+          volume: contract.volume,
+          bid: contract.bid,
+          ask: contract.ask,
+          last: contract.last,
+        }));
+      const history = loadSnapshotSeries<RawPayload>("options-raw", `${symbol}:eod:market-asof`, 2);
+      // history[0] is the current chain; history[1] is the session before it.
+      const older = history[1];
+      if (!older) return null;
+      const olderContracts = (older.payload?.data?.options ?? [])
+        .map(parseContract)
+        .filter((contract): contract is ParsedContract => Boolean(contract));
+      if (!olderContracts.length) return null;
+      const session = easternDate(new Date(older.sourceTime ?? older.fetchedAt));
+      // That session's own spot, not today's. Intrinsic value is measured
+      // against where the index was when the trade happened; using the current
+      // price reprices the whole book and silently rewrites which contracts
+      // were in the money. Applying the 30 July spot to the 29 July chain wiped
+      // the extrinsic value off every call and left the ranking all puts.
+      const sessionSpot = Number(older.payload?.data?.current_price);
+      if (!Number.isFinite(sessionSpot) || sessionSpot <= 0) return null;
+      const rows = sessionFlow(asContracts(olderContracts), asContracts(parsedContracts), {
+        spot: sessionSpot,
+        sessionDate: session,
+        limit: 40,
+      });
+      if (!rows.length) return null;
+      return {
+        session,
+        resolvedAgainst: observationDate,
+        rows,
+        summary: summariseFlow(rows),
+        method:
+          "Ranked by premium traded. Open interest here lags a session, so a session's volume is " +
+          "matched against the open-interest change that arrives the next day; that pairing leaves " +
+          "0.2% of contracts showing an impossible change, against 7.6% when paired the other way.",
+        caveat:
+          "Size, not order flow. End-of-day chains carry no timestamps, no bid-ask side and no " +
+          "individual prints, so this cannot see when a trade happened, whether it was bought or " +
+          "sold, or whether one order was worked in slices. It shows what traded and how much of " +
+          "it stayed on.",
+      };
+    })();
+
     const expiryStats = expiries.map((date) => memoExpiryStats(`${sliceKey}:${date}`, () => {
       const expiryContracts = contracts.filter((contract) => contract.expiry === date);
       const listedStrikes = [...new Set(expiryContracts.map((contract) => contract.strike))];
@@ -1025,6 +1096,7 @@ export async function GET(
       },
       expiryLevels,
       expiryStats,
+      flow,
       surface,
       surfaceChange,
       surfaceHistoryDays: new Set(surfaceHistory.map((row) => row.observationDate)).size,

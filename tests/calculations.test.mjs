@@ -34,6 +34,7 @@ import {
   pivotReturn,
   regimeName,
 } from "../src/lib/regime-forecast.ts";
+import { sessionFlow, summariseFlow } from "../src/lib/block-flow.ts";
 import {
   curveRecessionProbability,
   netLiquidity,
@@ -397,6 +398,122 @@ test("an empty query parameter means absent, not a selection that matches nothin
   assert.match(route, /let requestedThrough = parameter\("through"\)/);
   assert.match(route, /let requestedExpiryList = parameter\("expiries"\)/);
   assert.doesNotMatch(route, /searchParams\.get\("expiry"\);/);
+});
+
+function chainContract(over = {}) {
+  return {
+    contract: "NDXP260918P00027000",
+    expiry: "2026-09-18",
+    strike: 27000,
+    type: "put",
+    openInterest: 2587,
+    volume: 751,
+    bid: 900,
+    ask: 950,
+    last: 925,
+    ...over,
+  };
+}
+
+test("flow separates a position from a day trade, and says when it cannot tell", () => {
+  const spot = 27192;
+  const session = [
+    chainContract({ contract: "A", volume: 1000, openInterest: 500 }),
+    // Enough already on to be able to come off: open interest cannot fall
+    // further than it started.
+    chainContract({ contract: "B", volume: 1000, openInterest: 1500 }),
+    chainContract({ contract: "C", volume: 1000, openInterest: 500 }),
+    chainContract({ contract: "D", volume: 1000, openInterest: 500 }),
+  ];
+  const next = [
+    // Most of what traded stayed on.
+    chainContract({ contract: "A", openInterest: 1400 }),
+    // Most of it came off.
+    chainContract({ contract: "B", openInterest: 600 }),
+    // Traded heavily, left almost nothing behind.
+    chainContract({ contract: "C", openInterest: 520 }),
+    // Open interest moved by more than traded: exercise or a correction, since
+    // a position cannot be created without a trade.
+    chainContract({ contract: "D", openInterest: 3000 }),
+  ];
+  const rows = sessionFlow(session, next, { spot, sessionDate: "2026-07-29" });
+  const intent = Object.fromEntries(rows.map((row) => [row.contract, row.intent]));
+  assert.equal(intent.A, "opened");
+  assert.equal(intent.B, "closed");
+  assert.equal(intent.C, "churned");
+  assert.equal(intent.D, "unexplained");
+
+  // Without the following session there is nothing to resolve against, but the
+  // size is still worth showing on the day.
+  const pending = sessionFlow(session, null, { spot, sessionDate: "2026-07-29" });
+  assert.ok(pending.every((row) => row.intent === "pending"));
+
+  // A contract that expired in the session that traded it can never resolve, so
+  // it must not promise an answer that is not coming.
+  const expired = sessionFlow(
+    [chainContract({ contract: "E", expiry: "2026-07-29", strike: 27200, volume: 800 })],
+    null,
+    { spot, sessionDate: "2026-07-29" },
+  );
+  assert.equal(expired[0].intent, "expired");
+});
+
+test("flow ranks on premium at risk, not on gross premium or contract count", () => {
+  const spot = 27192;
+  // Deep in the money: nearly all of a very large premium is intrinsic.
+  const deep = chainContract({
+    contract: "DEEP", strike: 30000, volume: 365, bid: 3050, ask: 3080, last: 3060,
+  });
+  // At the money: a smaller premium, but all of it is a bet.
+  const atMoney = chainContract({
+    contract: "ATM", strike: 27000, volume: 751, bid: 900, ask: 950, last: 925,
+  });
+  const rows = sessionFlow([deep, atMoney], null, { spot, sessionDate: "2026-07-29" });
+  const gross = Object.fromEntries(rows.map((row) => [row.contract, row.notional]));
+  const atRisk = Object.fromEntries(rows.map((row) => [row.contract, row.extrinsicNotional]));
+  // Gross premium would put the deep strike first; it is much the larger cheque.
+  assert.ok(gross.DEEP > gross.ATM, "the deep strike is the bigger gross trade");
+  // Premium at risk reverses it, which is the ordering that means something.
+  assert.ok(atRisk.ATM > atRisk.DEEP, "the at-the-money strike risks more");
+  assert.equal(rows[0].contract, "ATM");
+  // Intrinsic value is stripped, not ignored: the gross figure stays on the row
+  // because for a roll or a hedge it is the relevant one.
+  assert.ok(atRisk.DEEP < gross.DEEP * 0.5);
+});
+
+test("flow summaries keep calls and puts apart", () => {
+  const spot = 27192;
+  const rows = sessionFlow(
+    [
+      chainContract({ contract: "P1", volume: 800 }),
+      chainContract({ contract: "C1", type: "call", strike: 27400, volume: 800, bid: 300, ask: 310, last: 305 }),
+    ],
+    null,
+    { spot, sessionDate: "2026-07-29" },
+  );
+  const summary = summariseFlow(rows);
+  assert.ok(summary.callNotional > 0);
+  assert.ok(summary.putNotional > 0);
+  // Netting them would make a day of heavy two-way buying look like a quiet one.
+  assert.ok(summary.callShare > 0 && summary.callShare < 1);
+  assert.equal(summary.resolved, false, "nothing resolves without the next session");
+});
+
+test("the flow panel prices a session against its own spot", () => {
+  const route = readFileSync(
+    new URL("../src/app/api/options/[symbol]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // Intrinsic value is measured against where the index was when the trade
+  // happened. Using the current price reprices the whole book: applying the
+  // 30 July spot to the 29 July chain wiped the extrinsic value off every call
+  // and left the ranking entirely puts.
+  assert.match(route, /const sessionSpot = Number\(older\.payload\?\.data\?\.current_price\)/);
+  assert.match(route, /spot: sessionSpot,/);
+  // Open interest lags a session, so the pair is the older chain's volume
+  // against the newer chain's open interest.
+  assert.match(route, /sessionFlow\(asContracts\(olderContracts\), asContracts\(parsedContracts\)/);
+  assert.match(route, /Size, not order flow/);
 });
 
 test("geopolitical risk is parsed from the workbook and cannot take the page down with it", () => {

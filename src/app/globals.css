@@ -6718,3 +6718,135 @@ h3 {
 .session-character-card .card-footer small {
   color: var(--ink-muted);
 }
+
+/* Largest option trades.
+   A table, because the comparison is row against row and every column is a
+   number. The intent chip is the only colour: it is the one field that is a
+   judgement rather than a measurement, and it should be findable at a glance. */
+.large-trades-head {
+  align-items: end;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+}
+
+.large-trades-head h3 {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 430;
+  letter-spacing: -0.015em;
+  margin-top: 0.35rem;
+}
+
+.large-trades-totals {
+  display: flex;
+  gap: 1.6rem;
+}
+
+.large-trades-totals small {
+  color: var(--ink-muted);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.large-trades-totals strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 520;
+  margin-top: 0.25rem;
+}
+
+.large-trades-table {
+  margin-top: 0.5rem;
+}
+
+.large-trades-row {
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(9rem, 1.6fr) 5rem 7rem 8rem 7rem;
+  padding: 0.6rem 0;
+}
+
+.large-trades-row span {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-align: right;
+}
+
+.large-trades-row span:first-child {
+  text-align: left;
+}
+
+.large-trades-row strong {
+  display: block;
+  font-weight: 520;
+}
+
+.large-trades-row em {
+  color: var(--ink-muted);
+  display: block;
+  font-size: 0.55rem;
+  font-style: normal;
+  margin-top: 0.1rem;
+}
+
+.large-trades-row--head span {
+  color: var(--ink-muted);
+  font-family: var(--font-sans);
+  font-size: 0.56rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.large-trades-row:not(.large-trades-row--head):hover {
+  background: var(--surface);
+}
+
+.large-trades-intent {
+  border: 1px solid var(--rule-strong);
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  padding: 0.15rem 0.4rem;
+  text-transform: uppercase;
+}
+
+.large-trades-intent--constructive {
+  border-color: var(--constructive);
+  color: var(--constructive);
+}
+
+.large-trades-intent--stress {
+  border-color: var(--stress);
+  color: var(--stress);
+}
+
+.large-trades-intent--caution {
+  border-color: var(--caution);
+  color: var(--caution);
+}
+
+.large-trades .data-disclaimer {
+  margin-top: 1rem;
+}
+
+@media (max-width: 860px) {
+  .large-trades-row {
+    grid-template-columns: minmax(7rem, 1.4fr) 4rem 5.5rem 6.5rem;
+  }
+  .large-trades-row span:last-child {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+}
