@@ -18,4 +18,11 @@ export const MACRO_SERIES_IDS = [
   "CORESTICKM159SFRBATL", "PCETRIM12M159SFRBDAL",
   "TEMPHELPS", "JTSQUR", "JTSJOL", "AWHAETP", "CLF16OV",
   "DRTSCILM", "TOTBKCR", "BUSLOANS",
+  // Policy and geopolitical uncertainty, from the Baker-Bloom-Davis newspaper
+  // indices. Two of the three are daily, which is rare for anything in this
+  // catalogue that is not a price, and that is what makes them usable for
+  // regime work rather than only for commentary. The proper geopolitical-risk
+  // index (Caldara-Iacoviello) is not carried on FRED and is published only as
+  // a legacy Excel workbook, so it is not wired here.
+  "USEPUINDXD", "WLEMUINDXD", "GEPUCURRENT",
 ] as const;

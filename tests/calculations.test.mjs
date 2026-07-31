@@ -382,6 +382,58 @@ test("the engine publishes a live probability for the targets that beat their ba
   assert.match(route, /Range and volatility, not direction/);
 });
 
+test("an empty query parameter means absent, not a selection that matches nothing", () => {
+  const route = readFileSync(
+    new URL("../src/app/api/options/[symbol]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // `?expiry=` gave the empty string, which is not null, so `?? expiries[0]`
+  // kept it. The selection became [""], nothing matched, and the route answered
+  // 200 with zero contracts, zero strikes and null levels: an empty book served
+  // as a real snapshot rather than an error or a fallback.
+  assert.match(route, /const raw = request\.nextUrl\.searchParams\.get\(name\)\?\.trim\(\);/);
+  assert.match(route, /return raw \? raw : null;/);
+  assert.match(route, /let requestedExpiry = parameter\("expiry"\)/);
+  assert.match(route, /let requestedThrough = parameter\("through"\)/);
+  assert.match(route, /let requestedExpiryList = parameter\("expiries"\)/);
+  assert.doesNotMatch(route, /searchParams\.get\("expiry"\);/);
+});
+
+test("newspaper uncertainty series are catalogued and surfaced", () => {
+  const catalog = readFileSync(
+    new URL("../src/lib/server/series-catalog.ts", import.meta.url),
+    "utf8",
+  );
+  // Two of the three are daily, which is what makes them usable for regime work
+  // rather than only for commentary.
+  for (const id of ["USEPUINDXD", "WLEMUINDXD", "GEPUCURRENT"]) {
+    assert.match(catalog, new RegExp(`"${id}"`), `${id} is catalogued`);
+  }
+  const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
+  assert.match(route, /id: "policy-uncertainty"/);
+  assert.match(route, /id: "equity-uncertainty"/);
+  assert.match(route, /id: "global-uncertainty"/);
+  // The daily indices are averaged before display: the raw series is very noisy
+  // and a single print is not a reading.
+  assert.match(route, /movingAverage\(store\.USEPUINDXD, 20\)/);
+});
+
+test("the engine page shows the targets that beat their baseline, with their base rates", () => {
+  const page = readFileSync(
+    new URL("../src/components/forecast-engine.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(page, /function SessionCharacter\(/);
+  assert.match(page, /Before the open · \{session\}/);
+  // A probability without its base rate is unreadable: 40% is strong against a
+  // 24% base and weak against 50%.
+  assert.match(page, /base rate \$\{\(base \* 100\)\.toFixed\(0\)\}%/);
+  assert.match(page, /session-character-base/);
+  // Whether the number is trustworthy travels with the number.
+  assert.match(page, /target\.hasMeasuredEdge/);
+  assert.match(page, /No measured edge over its base rate/);
+});
+
 test("both routes advance the index past the publication calendar through one shared rule", () => {
   const nowcast = readFileSync(
     new URL("../src/lib/server/index-nowcast.ts", import.meta.url),

@@ -6661,3 +6661,60 @@ h3 {
   margin-top: 0.35rem;
   text-transform: uppercase;
 }
+
+/* Pre-open session character.
+   Two cards, wide, because these are the only forecasts on the page with a
+   measured edge and the layout should say so. The scale under each probability
+   marks where its base rate sits, so the lift is seen rather than computed. */
+.session-character {
+  border-top: 1px solid var(--ink);
+  margin-top: clamp(2.5rem, 5vw, 4rem);
+  padding-top: 1.4rem;
+}
+
+.session-character-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  margin-top: 1.3rem;
+}
+
+.session-character-scale {
+  background: var(--rule);
+  height: 3px;
+  margin: 0.9rem 0 0.2rem;
+  position: relative;
+}
+
+.session-character-fill {
+  animation: bar-reveal 320ms var(--ease-out) both;
+  background: var(--map);
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+}
+
+/* The base rate, as a tick the fill is read against. */
+.session-character-base {
+  background: var(--ink);
+  height: 9px;
+  position: absolute;
+  top: -3px;
+  width: 1px;
+}
+
+.session-character-base::after {
+  color: var(--ink-muted);
+  content: "base";
+  font-family: var(--font-mono);
+  font-size: 0.46rem;
+  left: 3px;
+  letter-spacing: 0.06em;
+  position: absolute;
+  text-transform: uppercase;
+  top: 10px;
+}
+
+.session-character-card .card-footer small {
+  color: var(--ink-muted);
+}

@@ -37,6 +37,14 @@ type ClassifierEvaluation = {
   coefficients: { feature: string; weight: number }[];
 };
 
+type SessionCharacterTarget = {
+  probability: number | null;
+  baseRate: number | null;
+  hasMeasuredEdge: boolean;
+  falseDiscoveryRate: number | null;
+  question: string;
+};
+
 type EngineData = {
   modelVersion: string;
   fetchedAt: string;
@@ -72,6 +80,11 @@ type EngineData = {
       hasMeasuredEdge?: boolean;
       volatilityScale: number;
     };
+    sessionCharacter?: {
+      wideRange: SessionCharacterTarget;
+      volatilityExpansion: SessionCharacterTarget;
+      caveat: string;
+    } | null;
   };
   evaluation: {
     direction: ClassifierEvaluation | null;
@@ -234,6 +247,83 @@ function ProbabilityCard({
             : `Does not beat the base rate out of sample across ${evaluation.samples.toLocaleString()} sessions. Treat this number as description, not signal.`}
       </p>
     </article>
+  );
+}
+
+/**
+ * How the next session behaves, as opposed to which way it goes.
+ *
+ * These are the only two targets in the engine that beat their baseline after a
+ * multiple-testing correction, and until now they existed only as backtest
+ * metrics: the page led with direction, which has no measured edge, and said
+ * nothing about the two that do. Every input is known at the prior close, so
+ * this is readable before the opening bell.
+ *
+ * Each row shows its own base rate, because a probability means nothing without
+ * one — 40% is a strong reading against a 24% base and a weak one against 50%.
+ */
+function SessionCharacter({
+  character,
+  session,
+}: {
+  character: NonNullable<NonNullable<EngineData["forecast"]["sessionCharacter"]>>;
+  session: string;
+}) {
+  const rows = [
+    { key: "wideRange", label: "Wide range", target: character.wideRange },
+    { key: "volatilityExpansion", label: "Volatility expansion", target: character.volatilityExpansion },
+  ];
+  return (
+    <section className="session-character reveal reveal--2">
+      <div className="section-heading">
+        <span className="card-kicker">Before the open · {session}</span>
+        <h2>How the next session behaves</h2>
+        <p>{character.caveat}</p>
+      </div>
+      <div className="session-character-grid">
+        {rows.map(({ key, label, target }) => {
+          const probability = target.probability;
+          const base = target.baseRate;
+          const lift = probability !== null && base !== null ? (probability - base) * 100 : null;
+          return (
+            <article className="card session-character-card" key={key}>
+              <div className="card-header">
+                <span className="card-kicker">{label}</span>
+                <h3>{target.question}</h3>
+              </div>
+              <div className="probability-display">
+                <span className="probability-value">
+                  {probability === null ? "—" : `${(probability * 100).toFixed(0)}%`}
+                </span>
+                <span className="probability-meta">
+                  {base === null ? "no base rate" : `base rate ${(base * 100).toFixed(0)}%`}
+                  {lift === null ? "" : ` · ${lift >= 0 ? "+" : ""}${lift.toFixed(1)}pp`}
+                </span>
+              </div>
+              {/* Where the probability sits against its base rate, so the lift
+                  is visible rather than arithmetic the reader has to do. */}
+              <div className="session-character-scale" aria-hidden="true">
+                <i className="session-character-fill" style={{ width: `${(probability ?? 0) * 100}%` }} />
+                {base !== null && (
+                  <i className="session-character-base" style={{ left: `${base * 100}%` }} />
+                )}
+              </div>
+              <div className="card-footer">
+                <small>
+                  {target.hasMeasuredEdge
+                    ? `Beats its base rate out of sample${
+                        target.falseDiscoveryRate === null
+                          ? ""
+                          : ` (q = ${target.falseDiscoveryRate.toExponential(1)})`
+                      }.`
+                    : "No measured edge over its base rate; shown for context only."}
+                </small>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -539,6 +629,13 @@ export function ForecastEngine() {
         )}
         {data && <RangeBar forecast={data.forecast} />}
       </section>
+
+      {data?.forecast.sessionCharacter && (
+        <SessionCharacter
+          character={data.forecast.sessionCharacter}
+          session={data.nextSession}
+        />
+      )}
 
       {data?.evaluation.volatility && (
         <section className="volatility-scorecard reveal reveal--2">

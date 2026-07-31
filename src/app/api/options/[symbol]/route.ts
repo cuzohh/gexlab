@@ -644,11 +644,21 @@ export async function GET(
         { status: 422 },
       );
     }
-    let requestedExpiry = request.nextUrl.searchParams.get("expiry");
-    let requestedThrough = request.nextUrl.searchParams.get("through");
-    let requestedExpiryList = request.nextUrl.searchParams
-      .get("expiries")
+    // An absent parameter and a present-but-empty one have to mean the same
+    // thing. They did not: `?expiry=` produced the empty string, which is not
+    // null, so `requestedExpiry ?? expiries[0]` kept it and the selection became
+    // [""]. Nothing matched, and the route answered 200 with zero contracts,
+    // zero strikes and null levels — an empty book presented as a real snapshot
+    // rather than an error or a fallback.
+    const parameter = (name: string) => {
+      const raw = request.nextUrl.searchParams.get(name)?.trim();
+      return raw ? raw : null;
+    };
+    let requestedExpiry = parameter("expiry");
+    let requestedThrough = parameter("through");
+    let requestedExpiryList = parameter("expiries")
       ?.split(",")
+      .map((date) => date.trim())
       .filter(Boolean);
     const allowPartialExpiries =
       request.nextUrl.searchParams.get("partialExpiries") === "1";
