@@ -399,6 +399,34 @@ test("an empty query parameter means absent, not a selection that matches nothin
   assert.doesNotMatch(route, /searchParams\.get\("expiry"\);/);
 });
 
+test("geopolitical risk is parsed from the workbook and cannot take the page down with it", () => {
+  const source = readFileSync(
+    new URL("../src/lib/server/geopolitical-sources.ts", import.meta.url),
+    "utf8",
+  );
+  // The daily index is the reason to carry this: nothing else describing this
+  // kind of stress updates faster than monthly.
+  assert.match(source, /readSeries\(body, header, "GPRD"\)/);
+  // Threats and acts behave differently, and markets price anticipation.
+  assert.match(source, /readSeries\(body, header, "GPRD_ACT"\)/);
+  assert.match(source, /readSeries\(body, header, "GPRD_THREAT"\)/);
+  // Excel keeps dates two ways in these files and both are handled.
+  assert.match(source, /Date\.UTC\(1899, 11, 30\) \+ serial \* 86_400_000/);
+  assert.match(source, /\^\\d\{8\}\$/);
+  // An error page served with a 200 must not reach the spreadsheet reader.
+  assert.match(source, /if \(buffer\.length < 1024\)/);
+  // The country breakdown is detail; losing it must not cost the index.
+  assert.match(source, /monthly = storedMonthly\?\.payload \?\? \{ countries: \[\], countriesAsOf: null \}/);
+
+  const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
+  // A third-party academic site must never be able to fail the whole page.
+  assert.match(route, /loadGeopoliticalRisk\(\)\.catch\(\(\) => null\)/);
+  assert.match(route, /geopolitical: geopolitical/);
+  // Coverage is not danger, and the claim is limited accordingly.
+  assert.match(route, /A measure of coverage, not of outcomes/);
+  assert.match(route, /no measured relationship to next-session returns/);
+});
+
 test("newspaper uncertainty series are catalogued and surfaced", () => {
   const catalog = readFileSync(
     new URL("../src/lib/server/series-catalog.ts", import.meta.url),

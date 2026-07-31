@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { easternDate, nextWeekday, sessionsBehind } from "@/lib/market-time";
+import { loadGeopoliticalRisk } from "@/lib/server/geopolitical-sources";
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { nextSessionOutlook, pivotReturn } from "@/lib/regime-forecast";
 import {
@@ -66,7 +67,7 @@ const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
 const COT_CACHE_MS = 20 * 60 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.14.0";
+const METHODOLOGY_VERSION = "macro-regime-v3.15.0";
 // Derived, not written out again. These were two hand-kept strings, so adding a
 // field to the payload left the key pointing at the old shape and the cached
 // response was served for the full window with the new field missing — and
@@ -711,12 +712,15 @@ function eventWindowStudy(
 }
 
 async function buildPayload() {
-  const [seriesResult, cotResults, fomcMeetings, recentReleases, scheduledReleases] = await Promise.all([
+  const [seriesResult, cotResults, fomcMeetings, recentReleases, scheduledReleases, geopolitical] = await Promise.all([
     loadMacroSeriesStore(FRED_IDS),
     Promise.allSettled([fetchCot("NASDAQ MINI"), fetchCot("E-MINI S&P 500")]),
     loadFomcMeetings().catch(() => null),
     loadRecentReleases().catch(() => null),
     loadScheduledReleases().catch(() => null),
+    // Never fatal: the geopolitical workbooks are a third-party academic site,
+    // and the rest of this page must not depend on their availability.
+    loadGeopoliticalRisk().catch(() => null),
   ]);
   const studyYears = Array.from({ length: 11 }, (_, index) => new Date().getUTCFullYear() - 10 + index);
   const publishedReleaseDates = await loadPublishedReleaseDates(studyYears).catch(() => []);
@@ -1560,6 +1564,42 @@ async function buildPayload() {
       caveat: "This is an end-of-day classification from public observations, not a live trade signal. Mean-reverting means recent price paths have been inefficient; it does not guarantee the next move will reverse.",
       factors: marketFactors,
     },
+    // Geopolitical risk. Kept beside the regime rather than inside it: it is a
+    // published index of newspaper coverage, not a price, and folding it into a
+    // score built from returns would hide which of the two moved.
+    geopolitical: geopolitical
+      ? (() => {
+          const level = geopolitical.average30.at(-1)?.value ?? null;
+          const priorLevel = geopolitical.average30.at(-21)?.value ?? null;
+          const threat = geopolitical.threats.at(-1)?.value ?? null;
+          const act = geopolitical.acts.at(-1)?.value ?? null;
+          // A hundred is the index's own long-run normalisation, so it reads as
+          // a level rather than needing a percentile to be legible.
+          return {
+            asOf: geopolitical.asOf,
+            level,
+            change20: level !== null && priorLevel !== null ? level - priorLevel : null,
+            latest: geopolitical.daily.at(-1)?.value ?? null,
+            threats: threat,
+            acts: act,
+            // Markets price anticipation, so a book of threats without acts is a
+            // different environment from realised events, and the ratio says
+            // which one is driving the index.
+            threatShare: threat !== null && act !== null && threat + act > 0 ? threat / (threat + act) : null,
+            countries: geopolitical.countries.slice(0, 8),
+            countriesAsOf: geopolitical.countriesAsOf,
+            method:
+              "Caldara and Iacoviello's daily geopolitical risk index: the share of newspaper " +
+              "articles discussing adverse geopolitical events, normalised so 100 is the " +
+              "long-run average. Shown as the publisher's own 30-day average because a single " +
+              "day is dominated by the news cycle.",
+            caveat:
+              "A measure of coverage, not of outcomes. It records how much is being written " +
+              "about geopolitical risk, which rises with attention as well as with danger, and " +
+              "it has no measured relationship to next-session returns in this application.",
+          };
+        })()
+      : null,
     regime: {
       name: regime,
       confidence,
