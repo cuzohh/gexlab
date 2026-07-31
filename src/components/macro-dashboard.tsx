@@ -24,6 +24,9 @@ type MacroData = {
     /** Sessions behind the last completed one. 0 means as current as the source gets. */
     asOfSessionsBehind?: number | null;
     provisionalSession?: { date: string; source: string } | null;
+    horizonSessions?: number;
+    lastSessionReturn?: number | null;
+    windowReturn?: number | null;
     outlook?: {
       date: string | null;
       name: string;
@@ -342,6 +345,26 @@ function DataStatus({ data, error }: { data: MacroData | null; error: string }) 
   );
 }
 
+const signedPercent = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+
+/**
+ * Puts the last session next to the window it is being averaged into.
+ *
+ * A single large day can leave the label untouched and look like a fault. It is
+ * not: the classification is measured over twenty sessions, and stating both
+ * numbers together is the difference between a slow reading and a wrong one.
+ */
+function describeSessionContext(regime: MacroData["marketRegime"]) {
+  const session = regime.lastSessionReturn;
+  const window = regime.windowReturn;
+  if (session === null || session === undefined || window === null || window === undefined) return "";
+  const horizon = regime.horizonSessions ?? 20;
+  const opposed = Math.sign(session) !== Math.sign(window) && Math.abs(session) > 0.5;
+  return opposed
+    ? `The Nasdaq-100 closed ${signedPercent(session)} on the session and is ${signedPercent(window)} over ${horizon}, which is why one strong day has not moved the classification.`
+    : `The Nasdaq-100 closed ${signedPercent(session)} on the session and is ${signedPercent(window)} over ${horizon}.`;
+}
+
 /**
  * The next session's regime.
  *
@@ -366,10 +389,15 @@ function RegimeOutlook({
   return (
     <div className="regime-outlook">
       <div className="regime-outlook-head">
-        <p className="section-kicker">
-          Next session{outlook.date ? ` · ${shortDate(outlook.date)}` : ""}
+        <p className="section-kicker regime-outlook-kicker">
+          Projected · next session{outlook.date ? ` · ${shortDate(outlook.date)}` : ""}
         </p>
-        <h3>{outlook.name}</h3>
+        <h3>
+          {outlook.name}
+          {/* Spelled out, because the words above are identical and only the
+              kicker distinguishes measured from projected. */}
+          <small> — carried forward, not observed</small>
+        </h3>
       </div>
       <div className="regime-outlook-figures">
         <span>
@@ -417,7 +445,13 @@ function MarketBehaviorMap({ data }: { data: MacroData | null }) {
     <figure className="market-behavior-figure">
       <header>
         <div>
-          <p className="section-kicker">Market behavior · end of day</p>
+          {/* Named by the window it measures. The outlook below carries the
+              same words for a different session, and two identical labels side
+              by side is what makes the card ambiguous. */}
+          <p className="section-kicker">
+            Measured · last {state?.horizonSessions ?? 20} sessions
+            {state?.asOf ? ` through ${shortDate(state.asOf)}` : ""}
+          </p>
           <h2>{state?.name ?? "Classifying the price path…"}</h2>
         </div>
         <span>{state ? `${state.confidence}% signal clarity` : "Waiting for daily closes"}</span>
@@ -949,10 +983,14 @@ export function MacroDashboard({ view }: { view: View }) {
       <div className="page-shell">
         <OrientationHero
           eyebrow={`Macro overview · ${data ? "official data" : error ? "connection error" : "loading"}`}
-          question="How is this market behaving?"
+          // The window belongs in the question. Asked in the present tense, a
+          // classification built from twenty and sixty sessions reads as a claim
+          // about today, and a reader who just watched a 3% session concludes
+          // the label is broken rather than slow.
+          question={`How has this market behaved over ${data?.marketRegime.horizonSessions ?? 20} sessions?`}
           answer={data?.marketRegime.name ?? (error ? "Macro data is unavailable." : "Reading the environment…")}
           detail={data
-            ? `${data.marketRegime.summary} The economic backdrop is ${data.regime.name.toLowerCase()}, with risk appetite at ${data.regime.riskAppetite}/100.`
+            ? `${describeSessionContext(data.marketRegime)} ${data.marketRegime.summary} The economic backdrop is ${data.regime.name.toLowerCase()}, with risk appetite at ${data.regime.riskAppetite}/100.`
             : error || "Loading growth, inflation, rates, liquidity, stress, and positioning."}
           confidence={data?.marketRegime.confidence}
           confidenceLabel="Signal clarity"

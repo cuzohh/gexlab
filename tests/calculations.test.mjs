@@ -341,6 +341,31 @@ test("publication lag is counted in sessions, and a working feed reads as zero",
   assert.equal(describeSessionLag(null), "Public daily observations");
 });
 
+test("the regime states its horizon, and measured is distinguishable from projected", () => {
+  const dashboard = readFileSync(
+    new URL("../src/components/macro-dashboard.tsx", import.meta.url),
+    "utf8",
+  );
+  // Asked in the present tense, a twenty-session classification reads as a claim
+  // about today: a reader who has just watched a 3% session concludes the label
+  // is broken rather than slow.
+  assert.match(dashboard, /How has this market behaved over \$\{data\?\.marketRegime\.horizonSessions \?\? 20\} sessions\?/);
+  assert.doesNotMatch(dashboard, /question="How is this market behaving\?"/);
+  // The measured and projected labels are the same words for different sessions.
+  // Only the kicker separates them, so both have to be explicit.
+  assert.match(dashboard, /Measured · last \{state\?\.horizonSessions \?\? 20\} sessions/);
+  assert.match(dashboard, /Projected · next session/);
+  assert.match(dashboard, /carried forward, not observed/);
+  // The session that just traded is shown against the window it lands in.
+  assert.match(dashboard, /function describeSessionContext/);
+  assert.match(dashboard, /one strong day has not moved the classification/);
+
+  const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
+  assert.match(route, /horizonSessions: 20,/);
+  assert.match(route, /lastSessionReturn: percentChange\(store\.NASDAQ100, 1\)/);
+  assert.match(route, /windowReturn: percentChange\(store\.NASDAQ100, 20\)/);
+});
+
 test("the nowcast can only advance a session that has actually closed", () => {
   const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
   // The close is already in this database before FRED publishes it, captured by

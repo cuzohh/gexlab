@@ -6645,3 +6645,19 @@ h3 {
     grid-template-columns: 1fr;
   }
 }
+
+/* The projected label repeats the measured one word for word, so the kicker is
+   the only thing separating them. It gets the accent and the rule. */
+.regime-outlook-kicker {
+  color: var(--map);
+}
+
+.regime-outlook-head h3 small {
+  color: var(--ink-muted);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.04em;
+  margin-top: 0.35rem;
+  text-transform: uppercase;
+}

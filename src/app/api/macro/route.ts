@@ -65,7 +65,7 @@ const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
 const COT_CACHE_MS = 20 * 60 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.12.2";
+const METHODOLOGY_VERSION = "macro-regime-v3.13.0";
 // Derived, not written out again. These were two hand-kept strings, so adding a
 // field to the payload left the key pointing at the old shape and the cached
 // response was served for the full window with the new field missing — and
@@ -1555,6 +1555,13 @@ async function buildPayload() {
             source: "Exchange close captured with the option chain, ahead of the FRED release",
           }
         : null,
+      // The window the classification is measured over, and the single session
+      // that just traded. A label built from twenty and sixty sessions answers a
+      // different question from the one a reader asks after a large day, and
+      // showing the two together is what stops the slow number reading as wrong.
+      horizonSessions: 20,
+      lastSessionReturn: percentChange(store.NASDAQ100, 1),
+      windowReturn: percentChange(store.NASDAQ100, 20),
       // What the same classification says about the next session. Mostly it
       // says the label carries: both scores run on 20- and 60-session windows,
       // so one more observation moves them very little. The confidence is the
