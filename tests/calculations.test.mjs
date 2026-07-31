@@ -5,10 +5,13 @@ import test from "node:test";
 
 import {
   easternCloseIso,
+  latestCompletedTradingDate,
   latestMarketObservationTime,
   nextQuarterHour,
   parseEasternTimestamp,
   parseUtcTimestamp,
+  describeSessionLag,
+  sessionsBehind,
 } from "../src/lib/market-time.ts";
 import {
   buildSmile,
@@ -186,6 +189,61 @@ const GREEK_CASES = [
   { name: "ITM 90d", spot: 27200, strike: 29000, years: 90 / 365, iv: 0.25, riskFreeRate: 0.043, dividendYield: 0.006 },
   { name: "1y no carry", spot: 100, strike: 100, years: 1, iv: 0.2, riskFreeRate: 0, dividendYield: 0 },
 ];
+
+test("publication lag is counted in sessions, and a working feed reads as zero", () => {
+  const at = (iso) => new Date(iso);
+  // The case that prompted this. FRED republishes an equity close on the next
+  // business day, so at 20:43 Eastern on the 30th the newest reading is the
+  // 29th and the feed is working. One session, said plainly, rather than a bare
+  // date that reads as a failed fetch.
+  assert.equal(sessionsBehind("2026-07-29", at("2026-07-31T00:43:00Z")), 1);
+  assert.equal(sessionsBehind("2026-07-30", at("2026-07-31T00:43:00Z")), 0);
+
+  // Mid-session the previous close is the latest there is, so nothing is late.
+  // Reporting a lag here would cry stale every weekday morning.
+  assert.equal(latestCompletedTradingDate(at("2026-07-30T14:00:00Z")), "2026-07-29");
+  assert.equal(sessionsBehind("2026-07-29", at("2026-07-30T14:00:00Z")), 0);
+
+  // Weekends are not lag. Friday's close on a Saturday is current, and on the
+  // following Monday evening it is one session behind, not three days.
+  assert.equal(sessionsBehind("2026-07-31", at("2026-08-01T16:00:00Z")), 0);
+  assert.equal(sessionsBehind("2026-07-31", at("2026-08-02T16:00:00Z")), 0);
+  assert.equal(sessionsBehind("2026-07-31", at("2026-08-04T00:00:00Z")), 1);
+
+  // A genuinely stale series counts up, and skips the weekend while doing it:
+  // the 24th to the 30th is four sessions, not six days.
+  assert.equal(sessionsBehind("2026-07-24", at("2026-07-31T00:43:00Z")), 4);
+
+  // Missing data is unknown, not current.
+  assert.equal(sessionsBehind(null), null);
+  // An observation ahead of the last close cannot report negative lag.
+  assert.equal(sessionsBehind("2026-08-14", at("2026-07-31T00:43:00Z")), 0);
+
+  // The caption has to separate a healthy feed from a stale one. Saying only
+  // the date is what made a working source read as broken.
+  assert.equal(describeSessionLag(0), "Latest published session");
+  assert.equal(
+    describeSessionLag(1),
+    "One session behind · index closes publish next day",
+  );
+  assert.equal(
+    describeSessionLag(4),
+    "4 sessions behind · index closes publish next day",
+  );
+  // Unknown falls back to the wording that claims nothing about freshness.
+  assert.equal(describeSessionLag(null), "Public daily observations");
+});
+
+test("the macro output cache key is derived from the methodology version", () => {
+  const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
+  // These were two hand-kept strings. Adding a field to the payload left the key
+  // pointing at the old shape, so the cached response was served for the full
+  // window without it — and indefinitely had a later refresh failed, since the
+  // error path returns whatever is stored.
+  assert.match(route, /const OUTPUT_CACHE_KEY = `dashboard-\$\{METHODOLOGY_VERSION\}`/);
+  assert.doesNotMatch(route, /"dashboard-v\d/);
+  assert.equal((route.match(/OUTPUT_CACHE_KEY/g) ?? []).length, 3, "declared once, used at both call sites");
+});
 
 test("the normal CDF is accurate in the tail, not only in the middle", () => {
   // The pricing and forecasting modules must resolve to one implementation.

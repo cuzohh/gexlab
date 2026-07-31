@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { OrientationHero } from "@/components/orientation-hero";
 import { RegimeMap } from "@/components/regime-map";
+import { describeSessionLag } from "@/lib/market-time";
 
 type Tone = "constructive" | "caution" | "stress" | "neutral";
 type View = "overview" | "regime" | "history";
@@ -20,6 +21,8 @@ type MacroData = {
     behaviorScore: number;
     confidence: number;
     asOf: string | null;
+    /** Sessions behind the last completed one. 0 means as current as the source gets. */
+    asOfSessionsBehind?: number | null;
     summary: string;
     playbook: string;
     method: string;
@@ -369,7 +372,16 @@ function MarketBehaviorMap({ data }: { data: MacroData | null }) {
       <figcaption>
         <span><small>Direction</small><strong>{state?.directionScore ?? "—"}</strong><em>−100 bearish · +100 bullish</em></span>
         <span><small>Path behavior</small><strong>{state?.behaviorScore ?? "—"}</strong><em>0 rotational · 100 trending</em></span>
-        <span><small>Data through</small><strong>{state?.asOf ?? "—"}</strong><em>Public daily observations</em></span>
+        <span>
+          <small>Data through</small>
+          <strong>{state?.asOf ?? "—"}</strong>
+          {/* The lag is structural, not a failed fetch: FRED publishes an equity
+              close on the next business day, so on a weekday evening the newest
+              reading available is the session before. Saying only the date
+              invites reading a working feed as broken, and the regime as having
+              ignored the session that just traded. */}
+          <em>{describeSessionLag(state?.asOfSessionsBehind ?? null)}</em>
+        </span>
       </figcaption>
     </figure>
   );

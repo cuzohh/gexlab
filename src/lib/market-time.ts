@@ -115,6 +115,47 @@ export function latestMarketObservationTime(
   return candidate.toISOString();
 }
 
+/**
+ * How many sessions an observation is behind the most recent completed one.
+ *
+ * FRED republishes an equity index close on the next business day, so on any
+ * weekday evening the freshest reading available is the previous session. That
+ * reads as a stale fetch unless it is stated, which is what this is for: zero
+ * means the data is as current as the source can be, not that it is live.
+ *
+ * Counted in weekdays, which overstates by one across a market holiday. The
+ * rest of this module makes the same simplification, and carrying a holiday
+ * calendar to caption a staleness note is not worth the maintenance.
+ */
+export function sessionsBehind(observationDate: string | null, date = new Date()) {
+  if (!observationDate) return null;
+  const latest = latestCompletedTradingDate(date);
+  if (observationDate >= latest) return 0;
+  const cursor = new Date(`${observationDate}T12:00:00Z`);
+  const target = Date.parse(`${latest}T12:00:00Z`);
+  if (!Number.isFinite(cursor.valueOf()) || !Number.isFinite(target)) return null;
+  let sessions = 0;
+  while (cursor.valueOf() < target && sessions < 400) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const day = cursor.getUTCDay();
+    if (day !== 0 && day !== 6) sessions += 1;
+  }
+  return sessions;
+}
+
+/**
+ * The caption for a lag. One session behind is this source working correctly,
+ * not failing, and the wording has to separate the two: a bare date invites
+ * reading a healthy feed as broken. Anything further behind is said plainly,
+ * because by then the reading really does describe an older market.
+ */
+export function describeSessionLag(sessions: number | null) {
+  if (sessions === null) return "Public daily observations";
+  if (sessions === 0) return "Latest published session";
+  if (sessions === 1) return "One session behind · index closes publish next day";
+  return `${sessions} sessions behind · index closes publish next day`;
+}
+
 export function latestCompletedTradingDate(date = new Date()) {
   const parts = partsAt(date);
   const weekday = parts.weekday;

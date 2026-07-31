@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { easternDate } from "@/lib/market-time";
+import { easternDate, sessionsBehind } from "@/lib/market-time";
 import {
   curveRecessionProbability,
   netLiquidity,
@@ -64,7 +64,14 @@ const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
 const COT_CACHE_MS = 20 * 60 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.9.0";
+const METHODOLOGY_VERSION = "macro-regime-v3.10.0";
+// Derived, not written out again. These were two hand-kept strings, so adding a
+// field to the payload left the key pointing at the old shape and the cached
+// response was served for the full window with the new field missing — and
+// indefinitely if a later refresh failed, since the error path falls back to
+// whatever is stored. Deriving it means a methodology bump cannot be applied to
+// the computation and forgotten on the cache.
+const OUTPUT_CACHE_KEY = `dashboard-${METHODOLOGY_VERSION}`;
 
 function clamp(value: number, low = 0, high = 100) {
   return Math.max(low, Math.min(high, value));
@@ -1437,6 +1444,11 @@ async function buildPayload() {
       behaviorScore: Math.round(behaviorScore),
       confidence: marketConfidence,
       asOf: latest(store.NASDAQ100)?.date ?? null,
+      // Sessions behind the last completed one. FRED publishes an equity close
+      // on the next business day, so on a weekday evening this is 1 and the
+      // data is as current as the source goes. Without it the date reads as a
+      // failed fetch, and the regime reads as ignoring the session just traded.
+      asOfSessionsBehind: sessionsBehind(latest(store.NASDAQ100)?.date ?? null),
       summary:
         `${direction} direction with ${behavior.toLowerCase()} price behavior. ` +
         `${crossIndexConfirmed ? "Nasdaq-100 and S&P 500 agree on direction." : "Nasdaq-100 and S&P 500 are not fully aligned."}`,
@@ -1594,7 +1606,7 @@ async function buildPayload() {
 export async function GET() {
   const stored = getSnapshot<Awaited<ReturnType<typeof buildPayload>>>(
     "macro-output",
-    "dashboard-v3.9.0",
+    OUTPUT_CACHE_KEY,
   );
   try {
     if (stored && snapshotIsFresh(stored)) return NextResponse.json(stored.payload);
@@ -1605,7 +1617,7 @@ export async function GET() {
     void backfillVintages(6).catch(() => undefined);
     putSnapshot({
       namespace: "macro-output",
-      key: "dashboard-v3.9.0",
+      key: OUTPUT_CACHE_KEY,
       payload,
       sourceTime: payload.marketRegime.asOf,
       fetchedAt: payload.fetchedAt,
