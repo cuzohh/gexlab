@@ -94,6 +94,15 @@ export function previousWeekday(date = new Date()) {
   return cursor.toISOString().slice(0, 10);
 }
 
+/** The next weekday after a date. Holidays are not modelled; see sessionsBehind. */
+export function nextWeekday(date: string) {
+  const cursor = new Date(`${date}T12:00:00Z`);
+  do {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  } while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6);
+  return cursor.toISOString().slice(0, 10);
+}
+
 export function latestMarketObservationTime(
   generatedAt: string,
   delayMinutes = 15,

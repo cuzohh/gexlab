@@ -6568,3 +6568,80 @@ h3 {
     grid-template-columns: 1fr repeat(2, minmax(4rem, 0.7fr)) 3.5rem;
   }
 }
+
+/* Next-session regime outlook.
+   Kept visually subordinate to the current reading above it: the panel is the
+   arithmetic of one more session on a slow statistic, not a second, competing
+   classification. A heavier treatment would imply a forecast that the direction
+   model has been measured not to have. */
+.regime-outlook {
+  border-top: 1px solid var(--ink);
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+}
+
+.regime-outlook-head h3 {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  font-weight: 430;
+  letter-spacing: -0.015em;
+  margin: 0.3rem 0 0;
+}
+
+.regime-outlook-figures {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 1rem;
+}
+
+.regime-outlook-figures span {
+  border-top: 1px solid var(--rule);
+  padding-top: 0.8rem;
+}
+
+.regime-outlook-figures small,
+.regime-outlook-figures em {
+  color: var(--ink-muted);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-style: normal;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.regime-outlook-value {
+  animation: value-settle 260ms var(--ease-out) both;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 1.45rem;
+  font-weight: 520;
+  margin: 0.3rem 0;
+}
+
+.regime-outlook-value--constructive {
+  color: var(--constructive);
+}
+
+.regime-outlook-value--stress {
+  color: var(--stress);
+}
+
+.regime-outlook-value--caution {
+  color: var(--caution);
+}
+
+.regime-outlook-caveat {
+  color: var(--ink-muted);
+  font-size: 0.68rem;
+  line-height: 1.6;
+  margin-top: 1rem;
+  max-width: 46rem;
+}
+
+@media (max-width: 720px) {
+  .regime-outlook-figures {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { easternDate, sessionsBehind } from "@/lib/market-time";
+import { easternDate, latestCompletedTradingDate, nextWeekday, sessionsBehind } from "@/lib/market-time";
+import { nextSessionOutlook, pivotReturn } from "@/lib/regime-forecast";
 import {
   curveRecessionProbability,
   netLiquidity,
@@ -64,7 +65,7 @@ const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
 const COT_CACHE_MS = 20 * 60 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.10.0";
+const METHODOLOGY_VERSION = "macro-regime-v3.12.2";
 // Derived, not written out again. These were two hand-kept strings, so adding a
 // field to the payload left the key pointing at the old shape and the cached
 // response was served for the full window with the new field missing — and
@@ -72,6 +73,9 @@ const METHODOLOGY_VERSION = "macro-regime-v3.10.0";
 // whatever is stored. Deriving it means a methodology bump cannot be applied to
 // the computation and forgotten on the cache.
 const OUTPUT_CACHE_KEY = `dashboard-${METHODOLOGY_VERSION}`;
+// Sessions replayed beyond what the chart shows, so the outlook can resample
+// one-day changes and fit its recalibration on already-resolved forecasts.
+const REGIME_OUTLOOK_SESSIONS = 800;
 
 function clamp(value: number, low = 0, high = 100) {
   return Math.max(low, Math.min(high, value));
@@ -540,8 +544,24 @@ function scoreAt(store: SeriesStore, date: string) {
   return { growth, inflation };
 }
 
+/**
+ * Observations up to and including a date.
+ *
+ * Binary search rather than a filter, because replaying the daily model walks
+ * this over every session in the calibration window and a linear scan of the
+ * full series per call makes that quadratic. The series are stored ascending,
+ * which is what makes the search valid.
+ */
 function observationsThrough(series: Observation[] | undefined, date: string) {
-  return series?.filter((row) => row.date <= date) ?? [];
+  if (!series?.length) return [];
+  let low = 0;
+  let high = series.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (series[middle].date <= date) low = middle + 1;
+    else high = middle;
+  }
+  return series.slice(0, low);
 }
 
 /**
@@ -689,6 +709,40 @@ function eventWindowStudy(
   };
 }
 
+/**
+ * Extends an index series with the session FRED has not published yet.
+ *
+ * FRED republishes an equity close on the next business day, so the regime runs
+ * a session behind for no reason other than the publication calendar: the close
+ * itself is already in this database, captured by the options workspace from
+ * the exchange at the time of the snapshot. Reading it here is not forecasting
+ * and not a second opinion on a published number — it is the same session,
+ * ahead of the wire.
+ *
+ * Three guards, because a provisional close is only worth having if it cannot
+ * be wrong. The snapshot must be for a date after the last published one, that
+ * date's session must have finished, and the price has to be a positive number.
+ * A partial intraday print can never enter as a close.
+ */
+function nowcastSession(series: Observation[] | undefined, symbol: "NDX" | "SPX") {
+  const published = series?.at(-1);
+  if (!series || !published) return { series: series ?? [], provisional: null };
+  const stored = getSnapshot<{ data?: { current_price?: unknown } }>(
+    "options-raw",
+    `${symbol}:eod:market-asof`,
+  );
+  if (!stored?.sourceTime) return { series, provisional: null };
+  const date = easternDate(new Date(stored.sourceTime));
+  if (date <= published.date) return { series, provisional: null };
+  if (date > latestCompletedTradingDate()) return { series, provisional: null };
+  const price = Number(stored.payload?.data?.current_price);
+  if (!Number.isFinite(price) || price <= 0) return { series, provisional: null };
+  return {
+    series: [...series, { date, value: price }],
+    provisional: { date, value: price },
+  };
+}
+
 async function buildPayload() {
   const [seriesResult, cotResults, fomcMeetings, recentReleases, scheduledReleases] = await Promise.all([
     loadMacroSeriesStore(FRED_IDS),
@@ -709,8 +763,23 @@ async function buildPayload() {
     .filter((release) => release.startsAt >= new Date().toISOString())
     .filter((release) => release.importance === "major")
     .slice(0, 12);
-  const store = seriesResult.store as SeriesStore;
+  const publishedStore = seriesResult.store as SeriesStore;
   const unavailableSeries = seriesResult.unavailable;
+  // Close the publication gap before anything is scored, so the regime, the
+  // history chart and the outlook all describe the same latest session.
+  const nowcastNdx = nowcastSession(publishedStore.NASDAQ100, "NDX");
+  const nowcastSpx = nowcastSession(publishedStore.SP500, "SPX");
+  // Only when both indices can be advanced. The direction score blends the two,
+  // and moving one without the other would read as a divergence that did not
+  // happen.
+  const nowcast =
+    nowcastNdx.provisional && nowcastSpx.provisional &&
+    nowcastNdx.provisional.date === nowcastSpx.provisional.date
+      ? { date: nowcastNdx.provisional.date, ndx: nowcastNdx.provisional.value, spx: nowcastSpx.provisional.value }
+      : null;
+  const store: SeriesStore = nowcast
+    ? { ...publishedStore, NASDAQ100: nowcastNdx.series, SP500: nowcastSpx.series }
+    : publishedStore;
   const requiredSeries = [
     "CPIAUCSL", "CPILFESL", "PCEPILFE", "UNRATE", "PAYEMS", "ICSA", "GDPC1",
     "INDPRO", "DFII10", "WALCL", "WTREGEN", "RRPONTSYD", "BAMLH0A0HYM2", "NFCI", "VIXCLS",
@@ -1334,10 +1403,16 @@ async function buildPayload() {
       activeRun = 0;
     }
   }
+  // Long enough to resample one-day changes from and to fit the recalibration
+  // on forecasts that had already resolved. The chart shows the recent tail of
+  // it; the rest exists so the outlook's confidence is measured rather than
+  // asserted.
+  const replaySessions = 90 + REGIME_OUTLOOK_SESSIONS;
   const dailyHistory = (store.NASDAQ100 ?? [])
-    .slice(-90)
+    .slice(-replaySessions)
     .map((row) => marketStateAt(store, row.date))
     .filter((row): row is NonNullable<typeof row> => row !== null);
+  const outlook = nextSessionOutlook(dailyHistory);
   const latestHistoricalState = dailyHistory.at(-1);
   if (
     latestHistoricalState &&
@@ -1346,6 +1421,28 @@ async function buildPayload() {
   ) {
     throw new Error("Daily regime history diverged from the current market-state calculation.");
   }
+
+  // How large a move the next session would need to shift the direction label.
+  // Scored by appending a hypothetical session to both indices and running the
+  // same replay, so it cannot drift from the model it describes. Both indices
+  // move together: they are highly correlated but not identical, so this is the
+  // size of a shared move rather than a forecast of either.
+  const outlookDate = dailyHistory.at(-1)?.date ?? null;
+  const nextSessionDate = outlookDate ? nextWeekday(outlookDate) : null;
+  const scoreAfterReturn = (percent: number) => {
+    if (!nextSessionDate) return directionScore;
+    const extend = (series: Observation[] | undefined): Observation[] => {
+      const last = series?.at(-1);
+      if (!series || !last) return series ?? [];
+      return [...series, { date: nextSessionDate, value: last.value * (1 + percent / 100) }];
+    };
+    const projected = marketStateAt(
+      { ...store, NASDAQ100: extend(store.NASDAQ100), SP500: extend(store.SP500) },
+      nextSessionDate,
+    );
+    return projected?.directionScore ?? directionScore;
+  };
+  const pivot = nextSessionDate ? pivotReturn(scoreAfterReturn) : null;
 
   const releaseDatesFor = (pattern: RegExp) =>
     publishedReleaseDates
@@ -1449,6 +1546,43 @@ async function buildPayload() {
       // data is as current as the source goes. Without it the date reads as a
       // failed fetch, and the regime reads as ignoring the session just traded.
       asOfSessionsBehind: sessionsBehind(latest(store.NASDAQ100)?.date ?? null),
+      // Whether the newest session came from the exchange snapshot rather than
+      // from FRED. Same session, ahead of the publication calendar, but it is a
+      // different source and must not be presented as a published observation.
+      provisionalSession: nowcast
+        ? {
+            date: nowcast.date,
+            source: "Exchange close captured with the option chain, ahead of the FRED release",
+          }
+        : null,
+      // What the same classification says about the next session. Mostly it
+      // says the label carries: both scores run on 20- and 60-session windows,
+      // so one more observation moves them very little. The confidence is the
+      // measured frequency of that holding, not an assertion.
+      outlook: outlook
+        ? {
+            date: nextSessionDate,
+            name: outlook.name,
+            direction: outlook.direction,
+            behavior: outlook.behavior,
+            confidence: Math.round(outlook.probability * 100),
+            rawConfidence: Math.round(outlook.rawProbability * 100),
+            calibrated: outlook.calibrated,
+            samples: outlook.samples,
+            calibrationSamples: outlook.calibrationSamples,
+            // The move that would change the direction label, which is a more
+            // useful statement than a probability: it is exact.
+            pivotPercent: pivot ? Math.round(pivot.percent * 100) / 100 : null,
+            pivotTo: pivot?.to ?? null,
+            basis: outlook.basis,
+            caveat:
+              "Persistence, not prediction. The scores are built from 20- and 60-session " +
+              "windows, so tomorrow shares nineteen of twenty observations with today and the " +
+              "label repeats about 73% of the time on its own. This states how strongly that " +
+              "carries, and what size of move would break it. It is not a directional forecast, " +
+              "and the daily direction model has no measured edge over its base rate.",
+          }
+        : null,
       summary:
         `${direction} direction with ${behavior.toLowerCase()} price behavior. ` +
         `${crossIndexConfirmed ? "Nasdaq-100 and S&P 500 agree on direction." : "Nasdaq-100 and S&P 500 are not fully aligned."}`,

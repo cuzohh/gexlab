@@ -23,6 +23,22 @@ type MacroData = {
     asOf: string | null;
     /** Sessions behind the last completed one. 0 means as current as the source gets. */
     asOfSessionsBehind?: number | null;
+    provisionalSession?: { date: string; source: string } | null;
+    outlook?: {
+      date: string | null;
+      name: string;
+      direction: "Bullish" | "Bearish" | "Neutral";
+      behavior: "Trending" | "Mean-reverting" | "Transitional";
+      confidence: number;
+      rawConfidence: number;
+      calibrated: boolean;
+      samples: number;
+      calibrationSamples: number;
+      pivotPercent: number | null;
+      pivotTo: string | null;
+      basis: string;
+      caveat: string;
+    } | null;
     summary: string;
     playbook: string;
     method: string;
@@ -326,6 +342,66 @@ function DataStatus({ data, error }: { data: MacroData | null; error: string }) 
   );
 }
 
+/**
+ * The next session's regime.
+ *
+ * Presented as persistence rather than prediction, because that is what it is:
+ * both scores run on 20- and 60-session windows, so tomorrow inherits nineteen
+ * of twenty observations from today. The confidence is the measured frequency
+ * of the label surviving one more session, recalibrated on forecasts that had
+ * already resolved — not a claim of directional edge, which the engine has
+ * separately shown does not exist at this horizon.
+ *
+ * The pivot is the more useful half. A probability is a summary; "it takes a
+ * 1.2% move to change this" is exact, and it is what makes the number legible
+ * on a day when the market ran hard and the label did not move.
+ */
+function RegimeOutlook({
+  outlook,
+}: {
+  outlook: NonNullable<NonNullable<MacroData["marketRegime"]["outlook"]>>;
+}) {
+  const tone =
+    outlook.direction === "Bullish" ? "constructive" : outlook.direction === "Bearish" ? "stress" : "caution";
+  return (
+    <div className="regime-outlook">
+      <div className="regime-outlook-head">
+        <p className="section-kicker">
+          Next session{outlook.date ? ` · ${shortDate(outlook.date)}` : ""}
+        </p>
+        <h3>{outlook.name}</h3>
+      </div>
+      <div className="regime-outlook-figures">
+        <span>
+          <small>Label holds</small>
+          <strong className={`regime-outlook-value regime-outlook-value--${tone}`}>
+            {outlook.confidence}%
+          </strong>
+          <em>
+            {outlook.calibrated
+              ? `Calibrated on ${outlook.calibrationSamples} resolved forecasts`
+              : `Uncalibrated · ${outlook.samples} resampled sessions`}
+          </em>
+        </span>
+        <span>
+          <small>Move that would change it</small>
+          <strong className="regime-outlook-value">
+            {outlook.pivotPercent === null
+              ? "—"
+              : `${outlook.pivotPercent > 0 ? "+" : ""}${outlook.pivotPercent.toFixed(2)}%`}
+          </strong>
+          <em>
+            {outlook.pivotPercent === null
+              ? "No move inside ±15% reaches a threshold"
+              : `Shared index move to reach ${outlook.pivotTo}`}
+          </em>
+        </span>
+      </div>
+      <p className="regime-outlook-caveat">{outlook.caveat}</p>
+    </div>
+  );
+}
+
 function MarketBehaviorMap({ data }: { data: MacroData | null }) {
   const state = data?.marketRegime;
   const left = state ? Math.max(4, Math.min(96, (state.directionScore + 100) / 2)) : 50;
@@ -380,9 +456,14 @@ function MarketBehaviorMap({ data }: { data: MacroData | null }) {
               reading available is the session before. Saying only the date
               invites reading a working feed as broken, and the regime as having
               ignored the session that just traded. */}
-          <em>{describeSessionLag(state?.asOfSessionsBehind ?? null)}</em>
+          <em>
+            {state?.provisionalSession
+              ? "Provisional · exchange close, ahead of the FRED release"
+              : describeSessionLag(state?.asOfSessionsBehind ?? null)}
+          </em>
         </span>
       </figcaption>
+      {state?.outlook && <RegimeOutlook outlook={state.outlook} />}
     </figure>
   );
 }

@@ -28,6 +28,13 @@ import {
   yearsToExpiry,
 } from "../src/lib/options-math.ts";
 import {
+  behaviorLabel,
+  directionLabel,
+  nextSessionOutlook,
+  pivotReturn,
+  regimeName,
+} from "../src/lib/regime-forecast.ts";
+import {
   curveRecessionProbability,
   netLiquidity,
   parseObservationCsv,
@@ -190,6 +197,106 @@ const GREEK_CASES = [
   { name: "1y no carry", spot: 100, strike: 100, years: 1, iv: 0.2, riskFreeRate: 0, dividendYield: 0 },
 ];
 
+// A regime history whose scores drift by a fixed step, with a controllable
+// distance from the nearest threshold. Enough sessions to resample from and to
+// fit the recalibration on.
+function regimeHistory({ direction, behavior, wobble = 1, sessions = 900 }) {
+  const rows = [];
+  let seed = 7;
+  const noise = () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return (seed / 2147483648 - 0.5) * 2 * wobble;
+  };
+  for (let index = 0; index < sessions; index += 1) {
+    rows.push({
+      date: `s${String(index).padStart(4, "0")}`,
+      directionScore: direction + noise(),
+      behaviorScore: behavior + noise(),
+    });
+  }
+  return rows;
+}
+
+test("regime labels sit on the documented thresholds", () => {
+  assert.equal(directionLabel(15), "Bullish");
+  assert.equal(directionLabel(14.9), "Neutral");
+  assert.equal(directionLabel(-15), "Bearish");
+  assert.equal(directionLabel(-14.9), "Neutral");
+  assert.equal(behaviorLabel(58), "Trending");
+  assert.equal(behaviorLabel(57.9), "Transitional");
+  assert.equal(behaviorLabel(42), "Mean-reverting");
+  assert.equal(behaviorLabel(42.1), "Transitional");
+  assert.equal(regimeName("Bearish", "Mean-reverting"), "Bearish but mean-reverting");
+  assert.equal(regimeName("Neutral", "Mean-reverting"), "Range / mean-reverting");
+  assert.equal(regimeName("Bullish", "Trending"), "Bullish trend");
+  assert.equal(regimeName("Neutral", "Trending"), "Trend without a clear bias");
+  assert.equal(regimeName("Bearish", "Transitional"), "Bearish transition");
+});
+
+test("the next-session outlook is confident far from a threshold and hedges near one", () => {
+  // Nothing is invented from too little history.
+  assert.equal(nextSessionOutlook(regimeHistory({ direction: -40, behavior: 30, sessions: 40 })), null);
+
+  const settled = nextSessionOutlook(regimeHistory({ direction: -40, behavior: 30, wobble: 1 }));
+  assert.ok(settled);
+  assert.equal(settled.direction, "Bearish");
+  assert.equal(settled.behavior, "Mean-reverting");
+  assert.equal(settled.name, "Bearish but mean-reverting");
+  assert.ok(settled.probability > 0.9, `settled probability ${settled.probability}`);
+
+  // Sitting on the threshold with the same daily movement has to be less
+  // certain, or the number is decoration.
+  const borderline = nextSessionOutlook(regimeHistory({ direction: -15.2, behavior: 30, wobble: 1 }));
+  assert.ok(borderline);
+  assert.ok(
+    borderline.probability < settled.probability - 0.1,
+    `borderline ${borderline.probability} vs settled ${settled.probability}`,
+  );
+
+  for (const outlook of [settled, borderline]) {
+    assert.ok(outlook.probability >= 0 && outlook.probability <= 1);
+    assert.ok(outlook.rawProbability >= 0 && outlook.rawProbability <= 1);
+    assert.match(outlook.basis, /resampling one-day score changes/);
+    // When the scaler declines, the raw estimate is shown unchanged rather than
+    // a half-applied correction, and it says so.
+    if (!outlook.calibrated) {
+      assert.equal(outlook.probability, outlook.rawProbability);
+      assert.equal(outlook.calibrationSamples, 0);
+    } else {
+      assert.ok(outlook.calibrationSamples >= 250);
+    }
+  }
+
+  // A series that never leaves its band gives the scaler nothing to fit: every
+  // resolved forecast was a hit, so there is no variation to learn from. It
+  // must decline rather than invent a correction from a constant.
+  assert.equal(settled.calibrated, false, "a label that never changes cannot be recalibrated");
+  assert.equal(settled.probability, 1);
+  // One that straddles a threshold does have both outcomes, so it can be.
+  assert.equal(borderline.calibrated, true);
+  assert.ok(borderline.calibrationSamples >= 250);
+});
+
+test("the pivot return finds the move that changes the label, or says there is none", () => {
+  // A linear score in the return: -24 today, one point per 0.6% moved.
+  const linear = (percent) => -24 + percent / 0.6;
+  const pivot = pivotReturn(linear);
+  assert.ok(pivot);
+  assert.equal(pivot.to, "Neutral");
+  // -15 is the gate, so 9 points of score, so 5.4%.
+  assert.ok(Math.abs(pivot.percent - 5.4) < 0.02, `pivot ${pivot.percent}`);
+
+  // Downwards too, when the label is threatened from below.
+  const fromNeutral = pivotReturn((percent) => -14 + percent / 0.6);
+  assert.ok(fromNeutral);
+  assert.equal(fromNeutral.to, "Bearish");
+  assert.ok(fromNeutral.percent < 0, "a bearish flip needs a negative move");
+
+  // Deep inside a band, no move in range reaches a threshold, and that is
+  // reported rather than papered over with an arbitrary number.
+  assert.equal(pivotReturn(() => -80), null);
+});
+
 test("publication lag is counted in sessions, and a working feed reads as zero", () => {
   const at = (iso) => new Date(iso);
   // The case that prompted this. FRED republishes an equity close on the next
@@ -232,6 +339,26 @@ test("publication lag is counted in sessions, and a working feed reads as zero",
   );
   // Unknown falls back to the wording that claims nothing about freshness.
   assert.equal(describeSessionLag(null), "Public daily observations");
+});
+
+test("the nowcast can only advance a session that has actually closed", () => {
+  const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
+  // The close is already in this database before FRED publishes it, captured by
+  // the options workspace from the exchange. Using it is not forecasting; it is
+  // the same session ahead of the wire. But a provisional close is only worth
+  // having if it cannot be wrong, hence the guards.
+  assert.match(route, /if \(date <= published\.date\) return \{ series, provisional: null \}/);
+  assert.match(route, /if \(date > latestCompletedTradingDate\(\)\) return \{ series, provisional: null \}/);
+  assert.match(route, /if \(!Number\.isFinite\(price\) \|\| price <= 0\)/);
+  // Both indices or neither: the direction score blends them, so advancing one
+  // alone would print a divergence that did not happen.
+  assert.match(route, /nowcastNdx\.provisional && nowcastSpx\.provisional &&/);
+  assert.match(route, /nowcastNdx\.provisional\.date === nowcastSpx\.provisional\.date/);
+  // Never presented as a published observation.
+  assert.match(route, /provisionalSession: nowcast/);
+  // Replaying the daily model over the calibration window walks this per
+  // session, so a linear scan of the full series per call makes it quadratic.
+  assert.match(route, /const middle = \(low \+ high\) >> 1;/);
 });
 
 test("the macro output cache key is derived from the methodology version", () => {
