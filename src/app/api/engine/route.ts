@@ -31,6 +31,7 @@ import {
   type SeriesStore,
 } from "@/lib/engine-features";
 import { loadFomcMeetings, loadPublishedReleaseDates } from "@/lib/server/event-sources";
+import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { loadMacroSeriesStore } from "@/lib/server/macro-sources";
 import { MACRO_SERIES_IDS } from "@/lib/server/series-catalog";
 import {
@@ -46,7 +47,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.6.0";
+const MODEL_VERSION = "engine-v1.7.1";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -609,7 +610,14 @@ function fitCurrent(rows: FeatureRow[], labels: Array<number | null>) {
 }
 
 async function buildPayload() {
-  const { store } = await loadMacroSeriesStore(MACRO_SERIES_IDS);
+  const { store: publishedStore } = await loadMacroSeriesStore(MACRO_SERIES_IDS);
+  // Advance past the publication calendar before anything is fitted. Without
+  // this the engine spends the whole overnight window — the one time a
+  // next-session read is worth having — forecasting a session that has already
+  // traded, because FRED will not republish the close until the next morning.
+  const advanced = nowcastIndexPair(publishedStore);
+  const store = advanced.store;
+  const provisionalSession = advanced.provisional;
   const prices = (store as SeriesStore).NASDAQ100 ?? [];
   if (prices.length < 500) throw new Error("The index price series is unavailable.");
 
@@ -783,6 +791,26 @@ async function buildPayload() {
       )
     : null;
 
+  // The two targets that actually beat their baseline were only ever
+  // backtested; no live probability was produced for either, so the one part of
+  // this engine with measured skill said nothing about the next session. Both
+  // describe how the next session behaves rather than which way it goes, which
+  // is the half of the problem that survives testing at this horizon.
+  const wideRangeFit = fitCurrent(rows, wideRangeDayLabels(rows));
+  const wideRangeProbability = wideRangeFit
+    ? logisticPredict(
+        wideRangeFit.weights,
+        withIntercept(applyStandardizer(wideRangeFit.standardizer, lastRow.features)),
+      )
+    : null;
+  const volatilityExpansionFit = fitCurrent(rows, volatilityExpansionLabels(rows));
+  const volatilityExpansionProbability = volatilityExpansionFit
+    ? logisticPredict(
+        volatilityExpansionFit.weights,
+        withIntercept(applyStandardizer(volatilityExpansionFit.standardizer, lastRow.features)),
+      )
+    : null;
+
   const absoluteReturns = rows.map((row) => Math.abs(row.currentReturn));
   const impliedDailySeries = rows.map(
     (row) => row.features[FEATURE_INDEX["implied volatility level"]] / Math.sqrt(252),
@@ -929,6 +957,15 @@ async function buildPayload() {
     fetchedAt: new Date().toISOString(),
     asOf: lastRow.date,
     nextSession: nextSessionDate,
+    // Whether the newest close came from the exchange snapshot rather than
+    // FRED. Same session, ahead of the publication calendar, but a different
+    // source, and it decides which session the forecast is actually about.
+    provisionalSession: provisionalSession
+      ? {
+          date: provisionalSession.date,
+          source: "Exchange close captured with the option chain, ahead of the FRED release",
+        }
+      : null,
     index: "Nasdaq-100",
     lastPrice,
     forecast: {
@@ -947,6 +984,32 @@ async function buildPayload() {
           continuationProbability === null || !continuationFit
             ? null
             : (continuationProbability - continuationFit.baseRate) * 100,
+      },
+      // How the next session behaves, as opposed to which way it goes. This is
+      // the part that survives testing: direction has no measured edge at this
+      // horizon and is reported as such, while both of these beat their
+      // baseline after correcting for multiple testing. Every input is known at
+      // the prior close, so the read is available before the opening bell.
+      sessionCharacter: {
+        wideRange: {
+          probability: wideRangeProbability,
+          baseRate: wideRangeFit?.baseRate ?? null,
+          hasMeasuredEdge: wideRangeDay?.beatsBaseline ?? false,
+          falseDiscoveryRate: wideRangeDay?.falseDiscoveryRate ?? null,
+          question: "Will the next session's move exceed 1.5x its recent average?",
+        },
+        volatilityExpansion: {
+          probability: volatilityExpansionProbability,
+          baseRate: volatilityExpansionFit?.baseRate ?? null,
+          hasMeasuredEdge: volatilityExpansion?.beatsBaseline ?? false,
+          falseDiscoveryRate: volatilityExpansion?.falseDiscoveryRate ?? null,
+          question: "Will realized volatility over the next five sessions exceed the last twenty?",
+        },
+        caveat:
+          "Range and volatility, not direction. Both targets beat their base rate on a " +
+          "walk-forward test after a Benjamini-Hochberg correction; the daily direction " +
+          "model did not, and is reported separately as having no measured edge. A wide " +
+          "session can go either way.",
       },
       expectedMove,
       typicalMove: mean(rows.slice(-252).map((row) => Math.abs(row.currentReturn))),

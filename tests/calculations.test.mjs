@@ -366,21 +366,52 @@ test("the regime states its horizon, and measured is distinguishable from projec
   assert.match(route, /windowReturn: percentChange\(store\.NASDAQ100, 20\)/);
 });
 
-test("the nowcast can only advance a session that has actually closed", () => {
+test("the engine publishes a live probability for the targets that beat their baseline", () => {
+  const route = readFileSync(new URL("../src/app/api/engine/route.ts", import.meta.url), "utf8");
+  // The only two targets with measured skill were backtested and never asked
+  // about the next session, so the one part of this engine that survives
+  // testing said nothing about tomorrow.
+  assert.match(route, /const wideRangeFit = fitCurrent\(rows, wideRangeDayLabels\(rows\)\)/);
+  assert.match(route, /const volatilityExpansionFit = fitCurrent\(rows, volatilityExpansionLabels\(rows\)\)/);
+  assert.match(route, /sessionCharacter: \{/);
+  // Each carries whether it actually beat its baseline, so the reader is not
+  // asked to take the number on trust.
+  assert.match(route, /hasMeasuredEdge: wideRangeDay\?\.beatsBaseline \?\? false/);
+  assert.match(route, /hasMeasuredEdge: volatilityExpansion\?\.beatsBaseline \?\? false/);
+  // Range and volatility, never direction, which has no measured edge here.
+  assert.match(route, /Range and volatility, not direction/);
+});
+
+test("both routes advance the index past the publication calendar through one shared rule", () => {
+  const nowcast = readFileSync(
+    new URL("../src/lib/server/index-nowcast.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(nowcast, /export function nowcastIndexSession/);
+  assert.match(nowcast, /export function nowcastIndexPair/);
+  // The guards that keep a provisional close from being wrong.
+  assert.match(nowcast, /if \(date <= published\.date\)/);
+  assert.match(nowcast, /if \(date > latestCompletedTradingDate\(\)\)/);
+  assert.match(nowcast, /if \(!Number\.isFinite\(price\) \|\| price <= 0\)/);
+  assert.match(nowcast, /ndx\.provisional\.date !== spx\.provisional\.date/);
+
+  // One implementation, used by both. Overnight is exactly when a next-session
+  // read matters, and without this the engine spent that whole window
+  // forecasting a session that had already traded.
+  for (const file of ["../src/app/api/macro/route.ts", "../src/app/api/engine/route.ts"]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.match(source, /nowcastIndexPair/, `${file} uses the shared nowcast`);
+    assert.doesNotMatch(source, /function nowcastSession/, `${file} keeps no local copy`);
+  }
+});
+
+test("a nowcast session is never presented as a published observation", () => {
   const route = readFileSync(new URL("../src/app/api/macro/route.ts", import.meta.url), "utf8");
-  // The close is already in this database before FRED publishes it, captured by
-  // the options workspace from the exchange. Using it is not forecasting; it is
-  // the same session ahead of the wire. But a provisional close is only worth
-  // having if it cannot be wrong, hence the guards.
-  assert.match(route, /if \(date <= published\.date\) return \{ series, provisional: null \}/);
-  assert.match(route, /if \(date > latestCompletedTradingDate\(\)\) return \{ series, provisional: null \}/);
-  assert.match(route, /if \(!Number\.isFinite\(price\) \|\| price <= 0\)/);
-  // Both indices or neither: the direction score blends them, so advancing one
-  // alone would print a divergence that did not happen.
-  assert.match(route, /nowcastNdx\.provisional && nowcastSpx\.provisional &&/);
-  assert.match(route, /nowcastNdx\.provisional\.date === nowcastSpx\.provisional\.date/);
-  // Never presented as a published observation.
+  // The guards themselves now live in the shared module and are asserted there.
+  // What belongs here is that the route flags the source: same session, but a
+  // different one from the published series around it.
   assert.match(route, /provisionalSession: nowcast/);
+  assert.match(route, /Exchange close captured with the option chain/);
   // Replaying the daily model over the calibration window walks this per
   // session, so a linear scan of the full series per call makes it quadratic.
   assert.match(route, /const middle = \(low \+ high\) >> 1;/);

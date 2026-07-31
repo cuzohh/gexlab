@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { easternDate, latestCompletedTradingDate, nextWeekday, sessionsBehind } from "@/lib/market-time";
+import { easternDate, nextWeekday, sessionsBehind } from "@/lib/market-time";
+import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { nextSessionOutlook, pivotReturn } from "@/lib/regime-forecast";
 import {
   curveRecessionProbability,
@@ -709,40 +710,6 @@ function eventWindowStudy(
   };
 }
 
-/**
- * Extends an index series with the session FRED has not published yet.
- *
- * FRED republishes an equity close on the next business day, so the regime runs
- * a session behind for no reason other than the publication calendar: the close
- * itself is already in this database, captured by the options workspace from
- * the exchange at the time of the snapshot. Reading it here is not forecasting
- * and not a second opinion on a published number — it is the same session,
- * ahead of the wire.
- *
- * Three guards, because a provisional close is only worth having if it cannot
- * be wrong. The snapshot must be for a date after the last published one, that
- * date's session must have finished, and the price has to be a positive number.
- * A partial intraday print can never enter as a close.
- */
-function nowcastSession(series: Observation[] | undefined, symbol: "NDX" | "SPX") {
-  const published = series?.at(-1);
-  if (!series || !published) return { series: series ?? [], provisional: null };
-  const stored = getSnapshot<{ data?: { current_price?: unknown } }>(
-    "options-raw",
-    `${symbol}:eod:market-asof`,
-  );
-  if (!stored?.sourceTime) return { series, provisional: null };
-  const date = easternDate(new Date(stored.sourceTime));
-  if (date <= published.date) return { series, provisional: null };
-  if (date > latestCompletedTradingDate()) return { series, provisional: null };
-  const price = Number(stored.payload?.data?.current_price);
-  if (!Number.isFinite(price) || price <= 0) return { series, provisional: null };
-  return {
-    series: [...series, { date, value: price }],
-    provisional: { date, value: price },
-  };
-}
-
 async function buildPayload() {
   const [seriesResult, cotResults, fomcMeetings, recentReleases, scheduledReleases] = await Promise.all([
     loadMacroSeriesStore(FRED_IDS),
@@ -767,19 +734,9 @@ async function buildPayload() {
   const unavailableSeries = seriesResult.unavailable;
   // Close the publication gap before anything is scored, so the regime, the
   // history chart and the outlook all describe the same latest session.
-  const nowcastNdx = nowcastSession(publishedStore.NASDAQ100, "NDX");
-  const nowcastSpx = nowcastSession(publishedStore.SP500, "SPX");
-  // Only when both indices can be advanced. The direction score blends the two,
-  // and moving one without the other would read as a divergence that did not
-  // happen.
-  const nowcast =
-    nowcastNdx.provisional && nowcastSpx.provisional &&
-    nowcastNdx.provisional.date === nowcastSpx.provisional.date
-      ? { date: nowcastNdx.provisional.date, ndx: nowcastNdx.provisional.value, spx: nowcastSpx.provisional.value }
-      : null;
-  const store: SeriesStore = nowcast
-    ? { ...publishedStore, NASDAQ100: nowcastNdx.series, SP500: nowcastSpx.series }
-    : publishedStore;
+  const advanced = nowcastIndexPair(publishedStore);
+  const nowcast = advanced.provisional;
+  const store = advanced.store as SeriesStore;
   const requiredSeries = [
     "CPIAUCSL", "CPILFESL", "PCEPILFE", "UNRATE", "PAYEMS", "ICSA", "GDPC1",
     "INDPRO", "DFII10", "WALCL", "WTREGEN", "RRPONTSYD", "BAMLH0A0HYM2", "NFCI", "VIXCLS",
