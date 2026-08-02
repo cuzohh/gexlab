@@ -814,7 +814,8 @@ async function buildPayload() {
   // Yahoo can expose the in-progress daily bar before the Engine has a
   // completed daily observation. Keep the move target aligned to the same
   // completed close that anchors its reference price and next-session date.
-  const dailyOhlc = (await loadYahooDailyOhlc("NDX")).filter((bar) => bar.date <= lastRow.date);
+  const yahooDaily = await loadYahooDailyOhlc("NDX");
+  const dailyOhlc = yahooDaily.rows.filter((bar) => bar.date <= lastRow.date);
   const eventForecastDates = new Set(
     rows
       .filter((row) => majorReleases.has(nextWeekday(row.date)) || fomcDates.includes(nextWeekday(row.date)))
@@ -838,6 +839,7 @@ async function buildPayload() {
   }]));
   const moveMap = buildMoveMap({
     bars: dailyOhlc,
+    sourceStatus: yahooDaily.stale ? "Saved" : dailyOhlc.length ? "Live" : "Unavailable",
     reference: moveReference > 0 ? moveReference : dailyOhlc.at(-1)?.close ?? 0,
     impliedMove: sessionContext.impliedMove.percent === null
       ? null

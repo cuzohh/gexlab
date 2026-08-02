@@ -32,6 +32,8 @@ export type ConfidenceLevel = "High" | "Medium" | "Low" | "Unavailable";
 export type OvernightContext = {
   sessionDate: string;
   status: "available" | "partial" | "unavailable";
+  /** True when the last successful snapshot is shown after a refresh failure. */
+  stale?: boolean;
   regime: "Directional long" | "Directional short" | "Extended long" | "Extended short" | "Inventory conflict" | "NQ/ES divergence" | "Mixed / balanced" | "Unavailable";
   playbook: "Continuation watch" | "Inventory correction watch" | "No structural edge" | "Unavailable";
   regimeBasis: string;
@@ -241,6 +243,7 @@ export function emptyOvernightContext(sessionDate: string, note = "Overnight fut
   return {
     sessionDate,
     status: "unavailable",
+    stale: false,
     regime: "Unavailable",
     playbook: "Unavailable",
     regimeBasis: note,
@@ -347,6 +350,7 @@ export function buildOvernightContext(input: {
   return {
     sessionDate: input.sessionDate,
     status: bars === 0 ? "unavailable" : nq.bars > 0 && es.bars > 0 ? "available" : "partial",
+    stale: false,
     regime,
     confidence: {
       structuralScore,

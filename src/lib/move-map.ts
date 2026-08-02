@@ -166,6 +166,7 @@ function forecastAt(points: DailyPoint[], index: number, eventOverride?: boolean
 
 export function buildMoveMap(input: {
   bars: DailyOhlc[];
+  sourceStatus?: "Live" | "Saved" | "Unavailable";
   reference: number;
   impliedMove: number | null;
   impliedByDate: Map<string, number>;
@@ -236,7 +237,7 @@ export function buildMoveMap(input: {
     reference: input.reference,
     asOf: last.date,
     source: "Yahoo daily OHLC + implied volatility",
-    sourceStatus: "Live",
+    sourceStatus: input.sourceStatus ?? (input.bars.length ? "Live" : "Unavailable"),
     upper,
     lower,
     upperPrices,

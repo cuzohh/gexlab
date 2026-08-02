@@ -11,6 +11,11 @@ export type DailyOhlc = {
   close: number;
 };
 
+export type YahooDailyData = {
+  rows: DailyOhlc[];
+  stale: boolean;
+};
+
 type YahooChart = {
   chart?: {
     result?: Array<{
@@ -36,10 +41,12 @@ export function parseYahooDailyOhlc(payload: unknown): DailyOhlc[] {
   }).sort((left, right) => left.date.localeCompare(right.date));
 }
 
-export async function loadYahooDailyOhlc(symbol: "NDX" | "SPX"): Promise<DailyOhlc[]> {
+export async function loadYahooDailyOhlc(symbol: "NDX" | "SPX"): Promise<YahooDailyData> {
   const key = symbol;
   const stored = getSnapshot<DailyOhlc[]>("yahoo-daily-ohlc", key);
-  if (stored?.methodologyVersion === SOURCE_VERSION && snapshotIsFresh(stored)) return stored.payload;
+  if (stored?.methodologyVersion === SOURCE_VERSION && snapshotIsFresh(stored)) {
+    return { rows: stored.payload, stale: false };
+  }
   return dedupeRequest(`yahoo-daily-ohlc:${symbol}`, async () => {
     try {
       const ticker = symbol === "NDX" ? "^NDX" : "^GSPC";
@@ -58,10 +65,10 @@ export async function loadYahooDailyOhlc(symbol: "NDX" | "SPX"): Promise<DailyOh
         refreshAfter: new Date(Date.now() + CACHE_MS).toISOString(),
         methodologyVersion: SOURCE_VERSION,
       });
-      return rows;
+      return { rows, stale: false };
     } catch {
-      if (stored?.payload.length) return stored.payload;
-      return [];
+      if (stored?.payload.length) return { rows: stored.payload, stale: true };
+      return { rows: [], stale: true };
     }
   });
 }

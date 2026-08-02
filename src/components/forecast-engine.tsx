@@ -140,6 +140,7 @@ type EngineData = {
       overnight: {
         sessionDate: string;
         status: string;
+        stale?: boolean;
         regime: string;
         playbook: string;
         regimeBasis: string;
@@ -607,7 +608,11 @@ function SessionContextPanel({ context }: { context: EngineData["forecast"]["ses
             NQ gap {overnightPoints(overnight.nq.gapPoints)} pts · range {overnightPoints(overnight.nq.overnightRangePoints)} pts
             <br />ES gap {overnightPercent(overnight.es.gapPercent)} · range {overnightPoints(overnight.es.overnightRangePoints)} pts
           </p>
-          <small>{overnight.source} · ~{overnight.sourceDelayMinutes}m delay · through {observedThrough}</small>
+          <small>
+            {overnight.stale ? "Saved overnight snapshot · refresh failed" : overnight.source}
+            {!overnight.stale && ` · ~${overnight.sourceDelayMinutes}m delay`}
+            {` · through ${observedThrough}`}
+          </small>
         </article>
         <article>
           <span>Overnight auction read</span>

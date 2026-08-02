@@ -38,7 +38,10 @@ export async function loadYahooOvernightContext(input: {
         nq,
         es,
       });
-      if (basePayload.status !== "unavailable") {
+      // A partial NQ/ES window can still be useful for the current panel, but
+      // it is not a complete validation observation. Do not let it inflate the
+      // history count that the page uses to describe confidence.
+      if (basePayload.status === "available") {
         saveOvernightSession({
           sessionDate: basePayload.sessionDate,
           payload: basePayload,
@@ -60,6 +63,20 @@ export async function loadYahooOvernightContext(input: {
       });
       return payload;
     } catch (error) {
+      const fallback = [refreshed, cached].find(
+        (snapshot) => snapshot?.methodologyVersion === SOURCE_VERSION,
+      );
+      if (fallback) {
+        const coverage = loadOvernightCoverage();
+        return {
+          ...fallback.payload,
+          stale: true,
+          note: error instanceof Error
+            ? `Yahoo futures refresh failed; showing the last saved overnight snapshot. ${error.message}`
+            : "Yahoo futures refresh failed; showing the last saved overnight snapshot.",
+          history: { ...coverage, required: 30 },
+        };
+      }
       const basePayload = buildOvernightContext({
         sessionDate: input.sessionDate,
         priorSessionDate: input.priorSessionDate,

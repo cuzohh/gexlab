@@ -340,6 +340,20 @@ test("Yahoo futures bars produce an overnight gap and range without crossing the
   assert.equal(context.confidence.directionalLevel, "Medium");
 });
 
+test("an overnight window with one missing market is marked partial", () => {
+  const bars = [
+    { timestamp: "2026-07-30T23:00:00.000Z", open: 100, high: 101, low: 99, close: 100, volume: 10 },
+  ];
+  const context = buildOvernightContext({
+    sessionDate: "2026-07-31",
+    priorSessionDate: "2026-07-30",
+    nq: bars,
+    es: [],
+  });
+
+  assert.equal(context.status, "partial");
+});
+
 test("overnight context anchors an early-close session at the cash close, not a later futures bar", () => {
   const bars = [
     { timestamp: "2026-11-27T17:55:00.000Z", open: 100, high: 101, low: 99, close: 100, volume: 10 }, // 12:55 ET
@@ -2460,6 +2474,7 @@ test("move map forecasts asymmetric daily excursions and only flags positive-gam
   }]));
   const map = buildMoveMap({
     bars,
+    sourceStatus: "Saved",
     reference: bars.at(-1).close,
     impliedMove: 0.8,
     impliedByDate: implied,
@@ -2480,4 +2495,5 @@ test("move map forecasts asymmetric daily excursions and only flags positive-gam
   assert.ok(map.regimeMatch.samples >= 24);
   assert.ok(map.evaluation.p68Coverage >= 0 && map.evaluation.p68Coverage <= 100);
   assert.ok(map.evaluation.p90Coverage >= map.evaluation.p68Coverage);
+  assert.equal(map.sourceStatus, "Saved");
 });
