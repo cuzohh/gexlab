@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
 import { useState } from "react";
 
 const workspaces = [
@@ -29,9 +30,16 @@ const optionsCategories = [
   { href: "/structure#research", label: "Indicator", study: "indicator" },
 ];
 
-function ThemeMark() {
+function ThemeMark({ theme }: { theme: "light" | "dark" }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17">
+    <motion.svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width="17"
+      height="17"
+      animate={{ rotate: theme === "dark" ? 180 : 0, scale: theme === "dark" ? 0.92 : 1 }}
+      transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+    >
       <circle cx="12" cy="12" r="4.25" fill="none" stroke="currentColor" strokeWidth="1.6" />
       <path
         d="M12 2.75v2M12 19.25v2M2.75 12h2M19.25 12h2M5.46 5.46l1.42 1.42M17.12 17.12l1.42 1.42M18.54 5.46l-1.42 1.42M6.88 17.12l-1.42 1.42"
@@ -40,7 +48,7 @@ function ThemeMark() {
         strokeLinecap="round"
         strokeWidth="1.6"
       />
-    </svg>
+    </motion.svg>
   );
 }
 
@@ -52,15 +60,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const workspaceName = inOptions ? "Options" : inReversal ? "Reversal" : inEngine ? "Engine" : "Macro";
   const categories = inOptions ? optionsCategories : inReversal ? reversalCategories : inEngine ? engineCategories : macroCategories;
   const [optionCategory, setOptionCategory] = useState("exposure");
+  const reducedMotion = useReducedMotion();
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    typeof document !== "undefined" && document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
 
   function toggleTheme() {
     const next = document.documentElement.dataset.theme !== "dark";
     document.documentElement.dataset.theme = next ? "dark" : "light";
     localStorage.setItem("gexlab-v3:theme", next ? "dark" : "light");
+    setTheme(next ? "dark" : "light");
   }
 
   return (
-    <div className="app-frame">
+    <MotionConfig reducedMotion={reducedMotion ? "always" : "user"}>
+      <div className="app-frame">
       <header className="site-header">
         <Link href="/" className="brand" aria-label="GEXLab V3 home">
           <span className="brand-mark" aria-hidden="true">
@@ -118,17 +132,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={toggleTheme}
             aria-label="Toggle light and dark theme"
           >
-            <ThemeMark />
+            <motion.span whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.9 }}>
+              <ThemeMark theme={theme} />
+            </motion.span>
           </button>
         </div>
       </header>
 
-      <main>{children}</main>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.main
+          key={pathname}
+          initial={false}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reducedMotion ? { opacity: 1, y: 0 } : { opacity: 0, y: -4 }}
+          transition={reducedMotion ? { duration: 0 } : { duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {children}
+        </motion.main>
+      </AnimatePresence>
 
       <footer className="site-footer">
         <p>Market context, clearly mapped.</p>
         <p>Observed data + labeled models · Not investment advice</p>
       </footer>
-    </div>
+      </div>
+    </MotionConfig>
   );
 }

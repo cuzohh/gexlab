@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { OrientationHero } from "@/components/orientation-hero";
 
@@ -458,15 +459,18 @@ function RangeBar({ forecast }: { forecast: EngineData["forecast"] }) {
             : " Tomorrow is forecast tighter than that.")}
       </p>
       <div className="range-plot" aria-label="Forecast distribution of the next session's return">
-        <i className="range-outer" style={{ left: "0%", width: "100%" }} />
+        <motion.i className="range-outer" style={{ left: "0%", width: "100%", transformOrigin: "left center" }} initial={false} animate={{ opacity: 1, scaleX: 1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} />
         {range.low50 !== null && range.high50 !== null && (
-          <i
+          <motion.i
             className="range-inner"
             style={{ left: `${position(range.low50)}%`, width: `${position(range.high50) - position(range.low50)}%` }}
+            initial={false}
+            animate={{ opacity: 1, scaleX: 1 }}
+            transition={{ delay: 0.12, duration: 0.48, ease: [0.16, 1, 0.3, 1] }}
           />
         )}
-        <i className="range-zero" style={{ left: `${position(0)}%` }} />
-        {range.median !== null && <b className="range-median" style={{ left: `${position(range.median)}%` }} />}
+        <motion.i className="range-zero" style={{ left: `${position(0)}%` }} initial={false} animate={{ opacity: 1, scaleY: 1 }} transition={{ delay: 0.32, duration: 0.3 }} />
+        {range.median !== null && <motion.b className="range-median" style={{ left: `${position(range.median)}%` }} initial={false} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.34, duration: 0.32 }} />}
         <span className="range-label range-label--low">{range.low95.toFixed(2)}%</span>
         <span className="range-label range-label--high">+{range.high95.toFixed(2)}%</span>
       </div>
@@ -520,9 +524,9 @@ function MoveMapPanel({ moveMap }: { moveMap: NonNullable<EngineData["forecast"]
         <span className={`move-map-state move-map-state--${reactionTone}`}>{moveMap.reaction.label}</span>
       </header>
       <div className="move-map-scale" role="img" aria-label={`Projected lower 90 percent reach ${price(low)}, reference ${price(moveMap.reference)}, and upper 90 percent reach ${price(high)}`}>
-        <i className="move-map-outer" />
-        <i className="move-map-inner" style={{ left: at(moveMap.lowerPrices.p68), width: `calc(${at(moveMap.upperPrices.p68)} - ${at(moveMap.lowerPrices.p68)})` }} />
-        <b className="move-map-reference" style={{ left: at(moveMap.reference) }}><span>REF {price(moveMap.reference)}</span></b>
+        <motion.i className="move-map-outer" initial={false} animate={{ opacity: 1, scaleX: 1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }} />
+        <motion.i className="move-map-inner" style={{ left: at(moveMap.lowerPrices.p68), width: `calc(${at(moveMap.upperPrices.p68)} - ${at(moveMap.lowerPrices.p68)})`, transformOrigin: "left center" }} initial={false} animate={{ opacity: 1, scaleX: 1 }} transition={{ delay: 0.12, duration: 0.48, ease: [0.16, 1, 0.3, 1] }} />
+        <motion.b className="move-map-reference" style={{ left: at(moveMap.reference) }} initial={false} animate={{ opacity: 1, scaleY: 1 }} transition={{ delay: 0.3, duration: 0.3 }}><span>REF {price(moveMap.reference)}</span></motion.b>
         <b className="move-map-marker move-map-marker--upper" style={{ left: at(moveMap.upperPrices.p68) }}><span>+1σ {price(moveMap.upperPrices.p68)}</span></b>
         <b className="move-map-marker move-map-marker--lower" style={{ left: at(moveMap.lowerPrices.p68) }}><span>−1σ {price(moveMap.lowerPrices.p68)}</span></b>
         {moveMap.reaction.price !== null && <b className={`move-map-reaction move-map-reaction--${reactionTone}`} style={{ left: at(moveMap.reaction.price) }}><span>{price(moveMap.reaction.price)}</span></b>}

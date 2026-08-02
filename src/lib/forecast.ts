@@ -523,6 +523,10 @@ export function harFeatures(
   absoluteReturns: number[],
   index: number,
   impliedDaily?: number[],
+  trueRangePercent?: number[],
+  impliedCurve?: number[],
+  atr14Percent?: number[],
+  atr50Percent?: number[],
 ) {
   if (index < 22) return null;
   const floor = 0.01;
@@ -542,6 +546,49 @@ export function harFeatures(
     // carries information the price history does not, notably scheduled events
     // that have not happened yet.
     features.push(Math.log(Math.max(impliedDaily[index], floor)));
+  }
+  if (trueRangePercent) {
+    const rangeWindowMean = (length: number) => {
+      const slice = trueRangePercent.slice(index - length + 1, index + 1);
+      return slice.length === length && slice.every((value) => Number.isFinite(value))
+        ? slice.reduce((sum, value) => sum + value, 0) / length
+        : null;
+    };
+    const currentRange = trueRangePercent[index];
+    const weeklyRange = rangeWindowMean(5);
+    const monthlyRange = rangeWindowMean(22);
+    if (currentRange === undefined || !Number.isFinite(currentRange) || weeklyRange === null || monthlyRange === null) return null;
+    // OHLC true range carries gap information that close-to-close returns miss.
+    // It is kept in the same log/HAR form as the return features so the model
+    // can distinguish a quiet close from a session that travelled widely.
+    features.push(
+      Math.log(Math.max(currentRange, floor)),
+      Math.log(Math.max(weeklyRange, floor)),
+      Math.log(Math.max(monthlyRange, floor)),
+    );
+  }
+  if (impliedCurve) {
+    const curve = impliedCurve[index];
+    if (curve === undefined || !Number.isFinite(curve) || curve <= 0) return null;
+    // VIX/VXV is a compact term-structure state: values above one describe
+    // front-loaded stress, while values below one describe a calmer carry
+    // regime. The level is already in the model; this adds its shape.
+    features.push(Math.log(Math.max(curve, 0.25)));
+  }
+  if (atr14Percent || atr50Percent) {
+    const atr14 = atr14Percent?.[index];
+    const atr50 = atr50Percent?.[index];
+    if (
+      atr14 === undefined || atr50 === undefined ||
+      !Number.isFinite(atr14) || !Number.isFinite(atr50) ||
+      atr14 <= 0 || atr50 <= 0
+    ) return null;
+    // ATR level captures the smoothed range; the ratio captures expansion or
+    // compression without pretending ATR itself is a close-to-close target.
+    features.push(
+      Math.log(Math.max(atr14, floor)),
+      Math.log(Math.max(atr14 / atr50, 0.25)),
+    );
   }
   if (!features.every(Number.isFinite)) return null;
   return features;

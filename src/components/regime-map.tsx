@@ -1,3 +1,7 @@
+"use client";
+
+import { motion } from "motion/react";
+
 type RegimeMapProps = {
   compact?: boolean;
   regime?: string;
@@ -49,10 +53,10 @@ export function RegimeMap({
           Current growth and inflation scores place the environment in the {regime} quadrant.
         </desc>
 
-        <rect className="map-field map-field--slowdown" x="64" y="38" width="256" height="142" rx="8" />
-        <rect className="map-field map-field--goldilocks" x="320" y="38" width="256" height="142" rx="8" />
-        <rect className="map-field map-field--stagflation" x="64" y="180" width="256" height="142" rx="8" />
-        <rect className="map-field map-field--reflation" x="320" y="180" width="256" height="142" rx="8" />
+        <motion.rect className="map-field map-field--slowdown" x="64" y="38" width="256" height="142" rx="8" initial={false} animate={{ opacity: 1 }} transition={{ duration: 0.32 }} />
+        <motion.rect className="map-field map-field--goldilocks" x="320" y="38" width="256" height="142" rx="8" initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.06, duration: 0.32 }} />
+        <motion.rect className="map-field map-field--stagflation" x="64" y="180" width="256" height="142" rx="8" initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.12, duration: 0.32 }} />
+        <motion.rect className="map-field map-field--reflation" x="320" y="180" width="256" height="142" rx="8" initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.18, duration: 0.32 }} />
 
         <line className="map-axis" x1="64" y1="180" x2="576" y2="180" />
         <line className="map-axis" x1="320" y1="38" x2="320" y2="322" />
@@ -71,12 +75,12 @@ export function RegimeMap({
           INFLATION RISING
         </text>
 
-        {path && <path className="regime-trail" d={path} />}
+        {path && <motion.path className="regime-trail" d={path} initial={false} animate={{ pathLength: 1, opacity: 1 }} transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }} />}
         {trailPoints.slice(0, -1).map((row, index) => (
-          <circle className="trail-point trail-point--old" cx={row.x} cy={row.y} r="4" key={index} />
+          <motion.circle className="trail-point trail-point--old" cx={row.x} cy={row.y} r="4" key={index} initial={false} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.35 + index * 0.08, duration: 0.28 }} />
         ))}
-        <circle className="current-halo" cx={point.x} cy={point.y} r="20" />
-        <circle className="current-point" cx={point.x} cy={point.y} r="7" />
+        <motion.circle className="current-halo" cx={point.x} cy={point.y} r="20" initial={false} animate={{ opacity: 1, r: 20 }} transition={{ delay: 0.5, duration: 0.42 }} />
+        <motion.circle className="current-point" cx={point.x} cy={point.y} r="7" initial={false} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.52, duration: 0.42, ease: [0.16, 1, 0.3, 1] }} />
         <text className="current-label" x={Math.min(point.x + 14, 540)} y={point.y - 10}>NOW</text>
         <text className="current-note" x={Math.min(point.x + 14, 500)} y={point.y + 7}>growth {growth}</text>
         <text className="current-note" x={Math.min(point.x + 14, 500)} y={point.y + 20}>inflation {inflation}</text>

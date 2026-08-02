@@ -1356,6 +1356,37 @@ test("volatility features average before taking logs and correct the log bias", 
   assert.ok(shocked[2] > calm[2] + 0.5, "the weekly term should react to a spike");
   assert.equal(calm.length, 4);
   assert.equal(harFeatures(quiet, 29, new Array(30).fill(1)).length, 5);
+  assert.equal(
+    harFeatures(
+      quiet,
+      29,
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+    ).length,
+    11,
+  );
+  assert.equal(
+    harFeatures(
+      quiet,
+      29,
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+      new Array(30).fill(1),
+    ).length,
+    9,
+  );
+  const missingRange = new Array(30).fill(1);
+  missingRange[20] = Number.NaN;
+  assert.equal(harFeatures(quiet, 29, new Array(30).fill(1), missingRange, new Array(30).fill(1)), null);
+  const missingAtr = new Array(30).fill(1);
+  missingAtr[29] = Number.NaN;
+  assert.equal(
+    harFeatures(quiet, 29, new Array(30).fill(1), undefined, undefined, missingAtr, new Array(30).fill(1)),
+    null,
+  );
   assert.equal(harFeatures(quiet, 10), null);
 
   // Smearing corrects a log-scale fit back to the mean; symmetric residuals in

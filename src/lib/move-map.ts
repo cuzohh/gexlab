@@ -6,6 +6,7 @@ type DailyPoint = DailyOhlc & {
   vix: number | null;
   vxn: number | null;
   vxv: number | null;
+  trueRangePercent: number | null;
 };
 
 export type MoveMap = {
@@ -54,9 +55,23 @@ function realizedDailyVol(points: DailyPoint[], index: number) {
   return standardDeviation(returns);
 }
 
+function trueRangePercent(points: DailyPoint[], index: number) {
+  const current = points[index];
+  const previousClose = points[index - 1]?.close;
+  if (!current || !(current.close > 0)) return null;
+  const reference = finite(previousClose) && previousClose > 0 ? previousClose : current.close;
+  const range = Math.max(
+    current.high - current.low,
+    Math.abs(current.high - reference),
+    Math.abs(current.low - reference),
+  );
+  return Number.isFinite(range) ? (range / reference) * 100 : null;
+}
+
 function matchedExcursion(points: DailyPoint[], index: number, event: boolean) {
   const current = points[index];
   const currentRealized = realizedDailyVol(points, index);
+  const currentRange = points[index].trueRangePercent;
   const currentCurve = finite(current.vix) && finite(current.vxv) && current.vxv > 0 ? current.vix / current.vxv : null;
   const candidates = Array.from({ length: Math.min(1_260, index - 20) }, (_, offset) => index - 1 - offset)
     .filter((position) => position >= 20 && position + 1 < points.length)
@@ -69,6 +84,7 @@ function matchedExcursion(points: DailyPoint[], index: number, event: boolean) {
       if (finite(current.vxn) && finite(candidate.vxn)) { distance += Math.abs(current.vxn - candidate.vxn) / 4; dimensions += 1; }
       if (currentCurve !== null && candidateCurve !== null) { distance += Math.abs(currentCurve - candidateCurve) / 0.08; dimensions += 1; }
       if (currentRealized !== null && candidateRealized !== null) { distance += Math.abs(currentRealized - candidateRealized) / 0.35; dimensions += 1; }
+      if (finite(currentRange) && finite(candidate.trueRangePercent)) { distance += Math.abs(currentRange - candidate.trueRangePercent) / 0.75; dimensions += 1; }
       if (!dimensions) return null;
       distance /= dimensions;
       if (candidate.event !== event) distance += 0.8;
@@ -175,13 +191,18 @@ export function buildMoveMap(input: {
   volatilityByDate?: Map<string, { vix: number | null; vxn: number | null; vxv: number | null }>;
   gamma: { regime: string; callWallDistancePercent: number | null; putWallDistancePercent: number | null };
 }): MoveMap | null {
-  const points: DailyPoint[] = input.bars.map((bar) => ({
+  const rawPoints: DailyPoint[] = input.bars.map((bar) => ({
     ...bar,
     implied: input.impliedByDate.get(bar.date) ?? null,
     event: input.eventDates.has(bar.date),
     vix: input.volatilityByDate?.get(bar.date)?.vix ?? null,
     vxn: input.volatilityByDate?.get(bar.date)?.vxn ?? null,
     vxv: input.volatilityByDate?.get(bar.date)?.vxv ?? null,
+    trueRangePercent: null,
+  }));
+  const points: DailyPoint[] = rawPoints.map((point, index) => ({
+    ...point,
+    trueRangePercent: trueRangePercent(rawPoints, index),
   }));
   if (points.length < 280 || !(input.reference > 0)) return null;
   const predictions: Array<{ upper: number; lower: number; actualUpper: number; actualLower: number }> = [];
@@ -200,23 +221,37 @@ export function buildMoveMap(input: {
   const last = points.at(-1)!;
   const forecast = forecastAt(points, points.length - 1, input.nextSessionIsEvent, true);
   if (!forecast) return null;
-  const jointRatios = recent
-    .map((row) => Math.max(row.actualUpper / row.upper, row.actualLower / row.lower))
+  // High and low excursions are not symmetric: gap-up sessions often have a
+  // different upper tail from their lower tail, and the same is true in
+  // reverse. Calibrate each side independently instead of forcing both bands
+  // to inherit the noisier side's multiplier.
+  const upperRatios = recent
+    .map((row) => row.actualUpper / row.upper)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const lowerRatios = recent
+    .map((row) => row.actualLower / row.lower)
     .filter((value) => Number.isFinite(value) && value >= 0);
   const makeBand = (value: number, samples: number[]) => ({
     p50: value * (quantile(samples, 0.5) ?? 1),
     p68: value * (quantile(samples, 0.68) ?? 1.25),
     p90: value * (quantile(samples, 0.9) ?? 1.75),
   });
-  const upper = makeBand(forecast.upper, jointRatios);
-  const lower = makeBand(forecast.lower, jointRatios);
+  const upper = makeBand(forecast.upper, upperRatios);
+  const lower = makeBand(forecast.lower, lowerRatios);
   const coverage = (probability: "p68" | "p90") => {
     const probabilityValue = probability === "p68" ? 0.68 : 0.9;
     const scored = recent.map((row, index) => {
-      const calibration = jointRatios.slice(Math.max(0, index - 252), index);
-      const multiplier = quantile(calibration, probabilityValue);
-      if (multiplier === null || calibration.length < 100) return null;
-      return row.actualUpper <= row.upper * multiplier && row.actualLower <= row.lower * multiplier;
+      const calibrationRows = recent.slice(Math.max(0, index - 252), index);
+      const upperCalibration = calibrationRows
+        .map((candidate) => candidate.actualUpper / candidate.upper)
+        .filter((value) => Number.isFinite(value) && value >= 0);
+      const lowerCalibration = calibrationRows
+        .map((candidate) => candidate.actualLower / candidate.lower)
+        .filter((value) => Number.isFinite(value) && value >= 0);
+      const upperMultiplier = quantile(upperCalibration, probabilityValue);
+      const lowerMultiplier = quantile(lowerCalibration, probabilityValue);
+      if (upperMultiplier === null || lowerMultiplier === null || upperCalibration.length < 100 || lowerCalibration.length < 100) return null;
+      return row.actualUpper <= row.upper * upperMultiplier && row.actualLower <= row.lower * lowerMultiplier;
     }).filter((value): value is boolean => value !== null);
     return mean(scored.map((value) => value ? 1 : 0)) * 100;
   };

@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 import {
   buildReversalAnalysis,
@@ -113,18 +114,18 @@ function ReversalMap({ analysis, snapshot }: { analysis: ReversalAnalysis; snaps
           <title>Stabilizing and amplifying options pressure around the current price</title>
           <desc>Higher stabilizing pressure suggests dealer hedging may dampen movement. Higher amplifying pressure suggests breaks can travel.</desc>
           <line x1={padX} x2={width - padX} y1={height - padY} y2={height - padY} className="reversal-axis" />
-          <path d={area("stabilizing")} className="reversal-area reversal-area--stable" />
-          <path d={area("amplifying")} className="reversal-area reversal-area--amplify" />
-          <path d={line("stabilizing")} className="reversal-line reversal-line--stable" />
-          <path d={line("amplifying")} className="reversal-line reversal-line--amplify" />
-          <line x1={x(snapshot.spot)} x2={x(snapshot.spot)} y1={padY} y2={height - padY} className="reversal-spot-line" />
+          <motion.path d={area("stabilizing")} className="reversal-area reversal-area--stable" initial={false} animate={{ opacity: 1 }} transition={{ duration: 0.45 }} />
+          <motion.path d={area("amplifying")} className="reversal-area reversal-area--amplify" initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.08, duration: 0.45 }} />
+          <motion.path d={line("stabilizing")} className="reversal-line reversal-line--stable" initial={false} animate={{ pathLength: 1, opacity: 1 }} transition={{ duration: 0.72, ease: [0.16, 1, 0.3, 1] }} />
+          <motion.path d={line("amplifying")} className="reversal-line reversal-line--amplify" initial={false} animate={{ pathLength: 1, opacity: 1 }} transition={{ delay: 0.08, duration: 0.72, ease: [0.16, 1, 0.3, 1] }} />
+          <motion.line x1={x(snapshot.spot)} x2={x(snapshot.spot)} y1={padY} y2={height - padY} className="reversal-spot-line" initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.42, duration: 0.3 }} />
           <text x={x(snapshot.spot)} y="16" textAnchor="middle" className="reversal-spot-label">SPOT {money(snapshot.spot)}</text>
-          {analysis.zones.slice(0, 3).map((zone) => {
+          {analysis.zones.slice(0, 3).map((zone, index) => {
             const zoneX = x(zone.low);
             const zoneWidth = Math.max(8, x(zone.high) - zoneX);
             return (
               <g key={`${zone.center}-${zone.kind}`}>
-                <rect x={zoneX} y={padY} width={zoneWidth} height={height - padY * 2} className={`reversal-zone-band reversal-zone-band--${zoneTone(zone)}`} />
+                <motion.rect x={zoneX} y={padY} width={zoneWidth} height={height - padY * 2} className={`reversal-zone-band reversal-zone-band--${zoneTone(zone)}`} initial={false} animate={{ opacity: 1 }} transition={{ delay: 0.5 + index * 0.08, duration: 0.3 }} />
                 <text x={zoneX + zoneWidth / 2} y={height - 9} textAnchor="middle" className="reversal-zone-label">{money(zone.center)}</text>
               </g>
             );

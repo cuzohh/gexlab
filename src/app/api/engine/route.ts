@@ -36,7 +36,7 @@ import { loadFomcMeetings, loadPublishedReleaseDates } from "@/lib/server/event-
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { loadMacroSeriesStore } from "@/lib/server/macro-sources";
 import { loadYahooOvernightContext } from "@/lib/server/yahoo-futures";
-import { loadYahooDailyOhlc } from "@/lib/server/yahoo-daily";
+import { loadYahooDailyOhlc, type DailyOhlc } from "@/lib/server/yahoo-daily";
 import { buildMoveMap } from "@/lib/move-map";
 import { MACRO_SERIES_IDS } from "@/lib/server/series-catalog";
 import { MARKET_CALENDAR_VERSION, nextWeekday } from "@/lib/market-time";
@@ -53,7 +53,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.9.0";
+const MODEL_VERSION = "engine-v1.10.0";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -495,10 +495,61 @@ function evaluateClassifier(
 
 /**
  * Volatility model. Log absolute return is regressed on its own daily, weekly,
- * and monthly averages, which is the standard heterogeneous autoregressive
- * specification and the part of this engine with genuine predictive power.
+ * and monthly averages, then augmented with OHLC true range, Wilder ATR
+ * expansion, and implied-vol term structure. The extra state is only admitted
+ * through walk-forward scoring, so it can be removed if it fails to beat the
+ * simpler HAR baseline.
  */
-function evaluateVolatility(rows: FeatureRow[]) {
+function trueRangeByDate(bars: DailyOhlc[]) {
+  const sorted = [...bars].sort((left, right) => left.date.localeCompare(right.date));
+  const ranges = new Map<string, number>();
+  let previousClose: number | null = null;
+  for (const bar of sorted) {
+    const reference = previousClose !== null && previousClose > 0 ? previousClose : bar.close;
+    const range = Math.max(
+      bar.high - bar.low,
+      Math.abs(bar.high - reference),
+      Math.abs(bar.low - reference),
+    );
+    if (reference > 0 && Number.isFinite(range)) ranges.set(bar.date, (range / reference) * 100);
+    previousClose = bar.close;
+  }
+  return ranges;
+}
+
+function wilderAtrByDate(bars: DailyOhlc[], period: number) {
+  const sorted = [...bars].sort((left, right) => left.date.localeCompare(right.date));
+  const atrs = new Map<string, number>();
+  const trueRanges: number[] = [];
+  let previousClose: number | null = null;
+  let atr: number | null = null;
+  for (const bar of sorted) {
+    const reference = previousClose !== null && previousClose > 0 ? previousClose : bar.close;
+    const trueRange = Math.max(
+      bar.high - bar.low,
+      Math.abs(bar.high - reference),
+      Math.abs(bar.low - reference),
+    );
+    if (Number.isFinite(trueRange) && reference > 0) {
+      trueRanges.push(trueRange / reference * 100);
+      if (trueRanges.length === period) {
+        atr = mean(trueRanges);
+      } else if (trueRanges.length > period && atr !== null) {
+        atr = ((atr * (period - 1)) + trueRanges.at(-1)!) / period;
+      }
+      if (atr !== null && Number.isFinite(atr)) atrs.set(bar.date, atr);
+    }
+    previousClose = bar.close;
+  }
+  return atrs;
+}
+
+function evaluateVolatility(
+  rows: FeatureRow[],
+  rangeByDate?: Map<string, number>,
+  atr14ByDate?: Map<string, number>,
+  atr50ByDate?: Map<string, number>,
+) {
   const usable = rows.filter((row) => row.forwardAbsolute !== null);
   if (usable.length < WALK_FORWARD.initialTrain + WALK_FORWARD.refitEvery) return null;
   const absolute = usable.map((row) => Math.abs(row.currentReturn));
@@ -508,13 +559,23 @@ function evaluateVolatility(rows: FeatureRow[]) {
   const impliedDaily = usable.map(
     (row) => row.features[FEATURE_INDEX["implied volatility level"]] / Math.sqrt(252),
   );
+  const trueRange = rangeByDate && rangeByDate.size >= 400
+    ? usable.map((row) => rangeByDate.get(row.date) ?? Number.NaN)
+    : undefined;
+  const impliedCurve = usable.map((row) => row.features[FEATURE_INDEX["implied volatility curve"]]);
+  const atr14 = atr14ByDate && atr50ByDate && atr14ByDate.size >= 400 && atr50ByDate.size >= 400
+    ? usable.map((row) => atr14ByDate.get(row.date) ?? Number.NaN)
+    : undefined;
+  const atr50 = atr14ByDate && atr50ByDate && atr14ByDate.size >= 400 && atr50ByDate.size >= 400
+    ? usable.map((row) => atr50ByDate.get(row.date) ?? Number.NaN)
+    : undefined;
   const targets = usable.map((row) => Math.log(Math.max(row.forwardAbsolute!, 0.01)));
 
   const predictions = walkForward<number>(usable.length, WALK_FORWARD, (train, predict) => {
     const design: number[][] = [];
     const response: number[] = [];
     for (let index = train[0]; index < train[1]; index += 1) {
-      const features = harFeatures(absolute, index, impliedDaily);
+      const features = harFeatures(absolute, index, impliedDaily, trueRange, impliedCurve, atr14, atr50);
       if (!features) continue;
       design.push(features);
       response.push(targets[index]);
@@ -526,7 +587,7 @@ function evaluateVolatility(rows: FeatureRow[]) {
     const smearing = smearingFactor(response.map((value, index) => value - fitted[index]));
     const output: Array<number | null> = [];
     for (let index = predict[0]; index < predict[1]; index += 1) {
-      const features = harFeatures(absolute, index, impliedDaily);
+      const features = harFeatures(absolute, index, impliedDaily, trueRange, impliedCurve, atr14, atr50);
       if (!features) {
         output.push(null);
         continue;
@@ -723,7 +784,15 @@ async function buildPayload() {
     "Will the next five sessions contain a material drawdown?",
     5,
   );
-  const volatility = evaluateVolatility(rows);
+  // Yahoo's OHLC history adds intraday travel and gap information to the
+  // close-to-close HAR inputs. Keep it aligned to the same completed macro
+  // close used by the forecast reference.
+  const yahooDaily = await loadYahooDailyOhlc("NDX");
+  const dailyOhlc = yahooDaily.rows.filter((bar) => bar.date <= rows.at(-1)!.date);
+  const rangeByDate = trueRangeByDate(dailyOhlc);
+  const atr14ByDate = wilderAtrByDate(dailyOhlc, 14);
+  const atr50ByDate = wilderAtrByDate(dailyOhlc, 50);
+  const volatility = evaluateVolatility(rows, rangeByDate, atr14ByDate, atr50ByDate);
 
   // Nine targets are each tested against their own base rate, so at a nominal
   // five percent a couple would be expected to clear the bar on noise alone.
@@ -814,8 +883,6 @@ async function buildPayload() {
   // Yahoo can expose the in-progress daily bar before the Engine has a
   // completed daily observation. Keep the move target aligned to the same
   // completed close that anchors its reference price and next-session date.
-  const yahooDaily = await loadYahooDailyOhlc("NDX");
-  const dailyOhlc = yahooDaily.rows.filter((bar) => bar.date <= lastRow.date);
   const eventForecastDates = new Set(
     rows
       .filter((row) => majorReleases.has(nextWeekday(row.date)) || fomcDates.includes(nextWeekday(row.date)))
@@ -889,20 +956,48 @@ async function buildPayload() {
   const impliedDailySeries = rows.map(
     (row) => row.features[FEATURE_INDEX["implied volatility level"]] / Math.sqrt(252),
   );
+  const trueRangeSeries = rangeByDate.size >= 400
+    ? rows.map((row) => rangeByDate.get(row.date) ?? Number.NaN)
+    : undefined;
+  const atr14Series = atr14ByDate.size >= 400
+    ? rows.map((row) => atr14ByDate.get(row.date) ?? Number.NaN)
+    : undefined;
+  const atr50Series = atr50ByDate.size >= 400
+    ? rows.map((row) => atr50ByDate.get(row.date) ?? Number.NaN)
+    : undefined;
+  const impliedCurveSeries = rows.map(
+    (row) => row.features[FEATURE_INDEX["implied volatility curve"]],
+  );
   const volatilityTargets = rows.map((row) =>
     row.forwardAbsolute === null ? null : Math.log(Math.max(row.forwardAbsolute, 0.01)),
   );
   const trainDesign: number[][] = [];
   const trainResponse: number[] = [];
   for (let index = Math.max(rows.length - WALK_FORWARD.maxTrain, 22); index < rows.length; index += 1) {
-    const features = harFeatures(absoluteReturns, index, impliedDailySeries);
+    const features = harFeatures(
+      absoluteReturns,
+      index,
+      impliedDailySeries,
+      trueRangeSeries,
+      impliedCurveSeries,
+      atr14Series,
+      atr50Series,
+    );
     const response = volatilityTargets[index];
     if (!features || response === null) continue;
     trainDesign.push(features);
     trainResponse.push(response);
   }
   const volatilityWeights = trainDesign.length > 200 ? ridgeFit(trainDesign, trainResponse, 1e-4) : null;
-  const currentHar = harFeatures(absoluteReturns, rows.length - 1, impliedDailySeries);
+  const currentHar = harFeatures(
+    absoluteReturns,
+    rows.length - 1,
+    impliedDailySeries,
+    trueRangeSeries,
+    impliedCurveSeries,
+    atr14Series,
+    atr50Series,
+  );
   const volatilitySmearing = volatilityWeights
     ? smearingFactor(
         trainResponse.map(
@@ -1187,7 +1282,7 @@ async function buildPayload() {
         "Every forecast is written to the database before the session it describes and scored afterwards from the same price series. A short record proves nothing yet; it is shown so the model cannot be quietly re-tuned after a bad run.",
     },
     method:
-      `Regularized logistic regression on ${FEATURE_NAMES.length} market, rates, credit, and volatility features for the binary questions, and a heterogeneous autoregressive model of log absolute return for the size of the move. Missing observations withhold a row rather than becoming a zero-change signal. All scores come from walk-forward evaluation: fit on the past, predict the block that follows, never look back, with an embargo between the two.`,
+      `Regularized logistic regression on ${FEATURE_NAMES.length} market, rates, credit, and volatility features for the binary questions, and a walk-forward augmented HAR model of log absolute return for the size of the move. The size model uses close-return persistence, Yahoo OHLC true range, Wilder ATR(14)/ATR(50) expansion, implied-volatility level, and VIX/VXV term structure. Missing observations withhold a row rather than becoming a zero-change signal. All scores come from walk-forward evaluation: fit on the past, predict the block that follows, never look back, with an embargo between the two.`,
     caveat:
       "Daily index direction is close to unpredictable. The honest comparison is against the base rate — the frequency of up days — not against a coin flip, and a model that fails to beat it is reported as failing.",
   };
