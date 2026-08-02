@@ -151,6 +151,19 @@ function database() {
 
     CREATE INDEX IF NOT EXISTS engine_intraday_log_lookup
       ON engine_intraday_log(symbol, feature, source_time DESC);
+
+    -- One pre-open summary per cash session. This is deliberately a compact
+    -- session log, not a second intraday bar archive: it is enough to test
+    -- overnight regimes against the RTH outcome without introducing replay.
+    CREATE TABLE IF NOT EXISTS overnight_sessions (
+      session_date TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      source_time TEXT,
+      recorded_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS overnight_sessions_date
+      ON overnight_sessions(session_date DESC);
   `);
   const emptyCsvMigration = "macro-empty-csv-v2";
   db.exec("BEGIN IMMEDIATE");
@@ -804,6 +817,44 @@ export function loadEngineFeatureCoverage() {
     firstDate: row.first_date,
     lastDate: row.last_date,
   }));
+}
+
+export function saveOvernightSession(input: {
+  sessionDate: string;
+  payload: unknown;
+  sourceTime?: string | null;
+}) {
+  database()
+    .prepare(`
+      INSERT INTO overnight_sessions (session_date, payload, source_time, recorded_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(session_date) DO UPDATE SET
+        payload = excluded.payload,
+        source_time = excluded.source_time,
+        recorded_at = excluded.recorded_at
+    `)
+    .run(
+      input.sessionDate,
+      JSON.stringify(input.payload),
+      input.sourceTime ?? null,
+      new Date().toISOString(),
+    );
+}
+
+export function loadOvernightCoverage() {
+  const row = database()
+    .prepare(`
+      SELECT COUNT(*) AS sessions,
+             MIN(session_date) AS first_date,
+             MAX(session_date) AS last_date
+      FROM overnight_sessions
+    `)
+    .get() as { sessions: number; first_date: string | null; last_date: string | null };
+  return {
+    sessions: Number(row.sessions),
+    firstDate: row.first_date,
+    lastDate: row.last_date,
+  };
 }
 
 export type MacroObservation = { date: string; value: number };

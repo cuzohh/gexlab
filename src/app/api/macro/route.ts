@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import { easternDate, nextWeekday, sessionsBehind } from "@/lib/market-time";
+import {
+  easternDate,
+  MARKET_CALENDAR_VERSION,
+  nextWeekday,
+  sessionsBehind,
+} from "@/lib/market-time";
 import { loadGeopoliticalRisk } from "@/lib/server/geopolitical-sources";
+import { loadCftcData, type CftcPositioningRow } from "@/lib/server/cftc-sources";
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { nextSessionOutlook, pivotReturn } from "@/lib/regime-forecast";
 import {
@@ -18,7 +24,6 @@ import {
   loadRecentReleases,
   loadScheduledReleases,
 } from "@/lib/server/event-sources";
-import { dedupeRequest } from "@/lib/server/request-deduper";
 import {
   backfillVintages,
   loadVintagePanel,
@@ -66,8 +71,7 @@ type MacroMetric = {
 const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
-const COT_CACHE_MS = 20 * 60 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.15.0";
+const METHODOLOGY_VERSION = "macro-regime-v3.16.0";
 // Derived, not written out again. These were two hand-kept strings, so adding a
 // field to the payload left the key pointing at the old shape and the cached
 // response was served for the full window with the new field missing — and
@@ -356,56 +360,9 @@ function metric(
   };
 }
 
-type CotRow = {
-  report_date_as_yyyy_mm_dd?: string;
-  asset_mgr_positions_long?: string;
-  asset_mgr_positions_short?: string;
-  lev_money_positions_long?: string;
-  lev_money_positions_short?: string;
-};
-
-async function fetchCot(contract: "NASDAQ MINI" | "E-MINI S&P 500") {
-  const key = contract === "NASDAQ MINI" ? "nq" : "es";
-  const stored = getSnapshot<CotRow[]>("macro-positioning", key);
-  if (stored && snapshotIsFresh(stored)) return stored.payload;
-  return dedupeRequest(`macro:positioning:${key}`, async () => {
-    try {
-      const params = new URLSearchParams({
-        "$select": "report_date_as_yyyy_mm_dd,asset_mgr_positions_long,asset_mgr_positions_short,lev_money_positions_long,lev_money_positions_short",
-        "$where": `contract_market_name='${contract}'`,
-        "$order": "report_date_as_yyyy_mm_dd DESC",
-        "$limit": "156",
-      });
-      const response = await fetch(
-        `https://publicreporting.cftc.gov/resource/gpe5-46if.json?${params}`,
-        { cache: "no-store", signal: AbortSignal.timeout(20_000) },
-      );
-      if (!response.ok) throw new Error(`Positioning-data request returned ${response.status}`);
-      const payload = (await response.json()) as CotRow[];
-      if (!payload.length) throw new Error("Positioning-data response was empty.");
-      const fetchedAt = new Date().toISOString();
-      putSnapshot({
-        namespace: "macro-positioning",
-        key,
-        payload,
-        sourceTime: payload[0]?.report_date_as_yyyy_mm_dd?.slice(0, 10) ?? null,
-        fetchedAt,
-        refreshAfter: new Date(Date.now() + COT_CACHE_MS).toISOString(),
-        methodologyVersion: METHODOLOGY_VERSION,
-      });
-      return payload;
-    } catch (error) {
-      if (stored) return stored.payload;
-      throw error;
-    }
-  });
-}
-
-function cotNet(row: CotRow | undefined, type: "asset" | "leveraged") {
+function cotNet(row: CftcPositioningRow | undefined, type: "asset" | "leveraged") {
   if (!row) return null;
-  const long = Number(type === "asset" ? row.asset_mgr_positions_long : row.lev_money_positions_long);
-  const short = Number(type === "asset" ? row.asset_mgr_positions_short : row.lev_money_positions_short);
-  return Number.isFinite(long) && Number.isFinite(short) ? long - short : null;
+  return type === "asset" ? row.assetManagerNet : row.leveragedNet;
 }
 
 function tone(score: number): Tone {
@@ -712,9 +669,9 @@ function eventWindowStudy(
 }
 
 async function buildPayload() {
-  const [seriesResult, cotResults, fomcMeetings, recentReleases, scheduledReleases, geopolitical] = await Promise.all([
+  const [seriesResult, cftcRows, fomcMeetings, recentReleases, scheduledReleases, geopolitical] = await Promise.all([
     loadMacroSeriesStore(FRED_IDS),
-    Promise.allSettled([fetchCot("NASDAQ MINI"), fetchCot("E-MINI S&P 500")]),
+    loadCftcData(),
     loadFomcMeetings().catch(() => null),
     loadRecentReleases().catch(() => null),
     loadScheduledReleases().catch(() => null),
@@ -755,8 +712,8 @@ async function buildPayload() {
     requiredSeries.some((seriesId) => issue.startsWith(seriesId)),
   );
   if (requiredQualityIssue) throw new Error(`Economic-data validation failed: ${requiredQualityIssue}`);
-  const nqCot = cotResults[0].status === "fulfilled" ? cotResults[0].value : [];
-  const esCot = cotResults[1].status === "fulfilled" ? cotResults[1].value : [];
+  const nqCot = cftcRows.filter((row) => row.symbol === "NQ");
+  const esCot = cftcRows.filter((row) => row.symbol === "ES");
 
   const cpiYoy = yoy(store.CPIAUCSL, 12);
   const coreCpiYoy = yoy(store.CPILFESL, 12);
@@ -1435,18 +1392,23 @@ async function buildPayload() {
     ),
     eventWindowStudy(
       store.NASDAQ100,
+      releaseDatesFor(/^producer price index$/i),
+      "PPI release",
+      "Producer prices are published before the open and can change the rates/inflation read ahead of CPI.",
+    ),
+    eventWindowStudy(
+      store.NASDAQ100,
       fomcDecisionDates,
       "FOMC decision day",
       "The final day of each scheduled meeting, when the statement and any projections are released in the afternoon.",
     ),
   ].filter((row): row is NonNullable<typeof row> => row !== null);
 
-  const cotTrack = (rows: CotRow[], type: "asset" | "leveraged"): Observation[] =>
+  const cotTrack = (rows: CftcPositioningRow[], type: "asset" | "leveraged"): Observation[] =>
     rows
       .flatMap((row) => {
         const net = cotNet(row, type);
-        const date = row.report_date_as_yyyy_mm_dd?.slice(0, 10);
-        return net === null || !date ? [] : [{ date, value: net }];
+        return net === null ? [] : [{ date: row.date, value: net }];
       })
       .sort((left, right) => left.date.localeCompare(right.date));
 
@@ -1457,7 +1419,7 @@ async function buildPayload() {
       value: nqAssetNet, display: formatSigned(nqAssetNet, "", 0),
       change: nqAssetNet !== null && cotNet(nqCot[1], "asset") !== null ? nqAssetNet - Number(cotNet(nqCot[1], "asset")) : null,
       changeDisplay: `${formatSigned(nqAssetNet !== null && cotNet(nqCot[1], "asset") !== null ? nqAssetNet - Number(cotNet(nqCot[1], "asset")) : null, "", 0)} WoW`,
-      date: nqCot[0]?.report_date_as_yyyy_mm_dd?.slice(0, 10) ?? null, frequency: "Weekly", source: "Positioning report", series: "NASDAQ MINI", meaning: "Asset-manager longs minus shorts in Nasdaq-100 futures.",
+      date: nqCot[0]?.date ?? null, frequency: "Weekly", source: "Positioning report", series: "NASDAQ MINI", meaning: "Asset-manager longs minus shorts in Nasdaq-100 futures.",
     },
     {
       context: metricContext(cotTrack(esCot, "asset"), cotNet(esCot[0], "asset")),
@@ -1465,7 +1427,7 @@ async function buildPayload() {
       value: cotNet(esCot[0], "asset"), display: formatSigned(cotNet(esCot[0], "asset"), "", 0),
       change: cotNet(esCot[0], "asset") !== null && cotNet(esCot[1], "asset") !== null ? Number(cotNet(esCot[0], "asset")) - Number(cotNet(esCot[1], "asset")) : null,
       changeDisplay: `${formatSigned(cotNet(esCot[0], "asset") !== null && cotNet(esCot[1], "asset") !== null ? Number(cotNet(esCot[0], "asset")) - Number(cotNet(esCot[1], "asset")) : null, "", 0)} WoW`,
-      date: esCot[0]?.report_date_as_yyyy_mm_dd?.slice(0, 10) ?? null, frequency: "Weekly", source: "Positioning report", series: "E-MINI S&P 500", meaning: "Asset-manager longs minus shorts in E-mini S&P 500 futures.",
+      date: esCot[0]?.date ?? null, frequency: "Weekly", source: "Positioning report", series: "E-MINI S&P 500", meaning: "Asset-manager longs minus shorts in E-mini S&P 500 futures.",
     },
   ];
 
@@ -1499,6 +1461,7 @@ async function buildPayload() {
     source: "Published economic and positioning data",
     fetchedAt: new Date().toISOString(),
     methodologyVersion: METHODOLOGY_VERSION,
+    marketCalendarVersion: MARKET_CALENDAR_VERSION,
     marketRegime: {
       name: marketRegimeName,
       direction,

@@ -1,14 +1,13 @@
 import "server-only";
 
 import { dedupeRequest } from "@/lib/server/request-deduper";
-import { getSnapshot, snapshotIsFresh } from "@/lib/server/snapshot-store";
+import { getSnapshot, putSnapshot, snapshotIsFresh } from "@/lib/server/snapshot-store";
+import { parseCftcApiRows, type CftcApiRow, type CftcPositioningRow } from "@/lib/cftc";
 
-export type CftcPositioningRow = {
-  date: string;
-  symbol: "ES" | "NQ";
-  leveragedNet: number;
-  assetManagerNet: number;
-};
+export type { CftcPositioningRow } from "@/lib/cftc";
+
+const SOURCE_VERSION = "cftc-positioning-v2.0.0";
+const CACHE_MS = 20 * 60 * 60 * 1000;
 
 export function parseCftcFinFutCsv(csvText: string): CftcPositioningRow[] {
   const lines = csvText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -61,7 +60,7 @@ export function parseCftcFinFutCsv(csvText: string): CftcPositioningRow[] {
 
 export async function loadCftcData(): Promise<CftcPositioningRow[]> {
   const stored = getSnapshot<CftcPositioningRow[]>("cftc-data", "financial-futures");
-  if (stored && snapshotIsFresh(stored)) {
+  if (stored?.methodologyVersion === SOURCE_VERSION && snapshotIsFresh(stored)) {
     return stored.payload;
   }
 
@@ -69,13 +68,40 @@ export async function loadCftcData(): Promise<CftcPositioningRow[]> {
 
   return dedupeRequest("cftc:disagg", async () => {
     try {
-      const year = new Date().getUTCFullYear();
-      const res = await fetch(`https://www.cftc.gov/files/dea/history/fut_disagg_txt_${year}.zip`, {
-        headers: { "User-Agent": "GEXLab-V3/1.0 (Research Engine; open-source)" },
+      const params = new URLSearchParams({
+        $select: [
+          "report_date_as_yyyy_mm_dd",
+          "contract_market_name",
+          "asset_mgr_positions_long",
+          "asset_mgr_positions_short",
+          "lev_money_positions_long",
+          "lev_money_positions_short",
+        ].join(","),
+        $where: "contract_market_name in ('NASDAQ MINI','E-MINI S&P 500')",
+        $order: "report_date_as_yyyy_mm_dd DESC",
+        $limit: "312",
       });
-      if (!res.ok) throw new Error(`CFTC fetch status ${res.status}`);
-
-      return existingPayload;
+      const response = await fetch(
+        `https://publicreporting.cftc.gov/resource/gpe5-46if.json?${params.toString()}`,
+        {
+          cache: "no-store",
+          headers: { "User-Agent": "GEXLab-V3/1.0 (Research Engine; open-source)" },
+          signal: AbortSignal.timeout(20_000),
+        },
+      );
+      if (!response.ok) throw new Error(`CFTC request returned ${response.status}`);
+      const parsed = parseCftcApiRows((await response.json()) as CftcApiRow[]);
+      if (parsed.length < 20) throw new Error("CFTC response did not contain enough NQ/ES rows.");
+      putSnapshot({
+        namespace: "cftc-data",
+        key: "financial-futures",
+        payload: parsed,
+        sourceTime: parsed[0]?.date ?? null,
+        fetchedAt: new Date().toISOString(),
+        refreshAfter: new Date(Date.now() + CACHE_MS).toISOString(),
+        methodologyVersion: SOURCE_VERSION,
+      });
+      return parsed;
     } catch {
       return existingPayload;
     }

@@ -4,6 +4,7 @@ import {
   isRegularMarketOpen,
   latestMarketObservationTime,
   latestCompletedTradingDate,
+  MARKET_CALENDAR_VERSION,
   nextQuarterHour,
   parseUtcTimestamp,
 } from "@/lib/market-time";
@@ -18,6 +19,7 @@ import {
   yearsToExpiry,
 } from "@/lib/options-math";
 import { sessionFlow, summariseFlow, type ChainContract } from "@/lib/block-flow";
+import { summarizeExposureMetrics } from "@/lib/exposure-magnitude";
 import { dedupeRequest } from "@/lib/server/request-deduper";
 import { loadMacroSeries } from "@/lib/server/macro-sources";
 import {
@@ -86,6 +88,17 @@ type StrikeRow = {
 };
 
 type ExposureMetric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma";
+const EXPOSURE_METRICS: ExposureMetric[] = [
+  "gamma",
+  "delta",
+  "vanna",
+  "charm",
+  "vega",
+  "speed",
+  "zomma",
+  "vomma",
+];
+const PROFILE_SPAN_PERCENT = 0.032;
 
 const SYMBOLS = {
   NDX: { endpoint: "_NDX", dividendYield: 0.006 },
@@ -664,6 +677,12 @@ export async function GET(
       .filter(Boolean);
     const allowPartialExpiries =
       request.nextUrl.searchParams.get("partialExpiries") === "1";
+    if (requestedThrough && !/^\d{4}-\d{2}-\d{2}$/.test(requestedThrough)) {
+      return NextResponse.json(
+        { error: "The through date must use YYYY-MM-DD." },
+        { status: 400 },
+      );
+    }
 
     // A date the snapshot lists but that has since settled is not a bad request,
     // it is a selection the clock invalidated: a reader holding the 0DTE book at
@@ -675,17 +694,24 @@ export async function GET(
     );
     const settledRequests = [
       ...(requestedExpiry && settledDates.has(requestedExpiry) ? [requestedExpiry] : []),
-      ...(requestedThrough && settledDates.has(requestedThrough) ? [requestedThrough] : []),
       ...(requestedExpiryList?.filter((date) => settledDates.has(date)) ?? []),
     ];
     const settledExpiries = [...new Set(settledRequests)].sort();
     if (requestedExpiry && settledDates.has(requestedExpiry)) requestedExpiry = null;
-    if (requestedThrough && settledDates.has(requestedThrough)) requestedThrough = null;
     requestedExpiryList = requestedExpiryList?.filter((date) => !settledDates.has(date));
+
+    // A horizon is a date, not a demand for one exact listed contract. This
+    // matters for calendar-based callers: a 45-day horizon often falls on a
+    // weekend, holiday, or a day on which this root has no expiry. Snap it to
+    // the last live expiry at or before the requested date (or the front book
+    // when the requested date is before every listed expiry).
+    if (requestedThrough && !expiries.includes(requestedThrough)) {
+      const requestedDate = requestedThrough;
+      requestedThrough = expiries.filter((date) => date <= requestedDate).at(-1) ?? expiries[0];
+    }
 
     const invalidExpiries = [
       ...(requestedExpiry && !expiries.includes(requestedExpiry) ? [requestedExpiry] : []),
-      ...(requestedThrough && !expiries.includes(requestedThrough) ? [requestedThrough] : []),
       ...(requestedExpiryList?.filter((date) => !expiries.includes(date)) ?? []),
     ];
     if (
@@ -1068,7 +1094,12 @@ export async function GET(
       ...Object.values(levels),
       ...expiryLevels.flatMap((slice) => Object.values(slice.levels)),
     ].some((value) => value !== null && !Number.isFinite(value));
-    if (!Number.isFinite(spot) || invalidStrike || invalidLevel) {
+    const profileRows = rows.filter(
+      (row) => Math.abs(row.strike - spot) <= spot * PROFILE_SPAN_PERCENT,
+    );
+    const exposureMagnitude = summarizeExposureMetrics(profileRows, EXPOSURE_METRICS);
+    const netGamma = rows.reduce((total, row) => total + row.gamma, 0);
+    if (!Number.isFinite(spot) || !Number.isFinite(netGamma) || invalidStrike || invalidLevel) {
       throw new Error("An option exposure calculation produced a non-finite value.");
     }
 
@@ -1083,6 +1114,7 @@ export async function GET(
       stale: stored.stale,
       nextRefreshAt: stored.refreshAfter,
       methodologyVersion: METHODOLOGY_VERSION,
+      marketCalendarVersion: MARKET_CALENDAR_VERSION,
       expiry,
       expiries,
       selection: {
@@ -1114,6 +1146,14 @@ export async function GET(
         walls: "Largest signed strike gamma on the appropriate side of spot within ±6%; tail concentrations remain available separately",
       },
       levels,
+      // The flip locates a zero crossing. The sign at spot is returned
+      // separately so clients never infer a gamma regime merely from which
+      // side of a possibly non-monotonic crossing price currently sits on.
+      netGamma,
+      // Absolute magnitude is reported for the same near-spot window the
+      // profile renders. The shape remains normalized in the chart; this is
+      // the context needed to compare a small and a large profile honestly.
+      exposureMagnitude,
       strikes: rows,
     });
   } catch (error) {

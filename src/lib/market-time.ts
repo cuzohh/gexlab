@@ -1,3 +1,11 @@
+import {
+  isEarlyClose,
+  isUsMarketHoliday,
+  marketCalendarCoverage,
+  marketCloseMinutes,
+  MARKET_CALENDAR_VERSION,
+} from "./market-calendar.ts";
+
 const EASTERN_ZONE = "America/New_York";
 
 function partsAt(date: Date, timeZone = EASTERN_ZONE) {
@@ -68,14 +76,18 @@ export function parseUtcTimestamp(value: string | undefined) {
 }
 
 export function easternCloseIso(expiry: string) {
-  return parseEasternTimestamp(`${expiry} 16:00:00`);
+  const minutes = marketCloseMinutes(expiry);
+  return parseEasternTimestamp(
+    `${expiry} ${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}:00`,
+  );
 }
 
 export function isRegularMarketOpen(date = new Date()) {
   const parts = partsAt(date);
-  if (parts.weekday === "Sat" || parts.weekday === "Sun") return false;
+  const day = easternDate(date);
+  if (parts.weekday === "Sat" || parts.weekday === "Sun" || isUsMarketHoliday(day)) return false;
   const minute = Number(parts.hour) * 60 + Number(parts.minute);
-  return minute >= 9 * 60 + 30 && minute < 16 * 60;
+  return minute >= 9 * 60 + 30 && minute < marketCloseMinutes(day);
 }
 
 export function nextQuarterHour(date = new Date(), bufferSeconds = 20) {
@@ -90,16 +102,20 @@ export function previousWeekday(date = new Date()) {
   const cursor = new Date(`${easternDate(date)}T12:00:00Z`);
   do {
     cursor.setUTCDate(cursor.getUTCDate() - 1);
-  } while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6);
+  } while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6 || isUsMarketHoliday(cursor.toISOString().slice(0, 10)));
   return cursor.toISOString().slice(0, 10);
 }
 
-/** The next weekday after a date. Holidays are not modelled; see sessionsBehind. */
+/** The next full trading session after a date, skipping weekends and holidays. */
 export function nextWeekday(date: string) {
   const cursor = new Date(`${date}T12:00:00Z`);
   do {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
-  } while (cursor.getUTCDay() === 0 || cursor.getUTCDay() === 6);
+  } while (
+    cursor.getUTCDay() === 0 ||
+    cursor.getUTCDay() === 6 ||
+    isUsMarketHoliday(cursor.toISOString().slice(0, 10))
+  );
   return cursor.toISOString().slice(0, 10);
 }
 
@@ -112,14 +128,15 @@ export function latestMarketObservationTime(
   const candidate = new Date(generated - delayMinutes * 60 * 1000);
   const parts = partsAt(candidate);
   const minute = Number(parts.hour) * 60 + Number(parts.minute);
+  const candidateDate = easternDate(candidate);
   const isWeekend = parts.weekday === "Sat" || parts.weekday === "Sun";
 
-  if (isWeekend || minute < 9 * 60 + 30) {
+  if (isWeekend || isUsMarketHoliday(candidateDate) || minute < 9 * 60 + 30) {
     const date = previousWeekday(candidate);
-    return parseEasternTimestamp(`${date} 16:00:00`);
+    return easternCloseIso(date);
   }
-  if (minute >= 16 * 60) {
-    return parseEasternTimestamp(`${easternDate(candidate)} 16:00:00`);
+  if (minute >= marketCloseMinutes(candidateDate)) {
+    return easternCloseIso(candidateDate);
   }
   return candidate.toISOString();
 }
@@ -132,9 +149,8 @@ export function latestMarketObservationTime(
  * reads as a stale fetch unless it is stated, which is what this is for: zero
  * means the data is as current as the source can be, not that it is live.
  *
- * Counted in weekdays, which overstates by one across a market holiday. The
- * rest of this module makes the same simplification, and carrying a holiday
- * calendar to caption a staleness note is not worth the maintenance.
+ * Counted in trading sessions, including the full-day US market holidays this
+ * module uses to identify the next cash session.
  */
 export function sessionsBehind(observationDate: string | null, date = new Date()) {
   if (!observationDate) return null;
@@ -147,7 +163,8 @@ export function sessionsBehind(observationDate: string | null, date = new Date()
   while (cursor.valueOf() < target && sessions < 400) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
     const day = cursor.getUTCDay();
-    if (day !== 0 && day !== 6) sessions += 1;
+    const candidate = cursor.toISOString().slice(0, 10);
+    if (day !== 0 && day !== 6 && !isUsMarketHoliday(candidate)) sessions += 1;
   }
   return sessions;
 }
@@ -167,10 +184,24 @@ export function describeSessionLag(sessions: number | null) {
 
 export function latestCompletedTradingDate(date = new Date()) {
   const parts = partsAt(date);
+  const currentDate = easternDate(date);
   const weekday = parts.weekday;
   const minute = Number(parts.hour) * 60 + Number(parts.minute);
-  if (weekday !== "Sat" && weekday !== "Sun" && minute >= 16 * 60 + 20) {
-    return easternDate(date);
+  if (
+    weekday !== "Sat" &&
+    weekday !== "Sun" &&
+    !isUsMarketHoliday(currentDate) &&
+    minute >= marketCloseMinutes(currentDate) + 20
+  ) {
+    return currentDate;
   }
   return previousWeekday(date);
 }
+
+export {
+  isEarlyClose,
+  isUsMarketHoliday,
+  MARKET_CALENDAR_VERSION,
+  marketCalendarCoverage,
+  marketCloseMinutes,
+};
