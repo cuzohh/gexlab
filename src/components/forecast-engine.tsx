@@ -72,6 +72,23 @@ type EngineData = {
       high50Price: number | null;
       high95Price: number | null;
     } | null;
+    moveMap?: {
+      reference: number;
+      asOf: string;
+      source: string;
+      sourceStatus: string;
+      upper: { p50: number; p68: number; p90: number };
+      lower: { p50: number; p68: number; p90: number };
+      upperPrices: { p50: number; p68: number; p90: number };
+      lowerPrices: { p50: number; p68: number; p90: number };
+      impliedMove: number | null;
+      statisticalMove: number;
+      blend: { impliedWeight: number; historicalWeight: number; selection: string };
+      regimeMatch: { samples: number; label: string };
+      evaluation: { samples: number; upperMae: number; lowerMae: number; p68Coverage: number; p90Coverage: number };
+      reaction: { label: string; price: number | null; distancePercent: number | null; reason: string };
+      caveat: string;
+    } | null;
     recommendedExposure?: {
       positionPct: number;
       cashPct: number;
@@ -85,6 +102,101 @@ type EngineData = {
       volatilityExpansion: SessionCharacterTarget;
       caveat: string;
     } | null;
+    sessionContext: {
+      asOf: string;
+      nextSession: string;
+      relativeStrength: {
+        oneDay: number | null;
+        fiveDay: number | null;
+        label: string;
+        source: string;
+      };
+      impliedMove: {
+        percent: number | null;
+        points: number | null;
+        source: string;
+        horizonDays: number | null;
+      };
+      gamma: {
+        regime: string;
+        netGamma: number | null;
+        flipDistancePercent: number | null;
+        callWallDistancePercent: number | null;
+        putWallDistancePercent: number | null;
+        nearestLevel: string;
+        nearestLevelDistancePercent: number | null;
+      };
+      volatility: {
+        atmIvChange: number | null;
+        riskReversalChange: number | null;
+        butterflyChange: number | null;
+      };
+      event: {
+        today: string[];
+        nextSession: string[];
+        isEventDay: boolean;
+        isNextSessionEvent: boolean;
+      };
+      overnight: {
+        sessionDate: string;
+        status: string;
+        regime: string;
+        playbook: string;
+        regimeBasis: string;
+        confidence: {
+          structuralScore: number | null;
+          structuralLevel: string;
+          directionalScore: number | null;
+          directionalLevel: string;
+          reasons: string[];
+        };
+        source: string;
+        sourceDelayMinutes: number;
+        observedThrough: string | null;
+        history?: {
+          sessions: number;
+          required: number;
+          firstDate: string | null;
+          lastDate: string | null;
+        };
+        nq: {
+          overnightOpen: number | null;
+          last: number | null;
+          priorRthClose: number | null;
+          gapPoints: number | null;
+          gapPercent: number | null;
+          overnightHigh: number | null;
+          overnightLow: number | null;
+          overnightRangePoints: number | null;
+          overnightRangePercent: number | null;
+          rangePositionPercent: number | null;
+          netMoveToRange: number | null;
+          inventoryScore: number | null;
+          inventoryLabel: string;
+          overnightVolume: number | null;
+          bars: number;
+        };
+        es: {
+          overnightOpen: number | null;
+          last: number | null;
+          priorRthClose: number | null;
+          gapPoints: number | null;
+          gapPercent: number | null;
+          overnightHigh: number | null;
+          overnightLow: number | null;
+          overnightRangePoints: number | null;
+          overnightRangePercent: number | null;
+          rangePositionPercent: number | null;
+          netMoveToRange: number | null;
+          inventoryScore: number | null;
+          inventoryLabel: string;
+          overnightVolume: number | null;
+          bars: number;
+        };
+        note: string | null;
+      };
+      unavailable: string[];
+    };
   };
   evaluation: {
     direction: ClassifierEvaluation | null;
@@ -390,6 +502,138 @@ function RangeBar({ forecast }: { forecast: EngineData["forecast"] }) {
   );
 }
 
+function MoveMapPanel({ moveMap }: { moveMap: NonNullable<EngineData["forecast"]["moveMap"]> }) {
+  const price = (value: number) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+  const percent = (value: number) => `${value.toFixed(2)}%`;
+  const low = moveMap.lowerPrices.p90;
+  const high = moveMap.upperPrices.p90;
+  const at = (value: number) => `${Math.max(0, Math.min(100, ((value - low) / (high - low)) * 100))}%`;
+  const reactionTone = moveMap.reaction.label === "GEX reaction candidate" ? "constructive" : moveMap.reaction.label === "Acceleration overlap" ? "stress" : "neutral";
+  return (
+    <article className="move-map-panel">
+      <header className="move-map-head">
+        <div>
+          <span className="section-kicker">Calibrated move map</span>
+          <h2>Reach first. Reversal only with structure.</h2>
+        </div>
+        <span className={`move-map-state move-map-state--${reactionTone}`}>{moveMap.reaction.label}</span>
+      </header>
+      <div className="move-map-scale" role="img" aria-label={`Projected lower 90 percent reach ${price(low)}, reference ${price(moveMap.reference)}, and upper 90 percent reach ${price(high)}`}>
+        <i className="move-map-outer" />
+        <i className="move-map-inner" style={{ left: at(moveMap.lowerPrices.p68), width: `calc(${at(moveMap.upperPrices.p68)} - ${at(moveMap.lowerPrices.p68)})` }} />
+        <b className="move-map-reference" style={{ left: at(moveMap.reference) }}><span>REF {price(moveMap.reference)}</span></b>
+        <b className="move-map-marker move-map-marker--upper" style={{ left: at(moveMap.upperPrices.p68) }}><span>+1σ {price(moveMap.upperPrices.p68)}</span></b>
+        <b className="move-map-marker move-map-marker--lower" style={{ left: at(moveMap.lowerPrices.p68) }}><span>−1σ {price(moveMap.lowerPrices.p68)}</span></b>
+        {moveMap.reaction.price !== null && <b className={`move-map-reaction move-map-reaction--${reactionTone}`} style={{ left: at(moveMap.reaction.price) }}><span>{price(moveMap.reaction.price)}</span></b>}
+        <small className="move-map-edge move-map-edge--low">90% {price(low)}</small>
+        <small className="move-map-edge move-map-edge--high">90% {price(high)}</small>
+      </div>
+      <div className="move-map-grid">
+        <p><span>Upward excursion</span><strong>+{percent(moveMap.upper.p68)}</strong><small>68% reach · {price(moveMap.upperPrices.p68)}</small></p>
+        <p><span>Downward excursion</span><strong>−{percent(moveMap.lower.p68)}</strong><small>68% reach · {price(moveMap.lowerPrices.p68)}</small></p>
+        <p><span>Blend</span><strong>{moveMap.impliedMove === null ? "Historical" : `${Math.round(moveMap.blend.impliedWeight * 100)}% implied`}</strong><small>{moveMap.blend.selection} · {moveMap.evaluation.samples} scored sessions</small></p>
+        <p><span>Regime analogue</span><strong>{moveMap.regimeMatch.label}</strong><small>{moveMap.regimeMatch.samples || "No"} volatility-curve comparables</small></p>
+      </div>
+      <p className="move-map-reason"><strong>{moveMap.reaction.reason}</strong> {moveMap.caveat}</p>
+      <details className="move-map-evaluation">
+        <summary>Calibration record</summary>
+        <p>{moveMap.evaluation.samples} rolling sessions · upper MAE {percent(moveMap.evaluation.upperMae)} · lower MAE {percent(moveMap.evaluation.lowerMae)} · joint 68% coverage {moveMap.evaluation.p68Coverage.toFixed(0)}% · joint 90% coverage {moveMap.evaluation.p90Coverage.toFixed(0)}%.</p>
+      </details>
+    </article>
+  );
+}
+
+function SessionContextPanel({ context }: { context: EngineData["forecast"]["sessionContext"] }) {
+  const signedPercent = (value: number | null, digits = 2) =>
+    value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(digits)}%`;
+  const ivPoints = context.volatility.riskReversalChange === null
+    ? "—"
+    : `${context.volatility.riskReversalChange > 0 ? "+" : ""}${(context.volatility.riskReversalChange * 100).toFixed(2)} pts`;
+  const eventText = context.event.today.length
+    ? context.event.today.join(" · ")
+    : context.event.nextSession.length
+      ? `${context.event.nextSession.join(" · ")} next session`
+      : "No tracked major event";
+  const overnight = context.overnight;
+  const overnightPoints = (value: number | null) => value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+  const overnightPercent = (value: number | null) => value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  const observedThrough = overnight.observedThrough
+    ? new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" }).format(new Date(overnight.observedThrough))
+    : "—";
+
+  const inventoryScore = (value: number | null) => value === null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+  const historyText = overnight.history
+    ? `${overnight.history.sessions}/${overnight.history.required} sessions logged`
+    : "Session log is starting";
+
+  return (
+    <section className="session-context reveal reveal--2">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Pre-session context · {context.asOf}</p>
+          <h2>What is changing around the map?</h2>
+        </div>
+        <p>Observed inputs only. This panel is context, not a trade instruction.</p>
+      </div>
+      <div className="session-context-grid">
+        <article>
+          <span>NQ / ES relative strength</span>
+          <strong>{context.relativeStrength.label}</strong>
+          <p>{signedPercent(context.relativeStrength.fiveDay)} over five sessions · {signedPercent(context.relativeStrength.oneDay)} yesterday</p>
+          <small>{context.relativeStrength.source}</small>
+        </article>
+        <article>
+          <span>Implied move</span>
+          <strong>{context.impliedMove.percent === null ? "—" : `±${context.impliedMove.percent.toFixed(2)}%`}</strong>
+          <p>{context.impliedMove.points === null ? "Unavailable" : `about ±${context.impliedMove.points.toFixed(0)} index points`} · {context.impliedMove.horizonDays ?? "—"}D</p>
+          <small>{context.impliedMove.source}</small>
+        </article>
+        <article>
+          <span>Gamma regime</span>
+          <strong>{context.gamma.regime}</strong>
+          <p>{context.gamma.nearestLevel} {signedPercent(context.gamma.nearestLevelDistancePercent)} from spot</p>
+          <small>Flip {signedPercent(context.gamma.flipDistancePercent)} · call wall {signedPercent(context.gamma.callWallDistancePercent)} · put wall {signedPercent(context.gamma.putWallDistancePercent)}</small>
+        </article>
+        <article>
+          <span>IV / skew change</span>
+          <strong>{context.volatility.atmIvChange === null ? "—" : signedPercent(context.volatility.atmIvChange * 100)}</strong>
+          <p>ATM IV session change · RR25 {ivPoints}</p>
+          <small>Butterfly {context.volatility.butterflyChange === null ? "—" : signedPercent(context.volatility.butterflyChange * 100)}</small>
+        </article>
+        <article>
+          <span>Overnight futures · {overnight.sessionDate}</span>
+          <strong>{overnight.status === "unavailable" ? "Unavailable" : `NQ ${overnightPercent(overnight.nq.gapPercent)}`}</strong>
+          <p>
+            NQ gap {overnightPoints(overnight.nq.gapPoints)} pts · range {overnightPoints(overnight.nq.overnightRangePoints)} pts
+            <br />ES gap {overnightPercent(overnight.es.gapPercent)} · range {overnightPoints(overnight.es.overnightRangePoints)} pts
+          </p>
+          <small>{overnight.source} · ~{overnight.sourceDelayMinutes}m delay · through {observedThrough}</small>
+        </article>
+        <article>
+          <span>Overnight auction read</span>
+          <strong>{overnight.regime}</strong>
+          <p>{overnight.playbook} · NQ inventory {overnight.nq.inventoryLabel} ({inventoryScore(overnight.nq.inventoryScore)})</p>
+          <small>
+            Structure {overnight.confidence.structuralScore === null ? "—" : `${overnight.confidence.structuralScore}/100`} ({overnight.confidence.structuralLevel}) · direction {overnight.confidence.directionalScore === null ? "—" : `${overnight.confidence.directionalScore}/100`} ({overnight.confidence.directionalLevel})
+            <br />{historyText} · hypothesis until validated
+          </small>
+        </article>
+        <article className={context.event.isEventDay || context.event.isNextSessionEvent ? "session-context-event" : undefined}>
+          <span>Major-event state</span>
+          <strong>{context.event.isEventDay ? "Event day" : context.event.isNextSessionEvent ? "Event next session" : "No major event"}</strong>
+          <p>{eventText}</p>
+          <small>Tracked: CPI, payrolls, PPI, and scheduled FOMC decisions.</small>
+        </article>
+      </div>
+      {context.unavailable.length > 0 && (
+        <p className="session-context-note">
+          {context.unavailable.join(" · ")}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null }) {
   if (!evaluation) return null;
   return (
@@ -628,6 +872,7 @@ export function ForecastEngine() {
           </article>
         )}
         {data && <RangeBar forecast={data.forecast} />}
+        {data?.forecast.moveMap && <MoveMapPanel moveMap={data.forecast.moveMap} />}
       </section>
 
       {data?.forecast.sessionCharacter && (
@@ -636,6 +881,8 @@ export function ForecastEngine() {
           session={data.nextSession}
         />
       )}
+
+      {data?.forecast.sessionContext && <SessionContextPanel context={data.forecast.sessionContext} />}
 
       {data?.evaluation.volatility && (
         <section className="volatility-scorecard reveal reveal--2">

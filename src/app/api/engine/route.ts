@@ -30,10 +30,16 @@ import {
   type FeatureRow,
   type SeriesStore,
 } from "@/lib/engine-features";
+import { buildSessionContext } from "@/lib/session-context";
+import type { SessionContext } from "@/lib/session-context";
 import { loadFomcMeetings, loadPublishedReleaseDates } from "@/lib/server/event-sources";
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { loadMacroSeriesStore } from "@/lib/server/macro-sources";
+import { loadYahooOvernightContext } from "@/lib/server/yahoo-futures";
+import { loadYahooDailyOhlc } from "@/lib/server/yahoo-daily";
+import { buildMoveMap } from "@/lib/move-map";
 import { MACRO_SERIES_IDS } from "@/lib/server/series-catalog";
+import { MARKET_CALENDAR_VERSION, nextWeekday } from "@/lib/market-time";
 import {
   getSnapshot,
   loadEngineFeatureCoverage,
@@ -47,7 +53,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.7.1";
+const MODEL_VERSION = "engine-v1.9.0";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -632,6 +638,19 @@ async function buildPayload() {
       .map((release) => release.date),
   );
   const fomcDates = (meetings ?? []).filter((meeting) => !meeting.unscheduled).map((meeting) => meeting.end);
+  const eventNames = new Map<string, string[]>();
+  for (const release of releases.filter((item) =>
+    /^(consumer price index|employment situation|producer price index)$/i.test(item.title),
+  )) {
+    const labels = eventNames.get(release.date) ?? [];
+    labels.push(release.title === "Employment Situation" ? "Payrolls" : release.title.replace(" Index", ""));
+    eventNames.set(release.date, labels);
+  }
+  for (const meeting of (meetings ?? []).filter((item) => !item.unscheduled)) {
+    const labels = eventNames.get(meeting.end) ?? [];
+    labels.push(meeting.projections ? "FOMC + projections" : "FOMC decision");
+    eventNames.set(meeting.end, labels);
+  }
 
   const rows = buildFeatureRows(store as SeriesStore, {
     releaseDates: majorReleases,
@@ -776,6 +795,59 @@ async function buildPayload() {
   );
 
   const lastRow = rows.at(-1)!;
+  const nextSessionDate = nextWeekday(lastRow.date);
+  const overnight = await loadYahooOvernightContext({
+    sessionDate: nextSessionDate,
+    priorSessionDate: lastRow.date,
+  });
+  const moveReference = prices.at(-1)?.value ?? 0;
+  const sessionContext = buildSessionContext({
+    asOf: lastRow.date,
+    nextSession: nextSessionDate,
+    ndx: store.NASDAQ100 ?? [],
+    spx: store.SP500 ?? [],
+    vix: store.VIXCLS ?? [],
+    positioning: loadEngineFeatures("NDX", 256),
+    eventNames,
+    overnight,
+  });
+  // Yahoo can expose the in-progress daily bar before the Engine has a
+  // completed daily observation. Keep the move target aligned to the same
+  // completed close that anchors its reference price and next-session date.
+  const dailyOhlc = (await loadYahooDailyOhlc("NDX")).filter((bar) => bar.date <= lastRow.date);
+  const eventForecastDates = new Set(
+    rows
+      .filter((row) => majorReleases.has(nextWeekday(row.date)) || fomcDates.includes(nextWeekday(row.date)))
+      .map((row) => row.date),
+  );
+  const impliedByDate = new Map(
+    (store.VIXCLS ?? [])
+      .filter((row) => Number.isFinite(row.value) && row.value > 0)
+      .map((row) => [row.date, row.value / Math.sqrt(252)]),
+  );
+  const seriesByDate = (series: typeof store.VIXCLS | undefined) => new Map(
+    (series ?? []).filter((row) => Number.isFinite(row.value)).map((row) => [row.date, row.value]),
+  );
+  const vixByDate = seriesByDate(store.VIXCLS);
+  const vxnByDate = seriesByDate(store.VXNCLS);
+  const vxvByDate = seriesByDate(store.VXVCLS);
+  const volatilityByDate = new Map([...vixByDate.keys()].map((date) => [date, {
+    vix: vixByDate.get(date) ?? null,
+    vxn: vxnByDate.get(date) ?? null,
+    vxv: vxvByDate.get(date) ?? null,
+  }]));
+  const moveMap = buildMoveMap({
+    bars: dailyOhlc,
+    reference: moveReference > 0 ? moveReference : dailyOhlc.at(-1)?.close ?? 0,
+    impliedMove: sessionContext.impliedMove.percent === null
+      ? null
+      : sessionContext.impliedMove.percent / Math.sqrt(Math.max(sessionContext.impliedMove.horizonDays ?? 1, 1)),
+    impliedByDate,
+    eventDates: eventForecastDates,
+    nextSessionIsEvent: sessionContext.event.isNextSessionEvent,
+    volatilityByDate,
+    gamma: sessionContext.gamma,
+  });
   const directionFit = fitCurrent(rows, directionLabels(rows));
   const continuationFit = fitCurrent(rows, continuationLabels(rows));
   const directionProbability = directionFit
@@ -843,14 +915,6 @@ async function buildPayload() {
       ? Math.exp(currentHar.reduce((sum, value, index) => sum + value * volatilityWeights[index], 0)) *
         volatilitySmearing
       : null;
-
-  const nextSessionDate = (() => {
-    const parsed = new Date(`${lastRow.date}T12:00:00Z`);
-    do {
-      parsed.setUTCDate(parsed.getUTCDate() + 1);
-    } while (parsed.getUTCDay() === 0 || parsed.getUTCDay() === 6);
-    return parsed.toISOString().slice(0, 10);
-  })();
 
   const quantiles = volatility?.quantiles ?? null;
   const range =
@@ -954,6 +1018,7 @@ async function buildPayload() {
 
   return {
     modelVersion: MODEL_VERSION,
+    marketCalendarVersion: MARKET_CALENDAR_VERSION,
     fetchedAt: new Date().toISOString(),
     asOf: lastRow.date,
     nextSession: nextSessionDate,
@@ -1015,6 +1080,7 @@ async function buildPayload() {
       typicalMove: mean(rows.slice(-252).map((row) => Math.abs(row.currentReturn))),
       range,
       dollarRange,
+      moveMap,
       recommendedExposure: {
         positionPct,
         cashPct,
@@ -1023,6 +1089,7 @@ async function buildPayload() {
         hasMeasuredEdge: directionHasSkill,
         volatilityScale: Number(liveVol.toFixed(4)),
       },
+      sessionContext,
     },
     evaluation: {
       direction,
@@ -1124,10 +1191,30 @@ async function buildPayload() {
   };
 }
 
+async function attachFreshOvernight<T extends {
+  asOf: string;
+  nextSession: string;
+  forecast: { sessionContext: SessionContext };
+}>(payload: T) {
+  const overnight = await loadYahooOvernightContext({
+    sessionDate: payload.nextSession,
+    priorSessionDate: payload.asOf,
+  });
+  return {
+    ...payload,
+    forecast: {
+      ...payload.forecast,
+      sessionContext: { ...payload.forecast.sessionContext, overnight },
+    },
+  };
+}
+
 export async function GET() {
   const stored = getSnapshot<Awaited<ReturnType<typeof buildPayload>>>("engine-output", MODEL_VERSION);
   try {
-    if (stored && snapshotIsFresh(stored)) return NextResponse.json(stored.payload);
+    if (stored && snapshotIsFresh(stored)) {
+      return NextResponse.json(await attachFreshOvernight(stored.payload));
+    }
     const payload = await buildPayload();
     putSnapshot({
       namespace: "engine-output",

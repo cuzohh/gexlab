@@ -5,8 +5,12 @@ import test from "node:test";
 
 import {
   easternCloseIso,
+  isEarlyClose,
   latestCompletedTradingDate,
   latestMarketObservationTime,
+  MARKET_CALENDAR_VERSION,
+  marketCloseMinutes,
+  nextWeekday,
   nextQuarterHour,
   parseEasternTimestamp,
   parseUtcTimestamp,
@@ -35,6 +39,11 @@ import {
   regimeName,
 } from "../src/lib/regime-forecast.ts";
 import { sessionFlow, summariseFlow } from "../src/lib/block-flow.ts";
+import { buildSessionContext } from "../src/lib/session-context.ts";
+import { buildOvernightContext, parseYahooChartPayload } from "../src/lib/overnight-context.ts";
+import { parseCftcApiRows } from "../src/lib/cftc.ts";
+import { buildReversalAnalysis } from "../src/lib/reversal-zones.ts";
+import { buildMoveMap } from "../src/lib/move-map.ts";
 import {
   curveRecessionProbability,
   netLiquidity,
@@ -86,6 +95,8 @@ import {
   strikeIncrement,
   volumeWalls,
 } from "../src/lib/bridge-payload.ts";
+import { summarizeExposure, summarizeExposureMetrics } from "../src/lib/exposure-magnitude.ts";
+import { assessSnapshotQuality } from "../src/lib/snapshot-quality.ts";
 import { PINE_SCRIPT } from "../src/lib/indicator.ts";
 import { MOTIVEWAVE_STUDY } from "../src/lib/motivewave-indicator.ts";
 import { readJavaSource, renderModule } from "../scripts/sync-motivewave.mjs";
@@ -234,6 +245,144 @@ test("regime labels sit on the documented thresholds", () => {
   assert.equal(regimeName("Bearish", "Transitional"), "Bearish transition");
 });
 
+test("session context derives relative strength, implied move, gamma distance, and event state", () => {
+  const context = buildSessionContext({
+    asOf: "2026-07-30",
+    nextSession: "2026-07-31",
+    ndx: [
+      { date: "2026-07-23", value: 27000 },
+      { date: "2026-07-24", value: 27100 },
+      { date: "2026-07-25", value: 27200 },
+      { date: "2026-07-28", value: 27300 },
+      { date: "2026-07-29", value: 27400 },
+      { date: "2026-07-30", value: 27600 },
+    ],
+    spx: [
+      { date: "2026-07-23", value: 7000 },
+      { date: "2026-07-24", value: 7010 },
+      { date: "2026-07-25", value: 7020 },
+      { date: "2026-07-28", value: 7030 },
+      { date: "2026-07-29", value: 7040 },
+      { date: "2026-07-30", value: 7050 },
+    ],
+    vix: [{ date: "2026-07-30", value: 20 }],
+    positioning: [
+      { date: "2026-07-29", feature: "spot", value: 27400 },
+      { date: "2026-07-29", feature: "netGamma", value: -10 },
+      { date: "2026-07-29", feature: "frontAtmIv", value: 0.20 },
+      { date: "2026-07-29", feature: "frontDte", value: 1 },
+      { date: "2026-07-29", feature: "flipDistancePercent", value: -0.8 },
+      { date: "2026-07-29", feature: "callWallDistancePercent", value: 1.4 },
+      { date: "2026-07-29", feature: "putWallDistancePercent", value: -0.5 },
+      { date: "2026-07-29", feature: "frontRiskReversal25", value: -0.04 },
+      { date: "2026-07-29", feature: "frontButterfly25", value: 0.01 },
+      { date: "2026-07-30", feature: "spot", value: 27600 },
+      { date: "2026-07-30", feature: "netGamma", value: -12 },
+      { date: "2026-07-30", feature: "frontAtmIv", value: 0.22 },
+      { date: "2026-07-30", feature: "frontDte", value: 1 },
+      { date: "2026-07-30", feature: "flipDistancePercent", value: -0.6 },
+      { date: "2026-07-30", feature: "callWallDistancePercent", value: 1.2 },
+      { date: "2026-07-30", feature: "putWallDistancePercent", value: -0.3 },
+      { date: "2026-07-30", feature: "frontRiskReversal25", value: -0.02 },
+      { date: "2026-07-30", feature: "frontButterfly25", value: 0.02 },
+    ],
+    eventNames: new Map([["2026-07-31", ["CPI"]]]),
+  });
+
+  assert.equal(context.relativeStrength.label, "NQ leading");
+  assert.equal(context.impliedMove.source, "front ATM IV");
+  assert.equal(context.gamma.regime, "Negative");
+  assert.equal(context.gamma.nearestLevel, "Put wall");
+  assert.ok(Math.abs(context.volatility.atmIvChange - 0.02) < 1e-12);
+  assert.equal(context.event.isNextSessionEvent, true);
+  assert.equal(context.unavailable.length, 2);
+  assert.equal(context.overnight.status, "unavailable");
+});
+
+test("Yahoo futures bars produce an overnight gap and range without crossing the cash open", () => {
+  const payload = {
+    chart: {
+      result: [{
+        timestamp: [
+          1785441300, // 2026-07-30 15:55 ET
+          1785448800, // 2026-07-30 19:00 ET
+          1785452400, // 2026-07-30 20:00 ET
+          1785504300, // 2026-07-31 09:25 ET
+          1785504600, // 2026-07-31 09:30 ET, first cash bar; excluded
+        ],
+        indicators: { quote: [{
+          open: [100, 101, 102, 104, 105],
+          high: [100, 103, 104, 106, 108],
+          low: [100, 99, 100, 103, 104],
+          close: [100, 102, 103, 105, 107],
+        }] },
+      }],
+    },
+  };
+  const bars = parseYahooChartPayload(payload);
+  const context = buildOvernightContext({
+    sessionDate: "2026-07-31",
+    priorSessionDate: "2026-07-30",
+    nq: bars,
+    es: bars,
+  });
+
+  assert.equal(context.status, "available");
+  assert.equal(context.nq.priorRthClose, 100);
+  assert.equal(context.nq.last, 105);
+  assert.equal(context.nq.gapPoints, 5);
+  assert.equal(context.nq.overnightHigh, 106);
+  assert.equal(context.nq.overnightLow, 99);
+  assert.equal(context.nq.overnightRangePoints, 7);
+  assert.equal(context.nq.bars, 3);
+  assert.equal(context.regime, "Extended long");
+  assert.equal(context.confidence.structuralLevel, "High");
+  assert.equal(context.confidence.directionalLevel, "Medium");
+});
+
+test("overnight context anchors an early-close session at the cash close, not a later futures bar", () => {
+  const bars = [
+    { timestamp: "2026-11-27T17:55:00.000Z", open: 100, high: 101, low: 99, close: 100, volume: 10 }, // 12:55 ET
+    { timestamp: "2026-11-27T20:55:00.000Z", open: 120, high: 121, low: 119, close: 120, volume: 10 }, // 15:55 ET
+    { timestamp: "2026-11-29T23:00:00.000Z", open: 101, high: 102, low: 100, close: 101, volume: 10 }, // Sunday reopen
+  ];
+  const context = buildOvernightContext({
+    sessionDate: "2026-11-30",
+    priorSessionDate: "2026-11-27",
+    nq: bars,
+    es: bars,
+  });
+
+  assert.equal(context.nq.priorRthClose, 100);
+  assert.equal(context.nq.gapPoints, 1);
+});
+
+test("CFTC API rows are parsed into normalized NQ and ES positioning", () => {
+  const parsed = parseCftcApiRows([
+    {
+      report_date_as_yyyy_mm_dd: "2026-07-28",
+      contract_market_name: "NASDAQ MINI",
+      asset_mgr_positions_long: "120",
+      asset_mgr_positions_short: "80",
+      lev_money_positions_long: "90",
+      lev_money_positions_short: "130",
+    },
+    {
+      report_date_as_yyyy_mm_dd: "2026-07-28",
+      contract_market_name: "E-MINI S&P 500",
+      asset_mgr_positions_long: "300",
+      asset_mgr_positions_short: "250",
+      lev_money_positions_long: "200",
+      lev_money_positions_short: "220",
+    },
+  ]);
+
+  assert.deepEqual(parsed, [
+    { date: "2026-07-28", symbol: "ES", assetManagerNet: 50, leveragedNet: -20 },
+    { date: "2026-07-28", symbol: "NQ", assetManagerNet: 40, leveragedNet: -40 },
+  ]);
+});
+
 test("the next-session outlook is confident far from a threshold and hedges near one", () => {
   // Nothing is invented from too little history.
   assert.equal(nextSessionOutlook(regimeHistory({ direction: -40, behavior: 30, sessions: 40 })), null);
@@ -340,6 +489,23 @@ test("publication lag is counted in sessions, and a working feed reads as zero",
   );
   // Unknown falls back to the wording that claims nothing about freshness.
   assert.equal(describeSessionLag(null), "Public daily observations");
+});
+
+test("next sessions skip US market holidays", () => {
+  assert.equal(nextWeekday("2026-07-02"), "2026-07-06");
+  assert.equal(nextWeekday("2026-07-03"), "2026-07-06");
+  assert.equal(nextWeekday("2026-11-25"), "2026-11-27");
+  assert.equal(nextWeekday("2026-12-24"), "2026-12-28");
+  assert.equal(latestCompletedTradingDate(new Date("2026-07-04T21:00:00Z")), "2026-07-02");
+});
+
+test("the versioned calendar handles options early closes", () => {
+  assert.equal(MARKET_CALENDAR_VERSION, "cboe-us-options-2026-2028-v1");
+  assert.equal(isEarlyClose("2026-11-27"), true);
+  assert.equal(marketCloseMinutes("2026-11-27"), 13 * 60);
+  assert.equal(easternCloseIso("2026-12-24"), "2026-12-24T18:00:00.000Z");
+  assert.equal(latestMarketObservationTime("2026-12-24T20:00:00.000Z"), "2026-12-24T18:00:00.000Z");
+  assert.equal(latestCompletedTradingDate(new Date("2026-12-24T18:20:00Z")), "2026-12-24");
 });
 
 test("the regime states its horizon, and measured is distinguishable from projected", () => {
@@ -1922,6 +2088,48 @@ test("the exposure histogram normalizes to its own peak and keeps strikes near s
   assert.deepEqual(exposureProfile([{ strike: 23000, gamma: 0, delta: 0 }], 23000), []);
 });
 
+test("absolute exposure magnitude preserves size alongside normalized shape", () => {
+  const rows = [
+    { strike: 99, gamma: -20, delta: -2 },
+    { strike: 100, gamma: 50, delta: 5 },
+    { strike: 101, gamma: -10, delta: 1 },
+  ];
+  assert.deepEqual(summarizeExposure(rows, "gamma"), {
+    peak: 50,
+    gross: 80,
+    net: 20,
+    balance: 0.25,
+  });
+  assert.deepEqual(summarizeExposureMetrics(rows, ["gamma", "delta"]), {
+    gamma: { peak: 50, gross: 80, net: 20, balance: 0.25 },
+    delta: { peak: 5, gross: 8, net: 4, balance: 0.5 },
+  });
+  assert.deepEqual(summarizeExposure([{ strike: 100, gamma: 0 }], "gamma"), {
+    peak: 0,
+    gross: 0,
+    net: 0,
+    balance: null,
+  });
+});
+
+test("snapshot quality distinguishes usable, delayed, saved, and incomplete data", () => {
+  const now = Date.parse("2026-07-31T14:00:00Z");
+  const base = {
+    state: "ready",
+    timestamp: "2026-07-31T13:55:00Z",
+    updateMode: "live",
+    contractCount: 1200,
+    strikeCount: 80,
+    expiryCount: 6,
+    now,
+  };
+  assert.equal(assessSnapshotQuality(base).label, "Fresh");
+  assert.equal(assessSnapshotQuality({ ...base, timestamp: "2026-07-31T13:20:00Z" }).label, "Delayed");
+  assert.equal(assessSnapshotQuality({ ...base, stale: true }).label, "Saved");
+  assert.equal(assessSnapshotQuality({ ...base, strikeCount: 0 }).label, "Incomplete");
+  assert.equal(assessSnapshotQuality({ ...base, state: "error" }).label, "Unavailable");
+});
+
 test("volume walls take the heaviest traded strike on each side of spot", () => {
   const rows = [
     { strike: 22900, gamma: 0, delta: 0, callVolume: 5, putVolume: 300 },
@@ -2180,4 +2388,96 @@ test("vol-scaled strategy backtest calculates risk metrics and deducts transacti
   assert.ok(result.trades >= 0);
   assert.ok(typeof result.sharpeRatio === "number" || result.sharpeRatio === null);
   assert.ok(result.winRate !== null && result.winRate > 0);
+});
+
+test("reversal analysis ranks Greek confluence and keeps acceleration zones distinct", () => {
+  const base = {
+    delta: 0.2,
+    vega: 10,
+    callOi: 100,
+    putOi: 100,
+    callVolume: 20,
+    putVolume: 20,
+  };
+  const rows = [
+    { ...base, strike: 96, gamma: -2, vanna: -1, charm: -1, speed: -2 },
+    { ...base, strike: 98, gamma: 1, vanna: 0.2, charm: 0.2, speed: 0.2 },
+    { ...base, strike: 99, gamma: 8, vanna: 5, charm: 4, speed: 7, callOi: 500, putOi: 350 },
+    { ...base, strike: 100, gamma: 1, vanna: 0.1, charm: 0.1, speed: 0.1 },
+    { ...base, strike: 101, gamma: 6, vanna: 4, charm: 3, speed: 6, callOi: 450, putOi: 300 },
+    { ...base, strike: 102, gamma: -7, vanna: -4, charm: -3, speed: -6, callOi: 350, putOi: 450 },
+    { ...base, strike: 104, gamma: -2, vanna: -1, charm: -1, speed: -2 },
+  ];
+  const analysis = buildReversalAnalysis({
+    symbol: "NDX",
+    spot: 100,
+    timestamp: "2026-08-02T15:00:00Z",
+    strikes: rows,
+    levels: { callWall: 101, putWall: 99, gammaFlip: 100.5, maxPain: 100, vannaMagnet: 99 },
+  });
+
+  assert.equal(analysis.scenario.length, 49);
+  assert.ok(analysis.zones.length >= 2);
+  assert.ok(analysis.zones.some((zone) => zone.kind === "Reversal candidate" || zone.kind === "Pin / magnet"));
+  assert.ok(analysis.zones.some((zone) => zone.kind === "Acceleration zone"));
+  assert.ok(analysis.zones.every((zone) => zone.score >= 0 && zone.score <= 100));
+  assert.ok(analysis.zones.some((zone) => zone.levelNames.includes("Put wall")));
+});
+
+test("reversal analysis stays honest when the nearby book is empty", () => {
+  const analysis = buildReversalAnalysis({
+    symbol: "SPX",
+    spot: 5000,
+    timestamp: null,
+    strikes: [],
+    levels: { callWall: null, putWall: null, gammaFlip: null, maxPain: null, vannaMagnet: null },
+  });
+
+  assert.deepEqual(analysis.zones, []);
+  assert.deepEqual(analysis.scenario, []);
+  assert.equal(analysis.dataQuality, "Low");
+});
+
+test("move map forecasts asymmetric daily excursions and only flags positive-gamma overlap as a reaction", () => {
+  const start = Date.parse("2025-01-02T12:00:00Z");
+  const bars = Array.from({ length: 330 }, (_, index) => {
+    const close = 20_000 + index * 4;
+    const up = 0.004 + (index % 7) * 0.00015;
+    const down = 0.003 + (index % 5) * 0.0002;
+    return {
+      date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+      open: close,
+      high: close * (1 + up),
+      low: close * (1 - down),
+      close,
+    };
+  });
+  const implied = new Map(bars.map((bar) => [bar.date, 0.8]));
+  const volatility = new Map(bars.map((bar, index) => [bar.date, {
+    vix: 18 + (index % 9) * 0.2,
+    vxn: 22 + (index % 11) * 0.25,
+    vxv: 20 + (index % 7) * 0.15,
+  }]));
+  const map = buildMoveMap({
+    bars,
+    reference: bars.at(-1).close,
+    impliedMove: 0.8,
+    impliedByDate: implied,
+    eventDates: new Set(),
+    volatilityByDate: volatility,
+    gamma: { regime: "Positive", callWallDistancePercent: 0.35, putWallDistancePercent: -0.35 },
+  });
+
+  assert.ok(map);
+  assert.ok(map.upper.p90 > map.upper.p68 && map.upper.p68 > 0);
+  assert.ok(map.lower.p90 > map.lower.p68 && map.lower.p68 > 0);
+  assert.ok(map.upperPrices.p68 > map.reference);
+  assert.ok(map.lowerPrices.p68 < map.reference);
+  assert.ok(map.evaluation.samples >= 200);
+  assert.ok(["GEX reaction candidate", "Statistical reach only"].includes(map.reaction.label));
+  assert.equal(map.blend.selection, "Adaptive");
+  assert.equal(map.regimeMatch.label, "Matched");
+  assert.ok(map.regimeMatch.samples >= 24);
+  assert.ok(map.evaluation.p68Coverage >= 0 && map.evaluation.p68Coverage <= 100);
+  assert.ok(map.evaluation.p90Coverage >= map.evaluation.p68Coverage);
 });
