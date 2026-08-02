@@ -7,6 +7,7 @@ import { useState } from "react";
 const workspaces = [
   { href: "/", label: "Macro", paths: ["/", "/regime", "/history"] },
   { href: "/structure", label: "Options", paths: ["/structure"] },
+  { href: "/reversal-zones", label: "Reversal", paths: ["/reversal-zones"] },
   { href: "/engine", label: "Engine", paths: ["/engine"] },
 ];
 
@@ -17,6 +18,7 @@ const macroCategories = [
 ];
 
 const engineCategories = [{ href: "/engine", label: "Next session" }];
+const reversalCategories = [{ href: "/reversal-zones", label: "Confluence" }];
 
 const optionsCategories = [
   { href: "/structure#exposure", label: "Exposure", study: "exposure" },
@@ -45,9 +47,10 @@ function ThemeMark() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const inOptions = pathname.startsWith("/structure");
+  const inReversal = pathname.startsWith("/reversal-zones");
   const inEngine = pathname.startsWith("/engine");
-  const workspaceName = inOptions ? "Options" : inEngine ? "Engine" : "Macro";
-  const categories = inOptions ? optionsCategories : inEngine ? engineCategories : macroCategories;
+  const workspaceName = inOptions ? "Options" : inReversal ? "Reversal" : inEngine ? "Engine" : "Macro";
+  const categories = inOptions ? optionsCategories : inReversal ? reversalCategories : inEngine ? engineCategories : macroCategories;
   const [optionCategory, setOptionCategory] = useState("exposure");
 
   function toggleTheme() {
@@ -107,7 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="header-tools">
           <span className="preview-status">
             <i aria-hidden="true" />
-            {inOptions ? "Market data" : inEngine ? "Model output" : "Macro data"}
+            {inOptions || inReversal ? "Market data" : inEngine ? "Model output" : "Macro data"}
           </span>
           <button
             className="theme-toggle"

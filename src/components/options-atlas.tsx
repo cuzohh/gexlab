@@ -11,7 +11,9 @@ import {
 import { PINE_SCRIPT } from "@/lib/indicator";
 import { MOTIVEWAVE_STUDY } from "@/lib/motivewave-indicator";
 import { interpolateAt } from "@/lib/options-math";
+import type { ExposureMagnitude } from "@/lib/exposure-magnitude";
 import { isRegularMarketOpen, nextQuarterHour } from "@/lib/market-time";
+import { assessSnapshotQuality } from "@/lib/snapshot-quality";
 
 type Instrument = "NQ" | "ES";
 type Metric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma";
@@ -153,6 +155,7 @@ type LiveOptionsData = {
     standardGreeks: string;
   };
   levels: OptionLevels;
+  exposureMagnitude?: Record<Metric, ExposureMagnitude>;
   strikes: LiveStrike[];
 };
 
@@ -202,6 +205,15 @@ function formatCompact(value: number) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);
+}
+
+function formatSignedCompact(value: number) {
+  if (value === 0) return "0";
+  return `${value > 0 ? "+" : "−"}${formatCompact(Math.abs(value))}`;
+}
+
+function formatBalance(value: number | null) {
+  return value === null ? "—" : `${value > 0 ? "+" : ""}${Math.round(value * 100)}%`;
 }
 
 function levelDistance(level: number | null, spot: number) {
@@ -450,7 +462,8 @@ function MarketProfileChart({
   const high = rows[0]?.strike ?? snapshot.spot + 1;
   const low = rows.at(-1)?.strike ?? snapshot.spot - 1;
   const yFor = (value: number) => top + ((high - value) / Math.max(high - low, 1)) * (bottom - top);
-  const maxExposure = Math.max(...rows.map((row) => Math.abs(row[metric])), 1);
+  const maxExposure = Math.max(...inRange.map((row) => Math.abs(row[metric])), 1);
+  const magnitude = snapshot.exposureMagnitude?.[metric] ?? null;
   const points = rows.map((row) => ({
     strike: row.strike,
     raw: row[metric],
@@ -545,7 +558,7 @@ function MarketProfileChart({
       {!scaleReady ? (
         <div className="profile-anchor-empty">Enter the futures anchor above to draw this profile.</div>
       ) : (
-        <svg viewBox="0 0 500 580" role="img" aria-label={`${snapshot.symbol} ${metric} exposure by strike`}>
+        <svg viewBox="0 0 500 580" role="group" aria-label={`${snapshot.symbol} ${metric} exposure by strike`}>
           <title>{`${snapshot.symbol} ${metric} exposure for ${selectedExpiry}`}</title>
           <defs>
             <clipPath id={negativeClipId}>
@@ -682,7 +695,10 @@ function MarketProfileChart({
                 aria-label={`${snapshot.symbol} strike ${displayStrike}, ${formatCompact(exposure)} ${metric} exposure. Inspect strike.`}
                 onClick={() => onPin(row.strike)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") onPin(row.strike);
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onPin(row.strike);
+                  }
                 }}
               >
                 <title>{`${snapshot.symbol} ${displayStrike} · ${formatCompact(exposure)} ${metric} exposure`}</title>
@@ -691,9 +707,23 @@ function MarketProfileChart({
           })}
         </svg>
       )}
+      <div className="profile-magnitude" aria-label={`${snapshot.symbol} absolute ${metric} magnitude`}>
+        <span>
+          <small>Peak |{metric}|</small>
+          <strong>{magnitude ? formatCompact(magnitude.peak) : "—"}</strong>
+        </span>
+        <span>
+          <small>Gross</small>
+          <strong>{magnitude ? formatCompact(magnitude.gross) : "—"}</strong>
+        </span>
+        <span>
+          <small>Net / gross</small>
+          <strong>{magnitude ? formatSignedCompact(magnitude.net) + " / " + formatBalance(magnitude.balance) : "—"}</strong>
+        </span>
+      </div>
       <footer>
         <span className="profile-direction profile-direction--negative"><i aria-hidden="true" />Negative</span>
-        <span>Zero-centered · normalized</span>
+        <span>Zero-centered · shape normalized</span>
         <span className="profile-direction profile-direction--positive"><i aria-hidden="true" />Positive</span>
       </footer>
     </section>
@@ -1003,6 +1033,15 @@ export function OptionsAtlas() {
   const currentEasternDate = easternDate(new Date().toISOString());
   const dteBase = currentEasternDate > snapshotDate ? currentEasternDate : snapshotDate;
   const selectedExpiry = scope || marketData?.expiry || "";
+  const snapshotQuality = assessSnapshotQuality({
+    state: dataState,
+    stale: marketData?.stale,
+    timestamp: marketData?.timestamp,
+    updateMode: marketData?.updateMode ?? updateMode,
+    contractCount: marketData?.contractCount,
+    strikeCount: marketData?.strikes.length,
+    expiryCount: marketData?.expiries.length,
+  });
   const selectedDte = selectedExpiry ? calendarDte(selectedExpiry, dteBase) : null;
   const selectionCount =
     expiryMode === "custom" || expiryMode === "composite"
@@ -1373,6 +1412,13 @@ export function OptionsAtlas() {
               {marketData?.timestamp ? formatSourceTime(marketData.timestamp) : "Loading"}
               {marketData?.stale ? " · saved" : ""}
             </strong>
+          </div>
+          <div
+            className={`atlas-freshness atlas-quality atlas-quality--${snapshotQuality.tone}`}
+            title={snapshotQuality.detail}
+          >
+            <span>Data quality</span>
+            <strong><i aria-hidden="true" />{snapshotQuality.label}</strong>
           </div>
           <div className="update-mode" aria-label="Options update mode">
             <button
@@ -1828,7 +1874,7 @@ export function OptionsAtlas() {
           <figcaption>
             <span>How to read it</span>
             <p>
-              {metricCopy[metric]} Both profiles are normalized within their own market so the shape stays readable. Select an index strike to inspect it.{" "}
+              {metricCopy[metric]} Both profiles are normalized within their own market so the shape stays readable. The magnitude strip uses the unnormalized near-spot window, so compare size there rather than by bar length. Select an index strike to inspect it.{" "}
               {["gamma", "delta", "vega"].includes(metric)
                 ? "The base Greek comes from the market snapshot."
                 : "This higher-order Greek is modeled from snapshot IV."}
