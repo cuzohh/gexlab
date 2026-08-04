@@ -16,11 +16,11 @@ cd /d "%~dp0"
 cls
 
 echo.
-echo   %MAP%  ____ _____ __  __ _       _    ____  %RESET%
-echo   %MAP% / ___^| ____^|\ \/ /^| ^|     / \  ^|  _ \ %RESET%   %INK%G E X L A B%RESET%  %ACCENT%v3.0%RESET%
-echo   %MAP%^| ^|  _ ^|  _^|   \  / ^| ^|    / _ \ ^| ^|_) ^|%RESET%   %MUTED%QUANTITATIVE MARKET CONTEXT%RESET%
-echo   %MAP%^| ^|_^| ^|^| ^|___  /  \ ^| ^|___/ ___ \^|  _ ^< %RESET%   %GOOD%* Options Structure ^& Volatility%RESET%
-echo   %MAP% \____^|_____^|/_/\_\^|_____/_/   \_\____/%RESET%   %WARN%* Forecast ^& Reversal Engine%RESET%
+echo   %MAP%  ____   _____  __  __   _        _     ____  %RESET%
+echo   %MAP% / ___^| ^| ____^| \ \/ /  ^| ^|      / \   ^|  _ \ %RESET%   %INK%G E X L A B%RESET%  %ACCENT%v3.0%RESET%
+echo   %MAP%^| ^|  _  ^|  _^|    \  /   ^| ^|     / _ \  ^| ^|_) ^|%RESET%   %MUTED%QUANTITATIVE MARKET CONTEXT%RESET%
+echo   %MAP%^| ^|_^| ^| ^| ^|___   /  \   ^| ^|___ / ___ \ ^|  _ ^< %RESET%   %GOOD%* Options Structure ^& Volatility%RESET%
+echo   %MAP% \____^| ^|_____^| /_/\_\  ^|_____^|/_/ \_\ ^|____/%RESET%   %WARN%* Forecast ^& Reversal Engine%RESET%
 echo.
 echo   %MUTED%   +------------------------------------------------------------+%RESET%
 echo   %MUTED%   ^|%RESET% %GOOD%  [+] CALL WALL%RESET%   %MAP%========== 21,450 ==========%RESET% %GOOD%+14.2k GEX%RESET% %MUTED%^|%RESET%
