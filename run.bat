@@ -9,15 +9,29 @@ set "MUTED=%ESC%[38;2;144;153;146m"
 set "MAP=%ESC%[38;2;136;180;200m"
 set "GOOD=%ESC%[38;2;120;183;167m"
 set "WARN=%ESC%[38;2;208;169;93m"
+set "ACCENT=%ESC%[38;2;99;179;237m"
 set "RESET=%ESC%[0m"
 
 cd /d "%~dp0"
 cls
 
 echo.
-echo   %MAP%      ^|   ^|  ^|%RESET%
-echo   %MAP%      ^| ^| ^| ^|%RESET%   %INK%G E X L A B%RESET%  %MUTED%/ V3%RESET%
-echo   %MAP%      ^|^|   ^|^|%RESET%   %MUTED%MARKET CONTEXT, CLEARLY MAPPED%RESET%
+echo   %MAP%  ______ _____ _   _ _        _    ____  %RESET%
+echo   %MAP% / _____^| ____^| \ / ^| ^|      / \  ^|  _ \ %RESET%   %INK%G E X L A B%RESET%  %ACCENT%v3.0%RESET%
+echo   %MAP%^| ^|  ___^|  _^|  \   /^| ^|     / _ \ ^| ^|_) ^|%RESET%   %MUTED%QUANTITATIVE MARKET CONTEXT%RESET%
+echo   %MAP%^| ^| ^|_  ^| ^|___ /   \^| ^|___ / ___ \^|  _ ^< %RESET%   %GOOD%* Options Structure ^& Volatility%RESET%
+echo   %MAP% \______^|_____/_/ \_^|_____/_/   \_\_^| \_\%RESET%   %WARN%* Forecast ^& Reversal Engine%RESET%
+echo.
+echo   %MUTED%   +------------------------------------------------------------+%RESET%
+echo   %MUTED%   ^|%RESET% %GOOD%  [+] CALL WALL%RESET%   %MAP%========== 21,450 ==========%RESET% %GOOD%+14.2k GEX%RESET% %MUTED%^|%RESET%
+echo   %MUTED%   ^|%RESET% %MUTED%      ^|         ^|                             ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %GOOD%    +---+       ^|       +---+                 ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %GOOD%    ^|   ^|       ^|       ^|   ^|  [SPOT 21,280]  ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %WARN%    ^|   ^|     +---+     ^|   ^|  ------------  ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %WARN%    +---+     ^|   ^|     +---+                 ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %MUTED%      ^|       +---+       ^|                             ^|      ^|%RESET%
+echo   %MUTED%   ^|%RESET% %WARN%  [-] PUT WALL%RESET%    %MAP%========== 21,100 ==========%RESET% %WARN%-18.6k GEX%RESET% %MUTED%^|%RESET%
+echo   %MUTED%   +------------------------------------------------------------+%RESET%
 echo.
 echo   %MUTED%------------------------------------------------------------%RESET%
 echo.
