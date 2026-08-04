@@ -1,39 +1,45 @@
 @echo off
 setlocal
-title GEXLab V3 ^| Market Context
+title GEXLab V3 ^| Market Context Engine
 color 0F
 
 for /F "delims=" %%E in ('echo prompt $E^| cmd') do set "ESC=%%E"
-set "INK=%ESC%[38;2;233;231;224m"
-set "MUTED=%ESC%[38;2;144;153;146m"
-set "MAP=%ESC%[38;2;136;180;200m"
-set "GOOD=%ESC%[38;2;120;183;167m"
-set "WARN=%ESC%[38;2;208;169;93m"
-set "ACCENT=%ESC%[38;2;99;179;237m"
+set "CYAN=%ESC%[38;2;56;189;248m"
+set "BLUE=%ESC%[38;2;99;102;241m"
+set "PURPLE=%ESC%[38;2;168;85;247m"
+set "PINK=%ESC%[38;2;236;72;153m"
+set "EMERALD=%ESC%[38;2;52;211;153m"
+set "AMBER=%ESC%[38;2;251;191;36m"
+set "MUTED=%ESC%[38;2;148;163;184m"
+set "DARK=%ESC%[38;2;71;85;105m"
+set "WHITE=%ESC%[38;2;248;250;252m"
 set "RESET=%ESC%[0m"
 
 cd /d "%~dp0"
 cls
 
 echo.
-echo   %MAP%  ____   _____  __  __   _        _     ____  %RESET%
-echo   %MAP% / ___^| ^| ____^| \ \/ /  ^| ^|      / \   ^|  _ \ %RESET%   %INK%G E X L A B%RESET%  %ACCENT%v3.0%RESET%
-echo   %MAP%^| ^|  _  ^|  _^|    \  /   ^| ^|     / _ \  ^| ^|_) ^|%RESET%   %MUTED%QUANTITATIVE MARKET CONTEXT%RESET%
-echo   %MAP%^| ^|_^| ^| ^| ^|___   /  \   ^| ^|___ / ___ \ ^|  _ ^< %RESET%   %GOOD%* Options Structure ^& Volatility%RESET%
-echo   %MAP% \____^| ^|_____^| /_/\_\  ^|_____^|/_/ \_\ ^|____/%RESET%   %WARN%* Forecast ^& Reversal Engine%RESET%
+echo   %CYAN%  ______   _______   _  _      _         _______   _______  %RESET%
+echo   %CYAN% / ___  \ (  ____ \ ( \/ )    ( \       (  ___  ) (  ____ \ %RESET%
+echo   %BLUE%/ /   \  \^| (    \/  \  /     ^| (       ^| (   ) ^| ^| (    \/ %RESET%
+echo   %BLUE%^| ^|    ) ^|^| (__       \/      ^| ^|       ^| (___) ^| ^| (__     %RESET%   %WHITE%G E X L A B%RESET%  %EMERALD%v3.0.0%RESET%
+echo   %PURPLE%^| ^|    ^| ^|^|  __)      /\      ^| ^|       ^|  ___  ^| ^|  __ \   %RESET%   %MUTED%------------------------------------%RESET%
+echo   %PURPLE%^| ^|    ) ^|^| (        /  \     ^| ^|       ^| (   ) ^| ^| (  \ \  %RESET%   %AMBER%* QUANTITATIVE ENGINE %RESET%
+echo   %PINK%\ \___/  /^| (____/\ / /\ \    ^| (____/\ ^| )   ( ^| ^| (___) ) %RESET%   %CYAN%* REAL-TIME GAMMA STRUCTURE %RESET%
+echo   %PINK% \______/ (_______/ \_/  \_\  (_______/ ^|/     \^| (______/  %RESET%   %EMERALD%* FORECAST ^& REVERSAL ZONES %RESET%
 echo.
-echo   %MUTED%   +------------------------------------------------------------+%RESET%
-echo   %MUTED%   ^|%RESET% %GOOD%  [+] CALL WALL%RESET%   %MAP%========== 21,450 ==========%RESET% %GOOD%+14.2k GEX%RESET% %MUTED%^|%RESET%
-echo   %MUTED%   ^|%RESET% %MUTED%      ^|         ^|                             ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %GOOD%    +---+       ^|       +---+                 ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %GOOD%    ^|   ^|       ^|       ^|   ^|  [SPOT 21,280]  ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %WARN%    ^|   ^|     +---+     ^|   ^|  ------------  ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %WARN%    +---+     ^|   ^|     +---+                 ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %MUTED%      ^|       +---+       ^|                             ^|      ^|%RESET%
-echo   %MUTED%   ^|%RESET% %WARN%  [-] PUT WALL%RESET%    %MAP%========== 21,100 ==========%RESET% %WARN%-18.6k GEX%RESET% %MUTED%^|%RESET%
-echo   %MUTED%   +------------------------------------------------------------+%RESET%
+echo   %MUTED%+------------------------------------------------------------------------------------+%RESET%
+echo   %MUTED%^|%RESET% %EMERALD%[+] CALL RESISTANCE WALL%RESET%   %CYAN%[ 21,450.00 ]%RESET%   %EMERALD%+14,250 GEX%RESET%   %MUTED%( Heavy Supply Zone )  %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %WHITE%[*] SPOT PRICE ANCHOR       %RESET%   %AMBER%[ 21,284.50 ]%RESET%   %WHITE%  +0.84%%%RESET%     %MUTED%( Dynamic Pivot )    %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %PURPLE%[!] ZERO-GAMMA FLIP LEVEL  %RESET%   %PURPLE%[ 21,190.00 ]%RESET%   %PURPLE% REGIME SHIFT%RESET%   %MUTED%( Volatility Trigger ) %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
+echo   %MUTED%^|%RESET% %PINK%[-] PUT SUPPORT FLOOR      %RESET%   %CYAN%[ 21,100.00 ]%RESET%   %PINK%-18,600 GEX%RESET%   %MUTED%( Demand Cushion )   %MUTED%^|%RESET%
+echo   %MUTED%+------------------------------------------------------------------------------------+%RESET%
 echo.
-echo   %MUTED%------------------------------------------------------------%RESET%
+echo   %MUTED%------------------------------------------------------------------------------------%RESET%
+echo.
 echo.
 echo   %MUTED%[01]%RESET%  %INK%Runtime check%RESET%
 
