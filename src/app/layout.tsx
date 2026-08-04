@@ -24,7 +24,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GEXLab V3 — Market context, clearly mapped",
+  title: "GEXLab V3",
   description:
     "A calm, beginner-friendly market regime and options-structure briefing for NQ and ES.",
 };

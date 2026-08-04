@@ -8,8 +8,23 @@ import {
 
 const EASTERN_ZONE = "America/New_York";
 
-function partsAt(date: Date, timeZone = EASTERN_ZONE) {
-  const parts = new Intl.DateTimeFormat("en-US", {
+/**
+ * Formatters are cached per zone because constructing one is expensive and this
+ * module builds them in the hottest loop the server has.
+ *
+ * Every option contract's settlement instant goes through parseEasternTimestamp,
+ * which calls this three times to converge on the right side of a daylight
+ * saving boundary. At one formatter per call that was three constructions per
+ * contract: on a 15,800-contract NDX chain, roughly 47,000 of them, and it
+ * measured at 4.6 seconds of a 5.2 second request. A formatter is immutable
+ * and depends only on its zone, so one per zone is all that is ever needed.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatterFor(timeZone: string) {
+  const cached = formatters.get(timeZone);
+  if (cached) return cached;
+  const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "2-digit",
@@ -19,7 +34,13 @@ function partsAt(date: Date, timeZone = EASTERN_ZONE) {
     second: "2-digit",
     hourCycle: "h23",
     weekday: "short",
-  }).formatToParts(date);
+  });
+  formatters.set(timeZone, formatter);
+  return formatter;
+}
+
+function partsAt(date: Date, timeZone = EASTERN_ZONE) {
+  const parts = formatterFor(timeZone).formatToParts(date);
   return Object.fromEntries(parts.map((part) => [part.type, part.value]));
 }
 

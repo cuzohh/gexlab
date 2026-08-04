@@ -18,6 +18,7 @@ import {
   sessionsBehind,
 } from "../src/lib/market-time.ts";
 import {
+  aggregateExposure,
   buildSmile,
   calculateMaxPain,
   despike,
@@ -29,6 +30,8 @@ import {
   // There are two of these. The pricing one sets every delta on the chart; the
   // forecast one only turns a test statistic into a p-value. Both are graded.
   normalCdf as pricingNormalCdf,
+  priceStrikes,
+  strikeKey,
   yearsToExpiry,
 } from "../src/lib/options-math.ts";
 import {
@@ -43,6 +46,7 @@ import { buildSessionContext } from "../src/lib/session-context.ts";
 import { buildOvernightContext, parseYahooChartPayload } from "../src/lib/overnight-context.ts";
 import { parseCftcApiRows } from "../src/lib/cftc.ts";
 import { buildReversalAnalysis } from "../src/lib/reversal-zones.ts";
+import { futuresRatio, indexLevelToFutures } from "../src/lib/futures-mapping.ts";
 import { buildMoveMap } from "../src/lib/move-map.ts";
 import {
   curveRecessionProbability,
@@ -2078,7 +2082,9 @@ test("the bridge payload rescales every book onto one reference price with its o
   assert.equal(version, "GX2");
   const blocks = body.split("|");
   assert.equal(blocks.length, 3);
-  assert.deepEqual(blocks[0].split("~"), ["H", "N", "NQ", "23000", "1785268800"]);
+  // The final header field is optional for compatibility and carries the
+  // market-calendar-aware earliest warning time when the caller supplies one.
+  assert.deepEqual(blocks[0].split("~"), ["H", "N", "NQ", "23000", "1785268800", "0"]);
 
   const indexFields = blocks[1].split("~");
   assert.equal(indexFields[0], "NDX");
@@ -2451,14 +2457,14 @@ test("reversal analysis ranks Greek confluence and keeps acceleration zones dist
     { ...base, strike: 100, gamma: 1, vanna: 0.1, charm: 0.1, speed: 0.1 },
     { ...base, strike: 101, gamma: 6, vanna: 4, charm: 3, speed: 6, callOi: 450, putOi: 300 },
     { ...base, strike: 102, gamma: -7, vanna: -4, charm: -3, speed: -6, callOi: 350, putOi: 450 },
-    { ...base, strike: 104, gamma: -2, vanna: -1, charm: -1, speed: -2 },
+    { ...base, strike: 104, gamma: -9, vanna: -5, charm: -4, speed: -8, callOi: 350, putOi: 600 },
   ];
   const analysis = buildReversalAnalysis({
     symbol: "NDX",
     spot: 100,
     timestamp: "2026-08-02T15:00:00Z",
     strikes: rows,
-    levels: { callWall: 101, putWall: 99, gammaFlip: 100.5, maxPain: 100, vannaMagnet: 99 },
+    levels: { callWall: 104, putWall: 99, gammaFlip: 100.5, maxPain: 100, vannaMagnet: 99 },
   });
 
   assert.equal(analysis.scenario.length, 49);
@@ -2467,6 +2473,54 @@ test("reversal analysis ranks Greek confluence and keeps acceleration zones dist
   assert.ok(analysis.zones.some((zone) => zone.kind === "Acceleration zone"));
   assert.ok(analysis.zones.every((zone) => zone.score >= 0 && zone.score <= 100));
   assert.ok(analysis.zones.some((zone) => zone.levelNames.includes("Put wall")));
+});
+
+test("index option levels map to fixed futures coordinates at the matching settlement basis", () => {
+  const indexSpot = 28_274.1953;
+  const nqSettlement = 28_500;
+  assert.equal(indexLevelToFutures(indexSpot, indexSpot, nqSettlement), nqSettlement);
+  assert.equal(indexLevelToFutures(null, indexSpot, nqSettlement), null);
+  const mappedWall = indexLevelToFutures(28_000, indexSpot, nqSettlement);
+  assert.ok(mappedWall !== null && Number.isInteger(mappedWall * 4));
+  assert.ok(Math.abs(futuresRatio(indexSpot, nqSettlement) - nqSettlement / indexSpot) < 1e-12);
+  // A changing live quote alters distance to the wall, not the wall itself.
+  assert.equal(indexLevelToFutures(28_000, indexSpot, nqSettlement), mappedWall);
+  assert.notEqual(mappedWall - 28_600, mappedWall - 28_350);
+});
+
+test("delta tilt improves zone direction context without replacing gamma classification", () => {
+  const base = {
+    vega: 10,
+    callOi: 200,
+    putOi: 200,
+    callVolume: 20,
+    putVolume: 20,
+    vanna: 0.3,
+    charm: 0.3,
+    speed: 0.3,
+  };
+  const analyze = (targetDelta) => buildReversalAnalysis({
+    symbol: "NDX",
+    spot: 100,
+    timestamp: "2026-08-03T13:45:00Z",
+    strikes: [
+      { ...base, strike: 97, gamma: 0.2, delta: 1 },
+      { ...base, strike: 98, gamma: 1, delta: targetDelta },
+      { ...base, strike: 99, gamma: 9, delta: targetDelta, vanna: 6, charm: 5, speed: 7, putOi: 800 },
+      { ...base, strike: 100, gamma: 1, delta: targetDelta },
+      { ...base, strike: 101, gamma: 0.2, delta: 1 },
+      { ...base, strike: 102, gamma: 0.2, delta: 1 },
+    ],
+    levels: { callWall: null, putWall: 99, gammaFlip: null, maxPain: null, vannaMagnet: null },
+  }).zones.find((zone) => zone.levelNames.includes("Put wall"));
+
+  const aligned = analyze(-9);
+  const conflicting = analyze(9);
+  assert.ok(aligned && conflicting);
+  assert.equal(aligned.kind, conflicting.kind);
+  assert.equal(aligned.deltaRead, "Rejection aligned");
+  assert.equal(conflicting.deltaRead, "Conflicting");
+  assert.ok(aligned.score > conflicting.score);
 });
 
 test("reversal analysis stays honest when the nearby book is empty", () => {
@@ -2481,6 +2535,71 @@ test("reversal analysis stays honest when the nearby book is empty", () => {
   assert.deepEqual(analysis.zones, []);
   assert.deepEqual(analysis.scenario, []);
   assert.equal(analysis.dataQuality, "Low");
+});
+
+test("reversal confidence does not promote a strong but unreachable shelf", () => {
+  const base = {
+    delta: 0.4,
+    vega: 10,
+    callOi: 250,
+    putOi: 250,
+    callVolume: 30,
+    putVolume: 30,
+  };
+  const analysis = buildReversalAnalysis({
+    symbol: "NDX",
+    spot: 100,
+    timestamp: "2026-08-03T13:45:00Z",
+    expectedMovePercent: 0.5,
+    strikes: [
+      { ...base, strike: 98, gamma: 1, vanna: 0.2, charm: 0.2, speed: 0.2 },
+      { ...base, strike: 99, gamma: 2, vanna: 1, charm: 1, speed: 1 },
+      { ...base, strike: 101, gamma: 9, vanna: 7, charm: 6, speed: 8, callOi: 900, putOi: 700 },
+      { ...base, strike: 102, gamma: 1, vanna: 0.2, charm: 0.2, speed: 0.2 },
+    ],
+    levels: { callWall: 101, putWall: null, gammaFlip: null, maxPain: null, vannaMagnet: 101 },
+  });
+  const farZone = analysis.zones.find((zone) => Math.abs(zone.center - 101) <= 1);
+  assert.ok(farZone);
+  assert.equal(farZone.reachability, "Outside implied move");
+  assert.notEqual(farZone.confidence, "High");
+});
+
+test("reversal zones credit aligned near-expiry shelves and respect adverse skew", () => {
+  const base = {
+    delta: 0.3,
+    vega: 10,
+    callOi: 200,
+    putOi: 200,
+    callVolume: 20,
+    putVolume: 20,
+  };
+  const analysis = buildReversalAnalysis({
+    symbol: "NDX",
+    spot: 100,
+    timestamp: "2026-08-03T13:45:00Z",
+    expectedMovePercent: 2,
+    // Negative risk reversal means puts are richer: it is a reason to be
+    // cautious fading a downside level, even when its dealer shelf is strong.
+    riskReversal25: -0.03,
+    expiryBuckets: [
+      { label: "0DTE", contractCount: 100, netGamma: 2, callWall: null, putWall: 99, vannaMagnet: null },
+      { label: "1–5D", contractCount: 100, netGamma: 1, callWall: null, putWall: 99, vannaMagnet: 99 },
+      { label: "6–45D", contractCount: 100, netGamma: 1, callWall: 102, putWall: null, vannaMagnet: null },
+    ],
+    strikes: [
+      { ...base, strike: 98, gamma: 1, vanna: 0.2, charm: 0.2, speed: 0.2 },
+      { ...base, strike: 99, gamma: 9, vanna: 7, charm: 6, speed: 8, callOi: 850, putOi: 800 },
+      { ...base, strike: 100, gamma: 1, vanna: 0.2, charm: 0.2, speed: 0.2 },
+      { ...base, strike: 102, gamma: -4, vanna: 2, charm: 2, speed: -3 },
+    ],
+    levels: { callWall: null, putWall: 99, gammaFlip: null, maxPain: null, vannaMagnet: 99 },
+  });
+  const support = analysis.zones.find((zone) => Math.abs(zone.center - 99) <= 1);
+  assert.ok(support);
+  assert.deepEqual(support.expiryAgreement, ["0DTE", "1–5D"]);
+  assert.ok(support.reasons.includes("front skew cautions against a fade"));
+  assert.notEqual(support.confidence, "High");
 });
 
 test("move map forecasts asymmetric daily excursions and only flags positive-gamma overlap as a reaction", () => {
@@ -2527,4 +2646,156 @@ test("move map forecasts asymmetric daily excursions and only flags positive-gam
   assert.ok(map.evaluation.p68Coverage >= 0 && map.evaluation.p68Coverage <= 100);
   assert.ok(map.evaluation.p90Coverage >= map.evaluation.p68Coverage);
   assert.equal(map.sourceStatus, "Saved");
+});
+
+// A strike is one instrument quoted as two legs. Gamma, vega, vanna, speed,
+// zomma and vomma are equal across the pair by put-call parity, so the dealer
+// sum at that strike is (call OI - put OI) times one number. When the two legs
+// were priced separately the feed's disagreement leaked into that subtraction,
+// and a strike could report the opposite sign to the open interest holding it.
+const exposureInput = {
+  spot: 7600,
+  dividendYield: 0.012,
+  valuationTime: Date.parse("2026-08-03T20:00:00Z"),
+  riskFreeRate: 0.045,
+};
+
+function leg(type, overrides = {}) {
+  return {
+    root: "SPX",
+    expiry: "2026-09-18",
+    strike: 7800,
+    type,
+    oi: 100,
+    volume: 0,
+    iv: 0.2,
+    delta: null,
+    gamma: null,
+    vega: null,
+    ...overrides,
+  };
+}
+
+test("both legs of a strike are priced off one volatility", () => {
+  // The wings of a thin strike routinely quote 30% apart. Whichever leg is
+  // consulted, the strike has to come back with a single set of these.
+  const priced = priceStrikes(
+    [leg("call", { iv: 0.18 }), leg("put", { iv: 0.31 })],
+    exposureInput,
+  );
+  assert.equal(priced.size, 1);
+  const strike = priced.get(strikeKey(leg("call")));
+  assert.ok(strike.gamma > 0);
+  // The strike is above the forward, so the call is the out-of-the-money leg
+  // and its quote is the one that survives.
+  assert.equal(strike.iv, 0.18);
+});
+
+test("the out-of-the-money leg supplies the strike's volatility on both wings", () => {
+  const below = priceStrikes(
+    [leg("call", { strike: 7000, iv: 0.11 }), leg("put", { strike: 7000, iv: 0.27 })],
+    exposureInput,
+  );
+  assert.equal(below.get(strikeKey(leg("call", { strike: 7000 }))).iv, 0.27);
+
+  const above = priceStrikes(
+    [leg("call", { strike: 8200, iv: 0.13 }), leg("put", { strike: 8200, iv: 0.29 })],
+    exposureInput,
+  );
+  assert.equal(above.get(strikeKey(leg("call", { strike: 8200 }))).iv, 0.13);
+});
+
+test("a supplied greek on one leg is used for the other", () => {
+  // The chain often carries a gamma for the liquid leg and nothing for its
+  // pair. Modelling the missing one puts the two sides of the subtraction on
+  // different footings, which is what inverted the sign at a real strike.
+  const priced = priceStrikes(
+    [leg("call", { gamma: 0.00042 }), leg("put", { gamma: null })],
+    exposureInput,
+  );
+  assert.equal(priced.get(strikeKey(leg("call"))).gamma, 0.00042);
+});
+
+test("strike gamma cannot contradict the open interest holding it", () => {
+  // The reported case, to scale: twelve calls against one put, a gamma quoted
+  // on the call alone, and the missing leg modelled at a far wider volatility.
+  // Priced separately the modelled put outweighs twelve calls by an order of
+  // magnitude and the strike reports net short gamma; shared, twelve against
+  // one can only be long.
+  const rows = aggregateExposure(
+    [
+      leg("call", { strike: 8400, oi: 12, iv: 0.16, gamma: 0.000008 }),
+      leg("put", { strike: 8400, oi: 1, iv: 0.42, gamma: null }),
+    ],
+    exposureInput,
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].callOi, 12);
+  assert.equal(rows[0].putOi, 1);
+  assert.ok(rows[0].gamma > 0, `net gamma ${rows[0].gamma} with 12 calls against 1 put`);
+});
+
+test("matched open interest on both legs nets a strike to exactly zero gamma", () => {
+  // Only true while the pair shares a gamma. Two separately modelled legs
+  // leave a residue whose sign is an artefact of which quote was wider.
+  const rows = aggregateExposure(
+    [leg("call", { oi: 250, iv: 0.17 }), leg("put", { oi: 250, iv: 0.36 })],
+    exposureInput,
+  );
+  assert.equal(rows[0].gamma, 0);
+  assert.equal(rows[0].vanna, 0);
+  assert.equal(rows[0].vega, 0);
+  assert.equal(rows[0].speed, 0);
+  assert.equal(rows[0].zomma, 0);
+  assert.equal(rows[0].vomma, 0);
+});
+
+test("every strike's gamma sign follows its call-minus-put open interest", () => {
+  const contracts = [];
+  for (let strike = 6400; strike <= 8800; strike += 100) {
+    // The adversarial arrangement, alternating down the chain: the leg holding
+    // the open interest quotes a small gamma, and the light leg opposing it has
+    // none and gets modelled at a wide volatility. Priced per leg the modelled
+    // side wins every strike and the whole chain reports the wrong sign.
+    const callHeavy = strike % 200 === 0;
+    contracts.push(
+      leg("call", {
+        strike,
+        oi: callHeavy ? 120 : 40,
+        iv: callHeavy ? 0.15 : 0.4,
+        gamma: callHeavy ? 0.00002 : null,
+      }),
+      leg("put", {
+        strike,
+        oi: callHeavy ? 40 : 120,
+        iv: callHeavy ? 0.4 : 0.15,
+        gamma: callHeavy ? null : 0.00002,
+      }),
+    );
+  }
+  const rows = aggregateExposure(contracts, exposureInput);
+  assert.ok(rows.length >= 12);
+  for (const row of rows) {
+    assert.equal(
+      Math.sign(row.gamma),
+      Math.sign(row.callOi - row.putOi),
+      `strike ${row.strike}: gamma ${row.gamma} against ${row.callOi} calls and ${row.putOi} puts`,
+    );
+  }
+});
+
+test("delta and charm stay per leg while the parity-invariant greeks do not", () => {
+  // Delta is presented as a call-versus-put tilt, so it keeps the natural signs
+  // rather than the dealer convention: matched open interest does not cancel.
+  // 7800 sits above spot, so the out-of-the-money call carries less delta than
+  // the in-the-money put and the tilt comes out negative. Under the dealer sign
+  // the same pair would be call minus put, which parity pins positive — so the
+  // sign here is what separates the two conventions.
+  const rows = aggregateExposure(
+    [leg("call", { oi: 250 }), leg("put", { oi: 250 })],
+    exposureInput,
+  );
+  assert.ok(rows[0].delta < 0, `matched lots above spot tilt short, got ${rows[0].delta}`);
+  assert.notEqual(rows[0].charm, 0);
+  assert.equal(rows[0].gamma, 0);
 });

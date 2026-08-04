@@ -28,6 +28,12 @@ export function RegimeMap({
     y: 322 - (row.inflation / 100) * 284,
   }));
   const path = trailPoints.map((row, index) => `${index ? "L" : "M"} ${row.x} ${row.y}`).join(" ");
+  // Clear of the marker halo (radius 20), on whichever side has room for the
+  // caption. The widest line is "inflation NN", about 62 units at this size.
+  const calloutGap = 26;
+  const calloutFitsRight = point.x + calloutGap + 62 <= 576;
+  const calloutX = calloutFitsRight ? point.x + calloutGap : point.x - calloutGap;
+  const calloutAnchor = calloutFitsRight ? "start" : "end";
   const regimeTone = regime === "Reflation" ? "caution" : regime === "Stagflation" ? "stress" : regime === "Disinflationary expansion" ? "constructive" : "neutral";
 
   return (
@@ -81,9 +87,16 @@ export function RegimeMap({
         ))}
         <motion.circle className="current-halo" cx={point.x} cy={point.y} r="20" initial={false} animate={{ opacity: 1, r: 20 }} transition={{ delay: 0.5, duration: 0.42 }} />
         <motion.circle className="current-point" cx={point.x} cy={point.y} r="7" initial={false} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.52, duration: 0.42, ease: [0.16, 1, 0.3, 1] }} />
-        <text className="current-label" x={Math.min(point.x + 14, 540)} y={point.y - 10}>NOW</text>
-        <text className="current-note" x={Math.min(point.x + 14, 500)} y={point.y + 7}>growth {growth}</text>
-        <text className="current-note" x={Math.min(point.x + 14, 500)} y={point.y + 20}>inflation {inflation}</text>
+        {/* The callout clears the halo rather than starting inside it. It used
+            to be offset by 14 against a halo of radius 20, so every reading sat
+            with its first line printed over the marker it was labelling; and
+            the clamp that kept it on-canvas pulled it further left as the point
+            moved right, which put the text squarely on top of the dot in the
+            one case the clamp existed for. Near the right edge it now switches
+            sides instead. */}
+        <text className="current-label" x={calloutX} y={point.y - 10} textAnchor={calloutAnchor}>NOW</text>
+        <text className="current-note" x={calloutX} y={point.y + 7} textAnchor={calloutAnchor}>growth {growth}</text>
+        <text className="current-note" x={calloutX} y={point.y + 20} textAnchor={calloutAnchor}>inflation {inflation}</text>
       </svg>
 
       <figcaption>

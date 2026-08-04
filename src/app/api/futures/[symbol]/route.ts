@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { PDFParse } from "pdf-parse";
-import { previousWeekday } from "@/lib/market-time";
+import { easternDate, previousWeekday } from "@/lib/market-time";
 import { dedupeRequest } from "@/lib/server/request-deduper";
 import { getSnapshot, putSnapshot, snapshotIsFresh } from "@/lib/server/snapshot-store";
+import { loadYahooFuturesQuote, loadYahooOvernightContext } from "@/lib/server/yahoo-futures";
 
 export const runtime = "nodejs";
 
@@ -122,7 +123,7 @@ async function settlements() {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ symbol: string }> },
 ) {
   const { symbol: rawSymbol } = await context.params;
@@ -132,6 +133,25 @@ export async function GET(
   }
 
   try {
+    const mode = new URL(request.url).searchParams.get("mode");
+    if (mode === "live") {
+      const quote = await loadYahooFuturesQuote(symbol);
+      return NextResponse.json(quote, {
+        headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" },
+      });
+    }
+    if (mode === "overnight") {
+      const sessionDate = easternDate();
+      const priorSessionDate = previousWeekday(new Date(`${sessionDate}T12:00:00Z`));
+      const overnight = await loadYahooOvernightContext({
+        sessionDate,
+        priorSessionDate,
+        staleWhileRevalidate: true,
+      });
+      return NextResponse.json(overnight, {
+        headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" },
+      });
+    }
     const result = await settlements();
     return NextResponse.json({
       ...result.values[symbol],

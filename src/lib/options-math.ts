@@ -69,13 +69,29 @@ export function modelGreeks(input: {
   return { delta, gamma, vega, vanna, charm, speed, zomma, vomma, d1, d2 };
 }
 
+/**
+ * Settlement instants are cached by (expiry, root).
+ *
+ * A chain has tens of thousands of contracts and a few dozen distinct expiry
+ * dates, so this is called once per contract and answers one of about eighty
+ * distinct questions. The callers are per-contract by necessity — two roots
+ * sharing an expiry date settle at different times — but the answer is not.
+ * The market calendar is a static table, so a result never becomes wrong.
+ */
+const expirationCache = new Map<string, string | null>();
+
 export function expirationIso(expiry: string, root = "") {
+  const key = `${expiry}|${root}`;
+  const cached = expirationCache.get(key);
+  if (cached !== undefined) return cached;
   // Standard NDX/SPX index options are AM-settled. Their PM-settled families
   // (NDXP/SPXW) and ETF options trade through the regular close.
   const isAmSettled = root === "NDX" || root === "SPX";
-  return isAmSettled
+  const settles = isAmSettled
     ? parseEasternTimestamp(`${expiry} 09:30:00`)
     : easternCloseIso(expiry);
+  expirationCache.set(key, settles);
+  return settles;
 }
 
 export function yearsToExpiry(expiry: string, valuationTime: number, root = "") {
@@ -102,6 +118,248 @@ export type SmileContract = {
   iv: number | null;
   oi: number;
 };
+
+/** One leg of a chain, as much of it as the exposure calculation reads. */
+export type ExposureContract = {
+  root: string;
+  expiry: string;
+  strike: number;
+  type: OptionType;
+  oi: number;
+  volume: number;
+  iv: number | null;
+  delta: number | null;
+  gamma: number | null;
+  vega: number | null;
+};
+
+/** The parity-invariant greeks of a strike, plus the inputs they came from. */
+export type PricedStrike = {
+  iv: number;
+  years: number;
+  gamma: number;
+  vegaPerVolPoint: number;
+  vanna: number;
+  speed: number;
+  zomma: number;
+  vomma: number;
+};
+
+export type ExposureRow = {
+  strike: number;
+  gamma: number;
+  delta: number;
+  vanna: number;
+  charm: number;
+  vega: number;
+  speed: number;
+  zomma: number;
+  vomma: number;
+  callOi: number;
+  putOi: number;
+  callVolume: number;
+  putVolume: number;
+  callIv: number | null;
+  putIv: number | null;
+};
+
+type ExposureInput = {
+  spot: number;
+  dividendYield: number;
+  valuationTime: number;
+  riskFreeRate: number;
+};
+
+export function strikeKey(contract: Pick<ExposureContract, "root" | "expiry" | "strike">) {
+  return `${contract.root}|${contract.expiry}|${contract.strike}`;
+}
+
+/**
+ * Prices each strike once, rather than each leg of it.
+ *
+ * Gamma, vega, vanna, speed, zomma and vomma do not depend on whether a
+ * contract is a call or a put — put-call parity fixes them equal at a shared
+ * strike, and modelGreeks is tested on exactly that. The chain does not always
+ * agree, because the feed quotes the two legs separately: the same strike
+ * arrives with two implied volatilities, and sometimes with a gamma on one leg
+ * and nothing usable on the other.
+ *
+ * Pricing each leg on its own terms and then subtracting one from the other
+ * turns that disagreement into exposure nobody holds. It is how a strike whose
+ * call open interest was twelve against one put came out net short gamma. So
+ * the volatility is chosen once per strike and every parity-invariant greek is
+ * computed from it; only delta and charm, which genuinely differ by type, are
+ * still evaluated per leg.
+ *
+ * The volatility comes from the out-of-the-money leg for the reason buildSmile
+ * gives: the in-the-money quote carries the same information across a far wider
+ * spread. A supplied greek is taken from that leg first for the same reason.
+ */
+export function priceStrikes(contracts: ExposureContract[], input: ExposureInput) {
+  const { spot, dividendYield, valuationTime, riskFreeRate } = input;
+  const sides = new Map<string, { call?: ExposureContract; put?: ExposureContract }>();
+  for (const contract of contracts) {
+    const key = strikeKey(contract);
+    const entry = sides.get(key) ?? {};
+    entry[contract.type] = contract;
+    sides.set(key, entry);
+  }
+
+  const priced = new Map<string, PricedStrike>();
+
+  for (const [key, entry] of sides) {
+    const either = entry.call ?? entry.put;
+    if (!either) continue;
+    const years = yearsToExpiry(either.expiry, valuationTime, either.root);
+    const forward = spot * Math.exp((riskFreeRate - dividendYield) * years);
+    const outOfTheMoney = either.strike < forward ? entry.put : entry.call;
+    const inTheMoney = either.strike < forward ? entry.call : entry.put;
+    const preferOtm = <T,>(read: (contract: ExposureContract) => T | null) => {
+      for (const leg of [outOfTheMoney, inTheMoney]) {
+        if (!leg) continue;
+        const value = read(leg);
+        if (value !== null) return value;
+      }
+      return null;
+    };
+
+    const iv = preferOtm((contract) => (contract.iv !== null && contract.iv > 0 ? contract.iv : null)) ?? 0.2;
+    // The type is immaterial to everything read off this: the six greeks taken
+    // from it are the parity-invariant ones.
+    const modeled = modelGreeks({
+      spot,
+      strike: either.strike,
+      years,
+      iv,
+      type: "call",
+      riskFreeRate,
+      dividendYield,
+    });
+
+    priced.set(key, {
+      iv,
+      years,
+      gamma:
+        preferOtm((contract) => (contract.gamma !== null && contract.gamma > 0 ? contract.gamma : null)) ??
+        modeled.gamma,
+      vegaPerVolPoint: preferOtm((contract) => contract.vega) ?? modeled.vega / 100,
+      vanna: modeled.vanna,
+      speed: modeled.speed,
+      zomma: modeled.zomma,
+      vomma: modeled.vomma,
+    });
+  }
+
+  return priced;
+}
+
+type ExposureAccumulator = Omit<ExposureRow, "callIv" | "putIv"> & {
+  callIvWeighted: number;
+  putIvWeighted: number;
+  callIvWeight: number;
+  putIvWeight: number;
+};
+
+/**
+ * Sums a chain into one row per strike, on the dealer sign convention: calls
+ * positive, puts negative.
+ *
+ * Delta is the exception and is deliberately unsigned. It is presented as a
+ * call-versus-put tilt rather than a dealer position, so it keeps the natural
+ * signs the two legs already carry.
+ */
+export function aggregateExposure(contracts: ExposureContract[], input: ExposureInput): ExposureRow[] {
+  const { spot, dividendYield, riskFreeRate } = input;
+  const rows = new Map<number, ExposureAccumulator>();
+  const inBand = contracts.filter(
+    (contract) => contract.strike >= spot * 0.72 && contract.strike <= spot * 1.28,
+  );
+  const priced = priceStrikes(inBand, input);
+
+  for (const contract of inBand) {
+    const strike = priced.get(strikeKey(contract));
+    if (!strike) continue;
+    const sign = contract.type === "call" ? 1 : -1;
+    const weight = contract.oi;
+    // Delta and charm are the two that depend on the type, so they are the two
+    // still evaluated per leg — off the strike's volatility, not the leg's.
+    const modeled = modelGreeks({
+      spot,
+      strike: contract.strike,
+      years: strike.years,
+      iv: strike.iv,
+      type: contract.type,
+      riskFreeRate,
+      dividendYield,
+    });
+    const delta = contract.delta ?? modeled.delta;
+    const row = rows.get(contract.strike) ?? {
+      strike: contract.strike,
+      gamma: 0,
+      delta: 0,
+      vanna: 0,
+      charm: 0,
+      vega: 0,
+      speed: 0,
+      zomma: 0,
+      vomma: 0,
+      callOi: 0,
+      putOi: 0,
+      callVolume: 0,
+      putVolume: 0,
+      callIvWeighted: 0,
+      putIvWeighted: 0,
+      callIvWeight: 0,
+      putIvWeight: 0,
+    };
+
+    row.gamma += sign * weight * strike.gamma * 100 * spot * spot * 0.01;
+    row.delta += weight * delta * 100 * spot;
+    row.vanna += sign * weight * strike.vanna * 100 * spot;
+    row.charm += sign * weight * modeled.charm * 100 * spot;
+    row.vega += sign * weight * strike.vegaPerVolPoint * 100;
+    row.speed += sign * weight * strike.speed * 100 * spot * spot * 0.01;
+    row.zomma += sign * weight * strike.zomma * 100 * spot * spot * 0.01;
+    row.vomma += sign * weight * strike.vomma * 100;
+
+    if (contract.type === "call") {
+      row.callOi += contract.oi;
+      row.callVolume += contract.volume;
+      if (contract.iv !== null && contract.iv > 0) {
+        row.callIvWeighted += contract.iv * Math.max(contract.oi, 1);
+        row.callIvWeight += Math.max(contract.oi, 1);
+      }
+    } else {
+      row.putOi += contract.oi;
+      row.putVolume += contract.volume;
+      if (contract.iv !== null && contract.iv > 0) {
+        row.putIvWeighted += contract.iv * Math.max(contract.oi, 1);
+        row.putIvWeight += Math.max(contract.oi, 1);
+      }
+    }
+    rows.set(contract.strike, row);
+  }
+
+  return [...rows.values()]
+    .map((row) => ({
+      strike: row.strike,
+      gamma: row.gamma,
+      delta: row.delta,
+      vanna: row.vanna,
+      charm: row.charm,
+      vega: row.vega,
+      speed: row.speed,
+      zomma: row.zomma,
+      vomma: row.vomma,
+      callOi: row.callOi,
+      putOi: row.putOi,
+      callVolume: row.callVolume,
+      putVolume: row.putVolume,
+      callIv: row.callIvWeight ? row.callIvWeighted / row.callIvWeight : null,
+      putIv: row.putIvWeight ? row.putIvWeighted / row.putIvWeight : null,
+    }))
+    .sort((left, right) => left.strike - right.strike);
+}
 
 export type SmilePoint = {
   strike: number;

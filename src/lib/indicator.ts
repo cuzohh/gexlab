@@ -75,7 +75,7 @@ settled_mode = input.string("Hide", "Settled expiries", options=["Hide", "Dim", 
 // not decoration. Any book can be set to either or both.
 index_style = input.string("Line", "Index book (NDX / SPX)", options=["Line", "Zone", "Line + zone"], group="Books")
 confirm_style = input.string("Zone", "Confirmation book (QQQ / SPY)", options=["Line", "Zone", "Line + zone"], group="Books")
-confirm_recolor = input.bool(true, "Tint the confirmation book", group="Books", tooltip="Off keeps the call/put colouring so an ETF wall reads as a wall; on makes which book a level came from the first thing you see.")
+confirm_recolor = input.bool(true, "Tint the confirmation book", group="Books", tooltip="Off keeps the call/put coloring so an ETF wall reads as a wall; on makes which book a level came from the first thing you see.")
 c_confirm = input.color(#6a5f8f, "Confirmation tint", group="Books")
 
 show_zones = input.bool(true, "Draw zones at all", group="Style", tooltip="Master switch. Which books draw zones is set in the Books group.")
@@ -130,6 +130,7 @@ var bool parsed = false
 var bool payload_is_futures = false
 var float payload_ref = 0.0
 var float payload_epoch = 0.0
+var float payload_warn_after = 0.0
 
 // Pine functions may mutate a global array by reference but may not assign to a
 // global scalar, so the values the block parser has to hand back live here.
@@ -264,6 +265,7 @@ if not parsed
         payload_is_futures := f_str(header, 1) == "F"
         payload_ref := f_number(header, 3)
         payload_epoch := f_number(header, 4)
+        payload_warn_after := f_number(header, 5)
         if array.size(blocks) > 1
             for block_index = 1 to array.size(blocks) - 1
                 f_parse_block(array.get(blocks, block_index))
@@ -802,7 +804,8 @@ if barstate.islast
                             dated_settled := dated_settled + 1
             age_hours = payload_epoch > 0 ? (timenow - payload_epoch * 1000) / 3600000.0 : na
             reasons = array.new_string()
-            if not na(age_hours) and age_hours > stale_hours
+            age_warning_due = payload_warn_after <= 0 or timenow >= payload_warn_after * 1000
+            if not na(age_hours) and age_hours > stale_hours and age_warning_due
                 // "#" so a whole number of hours prints without a decimal tail.
                 array.push(reasons, "SNAPSHOT " + (age_hours < 48 ? str.tostring(age_hours, "#") + "H" : str.tostring(age_hours / 24, "#") + "D") + " OLD")
             if dated_total > 0 and dated_settled == dated_total

@@ -2,13 +2,14 @@
 //
 // Format
 // ------
-//   GX2#H~<space>~<instrument>~<refSpot>~<epochSec>|<block>|<block>…
+//   GX2#H~<space>~<instrument>~<refSpot>~<epochSec>~<warnAfterSec>|<block>|<block>…
 //
-//   header  H~<space>~<instrument>~<refSpot>~<epochSec>
+//   header  H~<space>~<instrument>~<refSpot>~<epochSec>~<warnAfterSec>
 //     space       N = native index points, F = already futures-converted
 //     instrument  NQ | ES  (the futures contract the payload is aimed at)
 //     refSpot     the reference price every block has been rescaled onto
 //     epochSec    snapshot time, so the chart can show payload age
+//     warnAfterSec earliest instant at which an age warning is meaningful
 //
 //   block   <name>~<role>~<spot>~<step>~<agg>~<gamma>~<delta>~<expiries>
 //                 ~<profile>~<volume>~<move>
@@ -145,6 +146,8 @@ export type BridgeOptions = {
   /** Price every source is rescaled onto: index spot for N, futures for F. */
   referenceSpot: number;
   generatedAt?: Date | number;
+  /** Earliest market-calendar-aware instant at which snapshot age can warn. */
+  warnAfter?: Date | number;
   parts: Record<BridgePart, boolean>;
   gammaCount?: number;
   deltaCount?: number;
@@ -442,12 +445,18 @@ export function buildBridgePayload(sources: BridgeSource[], options: BridgeOptio
       ? options.generatedAt.valueOf()
       : (options.generatedAt ?? Date.now())) / 1000,
   );
+  const warnAfter = Math.round(
+    (options.warnAfter instanceof Date
+      ? options.warnAfter.valueOf()
+      : (options.warnAfter ?? 0)) / 1000,
+  );
   const header = [
     "H",
     options.space,
     options.instrument,
     field(options.referenceSpot),
     String(epoch),
+    String(Number.isFinite(warnAfter) && warnAfter > 0 ? warnAfter : 0),
   ].join("~");
   const blocks = sources
     .filter((source) => source.spot > 0)

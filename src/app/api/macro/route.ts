@@ -37,6 +37,7 @@ import {
   putSnapshot,
   snapshotIsFresh,
 } from "@/lib/server/snapshot-store";
+import { dedupeRequest } from "@/lib/server/request-deduper";
 
 export const runtime = "nodejs";
 
@@ -906,7 +907,7 @@ async function buildPayload() {
     // group is, and it moves ahead of the hard data rather than confirming it.
     metric(store, { id: "policy-uncertainty", label: "US policy uncertainty", group: "Stress", series: "USEPUINDXD", track: rollingSeries(store.USEPUINDXD, 20, (window) => movingAverage(window, 20)), value: movingAverage(store.USEPUINDXD, 20), display: formatNumber(movingAverage(store.USEPUINDXD, 20), 0), change: change(store.USEPUINDXD, 20), changeDisplay: "20-session change", frequency: "Daily", meaning: "Baker-Bloom-Davis index of newspaper coverage of economic policy uncertainty, averaged over 20 sessions because the daily series is very noisy." }),
     metric(store, { id: "equity-uncertainty", label: "Equity market uncertainty", group: "Stress", series: "WLEMUINDXD", track: rollingSeries(store.WLEMUINDXD, 20, (window) => movingAverage(window, 20)), value: movingAverage(store.WLEMUINDXD, 20), display: formatNumber(movingAverage(store.WLEMUINDXD, 20), 0), change: change(store.WLEMUINDXD, 20), changeDisplay: "20-session change", frequency: "Daily", meaning: "The equity-market share of the same newspaper corpus; rises when uncertainty is being written about in market terms rather than policy terms." }),
-    metric(store, { id: "global-uncertainty", label: "Global policy uncertainty", group: "Stress", series: "GEPUCURRENT", value: latest(store.GEPUCURRENT)?.value ?? null, display: formatNumber(latest(store.GEPUCURRENT)?.value ?? null, 0), change: change(store.GEPUCURRENT, 3), changeDisplay: "3-month change", frequency: "Monthly", meaning: "GDP-weighted policy uncertainty across 21 economies; the closest published proxy for geopolitical stress in this catalogue." }),
+    metric(store, { id: "global-uncertainty", label: "Global policy uncertainty", group: "Stress", series: "GEPUCURRENT", value: latest(store.GEPUCURRENT)?.value ?? null, display: formatNumber(latest(store.GEPUCURRENT)?.value ?? null, 0), change: change(store.GEPUCURRENT, 3), changeDisplay: "3-month change", frequency: "Monthly", meaning: "GDP-weighted policy uncertainty across 21 economies; the closest published proxy for geopolitical stress in this catalog." }),
     metric(store, { id: "anfci", label: "Growth-adjusted conditions", group: "Stress", series: "ANFCI", value: latest(store.ANFCI)?.value ?? null, display: formatNumber(latest(store.ANFCI)?.value ?? null, 3), change: change(store.ANFCI, 4), changeDisplay: `${formatSigned(change(store.ANFCI, 4), "", 3)} over 4 weeks`, frequency: "Weekly", meaning: "Financial conditions after adjusting for prevailing economic conditions." }),
     metric(store, { id: "stlfsi", label: "St. Louis financial stress", group: "Stress", series: "STLFSI4", value: latest(store.STLFSI4)?.value ?? null, display: formatNumber(latest(store.STLFSI4)?.value ?? null, 3), change: change(store.STLFSI4, 4), changeDisplay: `${formatSigned(change(store.STLFSI4, 4), "", 3)} over 4 weeks`, frequency: "Weekly", meaning: "A broad market-stress composite where zero is normal and positive values indicate above-average stress." }),
     ...(["VIXCLS", "VXNCLS"] as const).map((id) => metric(store, { id: id.toLowerCase(), label: id === "VIXCLS" ? "VIX" : "VXN", group: "Stress", series: id, value: latest(store[id])?.value ?? null, display: formatNumber(latest(store[id])?.value ?? null, 1), change: change(store[id], 5), changeDisplay: `${formatSigned(change(store[id], 5), " points", 1)} over 5 observations`, frequency: "Daily", meaning: id === "VIXCLS" ? "S&P 500 option-implied volatility index." : "Nasdaq-100 option-implied volatility index." })),
@@ -1553,7 +1554,7 @@ async function buildPayload() {
             countriesAsOf: geopolitical.countriesAsOf,
             method:
               "Caldara and Iacoviello's daily geopolitical risk index: the share of newspaper " +
-              "articles discussing adverse geopolitical events, normalised so 100 is the " +
+              "articles discussing adverse geopolitical events, normalized so 100 is the " +
               "long-run average. Shown as the publisher's own 30-day average because a single " +
               "day is dominated by the news cycle.",
             caveat:
@@ -1676,7 +1677,7 @@ async function buildPayload() {
           pointInTimeMonths: pointInTimeRows,
           panelMonths: history.length,
           reason:
-            "As-published copies are pulled from the public archive a few at a time on each refresh, so the point-in-time share of the panel grows without a large burst of requests. Months without a copy fall back to revised data and are labelled that way.",
+            "As-published copies are pulled from the public archive a few at a time on each refresh, so the point-in-time share of the panel grows without a large burst of requests. Months without a copy fall back to revised data and are labeled that way.",
         };
       })(),
       events: {
@@ -1709,6 +1710,24 @@ async function buildPayload() {
   };
 }
 
+async function refreshMacroOutput() {
+  const payload = await buildPayload();
+  // A few archive requests per refresh, started after the response is
+  // assembled so the page never waits on the historical backfill. Failures
+  // are recorded by the backfill itself and simply retried later.
+  void backfillVintages(6).catch(() => undefined);
+  putSnapshot({
+    namespace: "macro-output",
+    key: OUTPUT_CACHE_KEY,
+    payload,
+    sourceTime: payload.marketRegime.asOf,
+    fetchedAt: payload.fetchedAt,
+    refreshAfter: new Date(Date.now() + CACHE_MS).toISOString(),
+    methodologyVersion: METHODOLOGY_VERSION,
+  });
+  return payload;
+}
+
 export async function GET() {
   const stored = getSnapshot<Awaited<ReturnType<typeof buildPayload>>>(
     "macro-output",
@@ -1716,21 +1735,15 @@ export async function GET() {
   );
   try {
     if (stored && snapshotIsFresh(stored)) return NextResponse.json(stored.payload);
-    const payload = await buildPayload();
-    // A few archive requests per refresh, started after the response is
-    // assembled so the page never waits on the historical backfill. Failures
-    // are recorded by the backfill itself and simply retried later.
-    void backfillVintages(6).catch(() => undefined);
-    putSnapshot({
-      namespace: "macro-output",
-      key: OUTPUT_CACHE_KEY,
-      payload,
-      sourceTime: payload.marketRegime.asOf,
-      fetchedAt: payload.fetchedAt,
-      refreshAfter: new Date(Date.now() + CACHE_MS).toISOString(),
-      methodologyVersion: METHODOLOGY_VERSION,
-    });
-    return NextResponse.json(payload);
+    if (stored) {
+      void dedupeRequest("macro-output-refresh", refreshMacroOutput).catch(() => undefined);
+      return NextResponse.json({
+        ...stored.payload,
+        stale: true,
+        staleReason: "Refreshing the saved macro snapshot in the background.",
+      });
+    }
+    return NextResponse.json(await refreshMacroOutput());
   } catch (error) {
     if (stored) {
       return NextResponse.json({

@@ -528,6 +528,58 @@ function RegimeHistoryChart({ rows }: { rows: DailyRegime[] }) {
   const tone = (row: DailyRegime) =>
     row.direction === "Bullish" ? "constructive" : row.direction === "Bearish" ? "stress" : "neutral";
 
+  // Drawn as one element per run of like-coloured sessions rather than one per
+  // session. The book here is three and a half years deep, which as a segment
+  // and a cell apiece came to 1,785 SVG elements and — because the segment
+  // carries an entrance animation — 889 animation records the browser then held
+  // for the life of the page. Direction and behaviour both persist for weeks at
+  // a time, so the same picture collapses to a few dozen elements.
+  const scorePaths = useMemo(() => {
+    const runs: Array<{ key: string; tone: string; d: string }> = [];
+    if (rows.length < 2) return runs;
+    // Segment i joins point i-1 to point i and takes its colour from row i, as
+    // it did when each was its own line. A run is the stretch of segments
+    // sharing that colour, drawn through the points they span — so it starts at
+    // the previous run's last point and the two meet exactly where they did.
+    let start = 1;
+    for (let index = 1; index < rows.length; index += 1) {
+      const current = tone(rows[index]);
+      if (index + 1 < rows.length && tone(rows[index + 1]) === current) continue;
+      const points: string[] = [];
+      for (let step = start - 1; step <= index; step += 1) {
+        points.push(
+          `${step === start - 1 ? "M" : "L"}${x(step).toFixed(2)},${y(rows[step].directionScore).toFixed(2)}`,
+        );
+      }
+      runs.push({ key: `${rows[start].date}-${rows[index].date}`, tone: current, d: points.join("") });
+      start = index + 1;
+    }
+    return runs;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  const behaviorBands = useMemo(() => {
+    const bands: Array<{ key: string; behavior: string; x: number; width: number }> = [];
+    const cellWidth = Math.max(2, (chartRight - chartLeft) / Math.max(rows.length, 1) - 1);
+    const slot = (index: number) => x(index) - cellWidth / 2;
+    let start = 0;
+    for (let index = 0; index < rows.length; index += 1) {
+      const behavior = rows[index].behavior.toLowerCase().replace("-", "");
+      const next = rows[index + 1]?.behavior.toLowerCase().replace("-", "");
+      if (behavior === next) continue;
+      // A run spans from the first cell's left edge to the last cell's right.
+      bands.push({
+        key: `${rows[start].date}-${rows[index].date}`,
+        behavior,
+        x: slot(start),
+        width: slot(index) + cellWidth - slot(start),
+      });
+      start = index + 1;
+    }
+    return bands;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
   if (!rows.length) {
     return <div className="regime-history-empty">Daily regime history is still loading.</div>;
   }
@@ -536,7 +588,10 @@ function RegimeHistoryChart({ rows }: { rows: DailyRegime[] }) {
     <section className="regime-path-panel reveal reveal--1">
       <header className="visual-heading">
         <div>
-          <p className="section-kicker">90-session regime path</p>
+          {/* Counted, not asserted. This read "90-session" while the endpoint
+              was returning every session it holds — three and a half years of
+              them — so the panel described a tenth of what it drew. */}
+          <p className="section-kicker">{rows.length}-session regime path</p>
           <h2>How direction and behavior evolved</h2>
         </div>
         <div className={`regime-path-readout regime-path-readout--${tone(selected)}`}>
@@ -552,8 +607,13 @@ function RegimeHistoryChart({ rows }: { rows: DailyRegime[] }) {
         className="regime-path-chart"
         onMouseLeave={() => setSelectedIndex(null)}
         onMouseMove={(event) => {
+          // Through the plot area, not the element. The first session is drawn
+          // at chartLeft and the last at chartRight, so measuring against the
+          // full width offsets the crosshair from the cursor by the inset —
+          // several sessions' worth at the edges.
           const bounds = event.currentTarget.getBoundingClientRect();
-          const relative = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+          const pointer = ((event.clientX - bounds.left) / bounds.width) * width;
+          const relative = Math.max(0, Math.min(1, (pointer - chartLeft) / (chartRight - chartLeft)));
           setSelectedIndex(Math.round(relative * (rows.length - 1)));
         }}
       >
@@ -571,34 +631,25 @@ function RegimeHistoryChart({ rows }: { rows: DailyRegime[] }) {
               <text className="regime-axis-label" x={chartLeft - 12} y={y(score) + 4} textAnchor="end">{score > 0 ? `+${score}` : score}</text>
             </g>
           ))}
-          {rows.slice(1).map((row, index) => {
-            const previous = rows[index];
-            return (
-              <line
-                key={row.date}
-                className={`regime-score-segment regime-score-segment--${tone(row)}`}
-                x1={x(index)}
-                y1={y(previous.directionScore)}
-                x2={x(index + 1)}
-                y2={y(row.directionScore)}
-              />
-            );
-          })}
+          {scorePaths.map((run) => (
+            <path
+              key={run.key}
+              className={`regime-score-segment regime-score-segment--${run.tone}`}
+              d={run.d}
+            />
+          ))}
           <text className="regime-lane-label" x={chartLeft} y={laneTop - 12}>PATH BEHAVIOR</text>
-          {rows.map((row, index) => {
-            const cellWidth = Math.max(2, (chartRight - chartLeft) / rows.length - 1);
-            return (
-              <rect
-                key={`lane-${row.date}`}
-                className={`regime-behavior-cell regime-behavior-cell--${row.behavior.toLowerCase().replace("-", "")}`}
-                x={x(index) - cellWidth / 2}
-                y={laneTop}
-                width={cellWidth}
-                height={18}
-                rx={1}
-              />
-            );
-          })}
+          {behaviorBands.map((band) => (
+            <rect
+              key={band.key}
+              className={`regime-behavior-cell regime-behavior-cell--${band.behavior}`}
+              x={band.x}
+              y={laneTop}
+              width={band.width}
+              height={18}
+              rx={1}
+            />
+          ))}
           {selectedIndex !== null && (
             <g className="regime-crosshair">
               <line x1={x(selectedIndex)} x2={x(selectedIndex)} y1={chartTop} y2={laneTop + 18} />
@@ -706,7 +757,8 @@ function RecessionRiskPanel({ risk }: { risk: MacroData["recessionRisk"] | undef
           onMouseLeave={() => setSelectedIndex(null)}
           onMouseMove={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect();
-            const relative = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+            const pointer = ((event.clientX - bounds.left) / bounds.width) * width;
+            const relative = Math.max(0, Math.min(1, (pointer - chartLeft) / (chartRight - chartLeft)));
             setSelectedIndex(Math.round(relative * (rows.length - 1)));
           }}
         >
@@ -1057,7 +1109,6 @@ export function MacroDashboard({ view }: { view: View }) {
               <p className="section-kicker">What matters now</p>
               <h2>The observed evidence behind the read</h2>
             </div>
-            <p>Fact, interpretation, and possible implication are kept separate.</p>
           </div>
           <div className="driver-list">
             {data?.drivers.map((driver, index) => (

@@ -24,15 +24,20 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* The dark palette is deliberately hue-free. It used to carry a green cast
+   (#151917 and friends), which read as a tint laid over the page rather than as
+   a surface: every neutral in a chart picked it up, and the semantic greens the
+   data actually uses had to compete with it. Neutral greys leave the accent
+   colours as the only hues on screen, which is what makes them legible. */
 :root[data-theme="dark"] {
-  --canvas: #151917;
-  --surface: #1b201d;
-  --surface-raised: #222824;
-  --ink: #e9e7e0;
-  --ink-secondary: #b9bdb7;
-  --ink-muted: #909992;
-  --rule: #343b37;
-  --rule-strong: #606b65;
+  --canvas: #131313;
+  --surface: #1a1a1a;
+  --surface-raised: #212121;
+  --ink: #e9e8e6;
+  --ink-secondary: #b8b8b5;
+  --ink-muted: #91918e;
+  --rule: #333333;
+  --rule-strong: #5f5f5f;
   --map: #88b4c8;
   --map-wash: #26383f;
   --constructive: #78b7a7;
@@ -133,6 +138,48 @@ h3 {
 
 .app-frame {
   min-height: 100vh;
+}
+
+.reading-progress {
+  background: var(--map);
+  height: 2px;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  /* Starts empty. Without a scroll timeline the element is replaced by the
+     measured component, which sets scaleX itself and overrides this. */
+  transform: scaleX(0);
+  transform-origin: left center;
+  z-index: 40;
+}
+
+/* Driven by the scroll position rather than measured from script, so the
+   compositor advances it and the document is never laid out to read a scroll
+   offset. See MeasuredReadingProgress for the fallback. */
+@supports (animation-timeline: scroll()) {
+  .reading-progress {
+    animation: reading-progress-fill linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes reading-progress-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.workspace-nav a,
+.category-nav a {
+  position: relative;
+}
+
+.workspace-active-mark,
+.category-active-mark {
+  background: var(--map);
+  display: block;
+  pointer-events: none;
+  position: absolute;
 }
 
 .site-header {
@@ -290,9 +337,11 @@ h3 {
   padding: 0 clamp(1.25rem, 4vw, 3.5rem) clamp(5rem, 9vw, 8rem);
 }
 
+/* No bottom rule: the section below opens with its own full-width rule, and the
+   two of them left a band of empty page between two parallel lines that read as
+   a section which had failed to render. */
 .orientation-hero {
   align-items: end;
-  border-bottom: 1px solid var(--rule);
   display: grid;
   gap: clamp(2.5rem, 7vw, 8rem);
   grid-template-columns: minmax(0, 1.65fr) minmax(16rem, 0.55fr);
@@ -478,6 +527,15 @@ h3 {
   fill: var(--surface);
   stroke: var(--rule);
   stroke-width: 1;
+}
+
+/* All four quadrants carry a wash. Disinflationary slowdown had no rule of its
+   own and fell back to the plain field fill, so three of the four regimes read
+   as coloured territory and the fourth read as background — which made the map
+   look like it had failed to draw a quadrant rather than like a neutral one.
+   It takes the neutral hue its active label already uses. */
+.map-field--slowdown {
+  fill: var(--map-wash);
 }
 
 .map-field--goldilocks {
@@ -1571,12 +1629,16 @@ h3 {
   margin-top: 0.3rem;
 }
 
+/* Call above spot is resistance and takes the stress hue; put below it is
+   support and takes the constructive one. This board had the two the other way
+   round, so the same call wall was green here and red in the exposure plot
+   directly beneath it — one number, two colours, on one screen. */
 .comparison-levels > div[data-tone="call"] dd {
-  color: var(--constructive);
+  color: var(--stress);
 }
 
 .comparison-levels > div[data-tone="put"] dd {
-  color: var(--stress);
+  color: var(--constructive);
 }
 
 .comparison-levels > div[data-tone="flip"] dd {
@@ -1637,13 +1699,13 @@ h3 {
 }
 
 .confirmation-marker--put {
-  background: var(--stress);
-  color: var(--stress);
+  background: var(--constructive);
+  color: var(--constructive);
 }
 
 .confirmation-marker--call {
-  background: var(--constructive);
-  color: var(--constructive);
+  background: var(--stress);
+  color: var(--stress);
 }
 
 .confirmation-marker--flip {
@@ -1834,11 +1896,21 @@ h3 {
   display: grid;
   grid-template-columns: 1.35rem 1fr;
   padding: 0.7rem 0;
+  position: relative;
   text-align: left;
   transition:
     border-color 180ms var(--ease-out),
     transform 180ms var(--ease-out);
   width: 100%;
+}
+
+.analysis-active-mark {
+  background: var(--map);
+  height: 2px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: -1px;
 }
 
 .analysis-index button:hover {
@@ -2509,7 +2581,7 @@ h3 {
 .research-shelf > nav button::after {
   background: var(--ink);
   bottom: -1px;
-  content: "";
+  content: none;
   height: 1px;
   left: 0;
   position: absolute;
@@ -2517,6 +2589,15 @@ h3 {
   transform-origin: left;
   transition: transform 220ms var(--ease-out);
   width: 100%;
+}
+
+.shelf-active-mark {
+  background: var(--ink);
+  bottom: -1px;
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
 }
 
 .research-shelf > nav button[data-active] {
@@ -4114,6 +4195,10 @@ h3 {
 
 .regime-score-segment {
   animation: regime-trace 640ms var(--ease-out) both;
+  /* These are paths spanning a run of sessions rather than a line per session,
+     and a path fills where a line cannot. Without this the area under every
+     coloured stretch paints solid. */
+  fill: none;
   stroke: var(--ink-muted);
   stroke-linecap: round;
   stroke-width: 2.4;
@@ -4192,10 +4277,17 @@ h3 {
 }
 
 .legend-cell {
-  background: var(--comparison);
   display: inline-block;
   height: 0.55rem;
   width: 0.85rem;
+}
+
+/* Each swatch names the fill it stands for rather than inheriting one from the
+   base class. The trending swatch was relying on the base being that colour,
+   which is the kind of coupling that turns a palette change into a legend that
+   quietly describes the wrong series. */
+.legend-cell--trend {
+  background: var(--comparison);
 }
 
 .legend-cell--mean {
@@ -4682,6 +4774,89 @@ h3 {
   margin-top: clamp(2rem, 5vw, 3.5rem);
 }
 
+.card {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1.4rem;
+}
+
+.card-header {
+  min-width: 0;
+}
+
+.card-header h3 {
+  font-family: var(--font-serif);
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+  font-weight: 480;
+  line-height: 1.08;
+  margin: 0.45rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.card-kicker {
+  color: var(--ink-muted);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.probability-display {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  margin: 1rem 0 0.8rem;
+}
+
+.probability-value {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 500;
+  line-height: 0.95;
+}
+
+.probability-meta {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  line-height: 1.4;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.exposure-card .probability-display {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.card-footer {
+  border-top: 1px solid var(--rule);
+  margin-top: auto;
+  padding-top: 0.8rem;
+}
+
+.card-footer p {
+  color: var(--ink-secondary);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  margin: 0 0 0.55rem;
+  overflow-wrap: anywhere;
+}
+
+.card-footer small {
+  color: var(--ink-muted);
+  display: block;
+  font-size: 0.66rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .forecast-card,
 .range-panel {
   background: var(--surface);
@@ -4748,6 +4923,16 @@ h3 {
   margin: 0.6rem 0 0.9rem;
 }
 
+/* The index-price restatement of the percentage bounds above it, separated by
+   a rule rather than by a heading because it is the same forecast in the other
+   unit. minmax(0, …) keeps a long formatted price from starving the label. */
+.range-panel .range-panel-prices {
+  border-top: 1px dashed var(--rule);
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0.75rem 0 0;
+  padding-top: 0.75rem;
+}
+
 .forecast-card dl > div,
 .range-panel dl > div {
   display: contents;
@@ -4773,6 +4958,18 @@ h3 {
   font-size: 0.68rem;
   margin: 0;
   padding-top: 0.7rem;
+}
+
+@media (max-width: 680px) {
+  .forecast-board {
+    grid-template-columns: 1fr;
+  }
+
+  .forecast-board .card,
+  .forecast-card,
+  .range-panel {
+    padding: 1.15rem;
+  }
 }
 
 .range-plot {
@@ -6042,6 +6239,7 @@ h3 {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+
 }
 
 /* Two-workspace navigation and centered analysis */
@@ -6066,6 +6264,10 @@ h3 {
     top: 0;
     width: 10.5rem;
     z-index: 10;
+  }
+
+  .reading-progress {
+    left: 10.5rem;
   }
 
   .brand {
@@ -6098,6 +6300,17 @@ h3 {
     color: var(--map);
   }
 
+  /* Centred by offsetting half its own height rather than by translateY(-50%).
+     The mark is a Motion element with a layoutId, so Motion writes an inline
+     transform to animate it between items — which replaced the centring
+     transform and left the bar hanging below the middle of the active row. */
+  .workspace-active-mark {
+    height: 1.55rem;
+    left: -1.35rem;
+    top: calc(50% - 0.775rem);
+    width: 2px;
+  }
+
   .category-nav {
     display: flex;
     flex-direction: column;
@@ -6123,6 +6336,15 @@ h3 {
   .category-nav a:hover,
   .category-nav a[data-active] {
     color: var(--ink);
+  }
+
+  /* Same correction, smaller: the sans here carries a shallower cap relative to
+     its line box than the serif above, so it wants a third of the lift. */
+  .category-active-mark {
+    height: 1px;
+    left: -0.7rem;
+    top: calc(50% - 0.5px - 0.05em);
+    width: 0.38rem;
   }
 
   .header-tools {
@@ -6358,6 +6580,14 @@ h3 {
     color: var(--map);
   }
 
+  .workspace-active-mark,
+  .category-active-mark {
+    bottom: 0;
+    height: 1px;
+    left: 0;
+    right: 0;
+  }
+
   .category-nav {
     border-top: 1px solid var(--rule);
     display: flex;
@@ -6379,7 +6609,6 @@ h3 {
   }
 
   .category-nav a[data-active] {
-    box-shadow: inset 0 -1px var(--ink);
     color: var(--ink);
   }
 
@@ -7122,7 +7351,6 @@ h3 {
 .reversal-state-head,
 .reversal-score-row,
 .reversal-zone-card-meta,
-.reversal-score-row,
 .reversal-state-main {
   align-items: center;
   display: flex;
@@ -7214,6 +7442,74 @@ h3 {
   margin-right: 0.7rem;
 }
 
+.delta-compass {
+  border-top: 1px solid var(--rule);
+  margin-top: 1.15rem;
+  padding-top: 0.8rem;
+}
+
+.delta-compass-head,
+.delta-compass-scale {
+  align-items: center;
+  display: flex;
+}
+
+.delta-compass-head {
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  justify-content: space-between;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.delta-compass-head span { color: var(--ink-muted); }
+.delta-compass-head strong { color: var(--ink-secondary); font-weight: 500; }
+.delta-compass-head strong[data-read="rejection-aligned"] { color: var(--constructive); }
+.delta-compass-head strong[data-read="break-aligned"] { color: var(--stress); }
+.delta-compass-head strong[data-read="conflicting"] { color: var(--caution); }
+
+.delta-compass-scale {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  gap: 0.55rem;
+  margin-top: 0.55rem;
+  text-transform: uppercase;
+}
+
+.delta-compass-track {
+  background: var(--rule);
+  flex: 1;
+  height: 0.22rem;
+  position: relative;
+}
+
+.delta-compass-track::after {
+  background: var(--ink-muted);
+  content: "";
+  height: 0.55rem;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+}
+
+.delta-compass-track i {
+  background: var(--constructive);
+  height: 100%;
+  left: 50%;
+  position: absolute;
+  transform-origin: left center;
+  width: 50%;
+}
+
+.delta-compass-track[data-side="put"] i {
+  background: var(--stress);
+  left: 0;
+  transform-origin: right center;
+}
+
 .reversal-score-row {
   color: var(--ink-muted);
   font-family: var(--font-mono);
@@ -7255,6 +7551,10 @@ h3 {
   background: var(--stress);
 }
 
+.reversal-zone-card[data-kind="transition"] .reversal-score-track i {
+  background: var(--caution);
+}
+
 .reversal-reason-list {
   color: var(--ink-secondary);
   display: flex;
@@ -7277,6 +7577,54 @@ h3 {
 
 .reversal-zone-card[data-kind="acceleration"] .reversal-reason-list li::before {
   color: var(--stress);
+}
+
+.reversal-zone-card[data-kind="transition"] .reversal-reason-list li::before {
+  color: var(--caution);
+}
+
+.zone-details {
+  border-top: 1px solid var(--rule);
+  margin-top: 1rem;
+  padding-top: 0.7rem;
+}
+
+.zone-details summary {
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.53rem;
+  letter-spacing: 0.06em;
+  list-style: none;
+  text-transform: uppercase;
+}
+
+.zone-details summary::-webkit-details-marker { display: none; }
+.zone-details summary span { float: right; font-size: 0.9rem; line-height: 0.7; transition: transform 0.2s ease; }
+.zone-details[open] summary span { transform: rotate(45deg); }
+
+.zone-details-grid {
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.8rem;
+}
+
+.zone-details-grid p {
+  color: var(--ink-secondary);
+  font-size: 0.6rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.zone-details-grid strong {
+  color: var(--ink);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
 }
 
 .reversal-state-card {
@@ -7404,10 +7752,62 @@ h3 {
   text-transform: uppercase;
 }
 
-.reversal-map-legend span {
+.reversal-map-tools {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.pressure-lens {
+  background: color-mix(in srgb, var(--surface-raised) 72%, transparent);
+  border: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 0.18rem;
+}
+
+.pressure-lens button {
+  background: transparent;
+  border: 0;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.055em;
+  padding: 0.42rem 0.62rem;
+  position: relative;
+  text-transform: uppercase;
+}
+
+.pressure-lens button i {
+  background: color-mix(in srgb, var(--ink) 8%, var(--surface-raised));
+  inset: 0;
+  position: absolute;
+}
+
+.pressure-lens button span {
+  position: relative;
+  z-index: 1;
+}
+
+.pressure-lens button[aria-selected="true"] {
+  color: var(--ink);
+}
+
+.reversal-map-legend button {
   align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
   display: inline-flex;
+  font: inherit;
   gap: 0.35rem;
+  padding: 0.3rem 0;
+  text-transform: inherit;
+}
+
+.reversal-map-legend button[aria-pressed="true"] {
+  color: var(--ink);
 }
 
 .reversal-key {
@@ -7425,6 +7825,54 @@ h3 {
   margin-top: 1rem;
   overflow: visible;
   width: 100%;
+}
+
+.reversal-crosshair {
+  pointer-events: none;
+}
+
+.reversal-crosshair line {
+  stroke: var(--ink-muted);
+  stroke-dasharray: 2 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.reversal-crosshair text {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.reversal-crosshair-dot {
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.reversal-crosshair-dot--stable { fill: var(--constructive); }
+.reversal-crosshair-dot--amplify { fill: var(--stress); }
+
+.reversal-chart-tooltip {
+  pointer-events: none;
+}
+
+.reversal-chart-tooltip rect {
+  fill: color-mix(in srgb, var(--surface-raised) 94%, transparent);
+  stroke: var(--rule-strong);
+  vector-effect: non-scaling-stroke;
+}
+
+.reversal-chart-tooltip text {
+  fill: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.reversal-chart-tooltip .reversal-chart-tooltip-price {
+  fill: var(--ink);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .reversal-axis { stroke: var(--rule-strong); stroke-width: 1; }
@@ -7455,6 +7903,179 @@ h3 {
 
 .reversal-zones-section {
   margin-top: 2.5rem;
+}
+
+.reversal-zones-section--break {
+  border-top: 1px solid var(--rule);
+  padding-top: 2rem;
+}
+
+.market-now-rail,
+.zone-ladder {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
+.market-now-rail {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  margin-top: 1.35rem;
+}
+
+.market-now-label {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1rem 1.1rem;
+}
+
+.market-now-label small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+  margin-top: 0.35rem;
+  text-transform: uppercase;
+}
+
+.market-now-items {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.market-now-items > div {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0.8rem 1rem;
+}
+
+.market-now-items > div:last-child { border-right: 0; }
+.market-now-items span,
+.market-now-items small,
+.zone-ladder-spot {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.market-now-items strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin: 0.3rem 0 0.2rem;
+  white-space: nowrap;
+}
+
+.market-now-items small { white-space: nowrap; }
+
+.zone-ladder {
+  margin-top: 2.5rem;
+  padding: 1.15rem 1.25rem 1.25rem;
+}
+
+.zone-ladder-head {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+}
+
+.zone-ladder-head h2 {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 430;
+  letter-spacing: -0.025em;
+  margin: 0.35rem 0 0;
+}
+
+.zone-ladder ol {
+  list-style: none;
+  margin: 1.1rem 0 0;
+  padding: 0;
+}
+
+.zone-ladder li {
+  align-items: center;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 0.45rem minmax(8rem, 1fr) minmax(9rem, 1.2fr) 5rem;
+  min-height: 2.65rem;
+}
+
+.zone-ladder-marker {
+  background: var(--constructive);
+  border-radius: 50%;
+  height: 0.38rem;
+  width: 0.38rem;
+}
+
+.zone-ladder li[data-kind="acceleration"] .zone-ladder-marker { background: var(--stress); }
+.zone-ladder li[data-kind="transition"] .zone-ladder-marker { background: var(--caution); }
+.zone-ladder-range,
+.zone-ladder li strong { font-family: var(--font-mono); font-size: 0.65rem; }
+.zone-ladder-kind { color: var(--ink-muted); font-size: 0.65rem; }
+.zone-ladder li strong { color: var(--ink); font-weight: 500; text-align: right; }
+
+.reversal-skeleton {
+  display: grid;
+  gap: 1px;
+  margin-top: 1.35rem;
+}
+
+.reversal-skeleton-line,
+.reversal-skeleton-rail,
+.reversal-skeleton-hero,
+.reversal-skeleton-map {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+
+.reversal-skeleton-line {
+  align-items: center;
+  color: var(--ink-muted);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  gap: 0.55rem;
+  padding: 1rem;
+  text-transform: uppercase;
+}
+
+.reversal-skeleton-rail {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 1.2rem;
+}
+
+.reversal-skeleton-rail i,
+.reversal-skeleton-hero i,
+.reversal-skeleton-map i {
+  animation: reversal-skeleton-pulse 1.4s ease-in-out infinite;
+  background: color-mix(in srgb, var(--ink) 8%, var(--surface-raised));
+  display: block;
+  height: 2.2rem;
+}
+
+.reversal-skeleton-rail i:nth-child(2) { animation-delay: 0.1s; }
+.reversal-skeleton-rail i:nth-child(3) { animation-delay: 0.2s; }
+.reversal-skeleton-rail i:nth-child(4) { animation-delay: 0.3s; }
+.reversal-skeleton-hero { display: grid; gap: 1px; grid-template-columns: 1.18fr 0.82fr; }
+.reversal-skeleton-hero i { height: 20rem; }
+.reversal-skeleton-map { padding: 1.2rem; }
+.reversal-skeleton-map i { height: 4rem; margin-top: 0.65rem; }
+
+@keyframes reversal-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
 }
 
 .reversal-section-count {
@@ -7525,12 +8146,30 @@ h3 {
   padding: 1rem 1.15rem;
 }
 
-.reversal-loading-mark {
-  border: 1px solid var(--ink-muted);
-  border-top-color: var(--constructive);
-  border-radius: 50%;
-  height: 0.9rem;
-  width: 0.9rem;
+.data-scan {
+  align-items: center;
+  display: inline-flex;
+  gap: 2px;
+  height: 1rem;
+  width: 1.25rem;
+}
+
+.data-scan i {
+  background: var(--constructive);
+  display: block;
+  height: 100%;
+  opacity: 0.35;
+  transform-origin: center bottom;
+  width: 2px;
+}
+
+.data-scan i:nth-child(2),
+.data-scan i:nth-child(4) {
+  height: 65%;
+}
+
+.data-scan i:nth-child(3) {
+  height: 40%;
 }
 
 .reversal-error { color: var(--stress); justify-content: space-between; }
@@ -7541,11 +8180,17 @@ h3 {
 
 /* Daily excursion map. It keeps probabilistic reach separate from the smaller,
    more actionable question of whether a reach overlaps dealer structure. */
+/* The board draws its rules by showing itself through a 1px grid gap, so every
+   cell has to paint its own surface. This one did not, and the rule colour read
+   straight through as a panel-sized block of the wrong grey. The horizontal
+   padding matches .card for the same reason: without it the kicker sat a card's
+   padding to the left of every other kicker in the row. */
 .move-map-panel {
+  background: var(--surface);
   border-top: 1px solid var(--rule-strong);
   grid-column: 1 / -1;
   margin-top: 0.35rem;
-  padding: 1.35rem 0 0;
+  padding: 1.35rem 1.4rem 1.4rem;
 }
 
 .move-map-head {
@@ -7631,6 +8276,382 @@ h3 {
 .move-map-grid strong { display: block; font-family: var(--font-serif); font-size: 1.35rem; font-weight: 430; letter-spacing: -0.025em; margin: 0.15rem 0; }
 .move-map-grid small { text-transform: none; }
 .move-map-reason { color: var(--ink-secondary); font-size: 0.69rem; line-height: 1.55; margin: 0.85rem 0 0; }
+
+/* Market-desk surface pass. Native styles rather than a runtime UI framework:
+   no component-library JavaScript, and identical in light and dark.
+ *
+ * This layer used to paint two tinted radial gradients and a dot screen over
+ * the whole page, and a blue glint gradient over every panel. Stacked on a
+ * canvas that also carried a hue, the result was a cast that moved with the
+ * scroll and had nothing to do with the data. Panels are flat surfaces now and
+ * separate from the canvas by their own value, which is the one cue that keeps
+ * working when a chart is laid on top of them. */
+:root {
+  --panel: var(--surface-raised);
+}
+
+:root[data-theme="dark"] {
+  --panel: var(--surface);
+}
+
+body {
+  background: var(--canvas);
+  min-height: 100dvh;
+}
+
+.app-frame {
+  isolation: isolate;
+  position: relative;
+  z-index: 1;
+}
+
+.brand {
+  gap: 0.72rem;
+  letter-spacing: 0;
+}
+
+.brand-glyph {
+  flex: 0 0 auto;
+  height: 2rem;
+  overflow: visible;
+  width: 2rem;
+}
+
+.brand-glyph rect {
+  fill: var(--ink);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+.brand-glyph path {
+  fill: none;
+  stroke: var(--canvas);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+
+/* The dot pulses on a loop that never ends, so it is the one animation here
+   whose cost is paid for as long as the window is open: roughly 600 style
+   recalculations and 55ms of style work every five idle seconds, measured on
+   /structure. That is inherent to an endlessly repeating opacity animation —
+   will-change, layer promotion, and moving the dot to an HTML element were all
+   measured and none of them changed it. Only shortening or dropping the pulse
+   would, which is a design decision rather than a tuning one. */
+.brand-glyph circle {
+  fill: var(--map);
+}
+
+.brand-lockup {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.brand-lockup > span {
+  font-size: 0.74rem;
+  font-weight: 680;
+  letter-spacing: 0.14em;
+}
+
+.brand-lockup small {
+  font-size: 0.48rem;
+  letter-spacing: 0.075em;
+}
+
+.preview-status {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 0.48rem;
+  padding: 0.42rem 0.5rem;
+}
+
+.preview-status i,
+.status-dot {
+  box-shadow: 0 0 0 3px color-mix(in oklch, currentColor 11%, transparent);
+}
+
+.theme-toggle {
+  border-radius: 0.4rem;
+}
+
+.theme-toggle:hover {
+  background: var(--map-wash);
+}
+
+.reversal-zone-card,
+.reversal-state-card,
+.reversal-map {
+  background: var(--panel);
+}
+
+.reversal-zone-card {
+  overflow: hidden;
+  position: relative;
+  transition: border-color 220ms var(--ease-out), box-shadow 220ms var(--ease-out), transform 220ms var(--ease-out);
+}
+
+.reversal-zone-card::after {
+  background: linear-gradient(90deg, var(--constructive), transparent 72%);
+  content: "";
+  height: 2px;
+  left: 0;
+  opacity: 0.65;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: scaleX(0.24);
+  transform-origin: left;
+  transition: transform 420ms var(--ease-out);
+}
+
+.reversal-zone-card[data-kind="acceleration"]::after {
+  background: linear-gradient(90deg, var(--stress), transparent 72%);
+}
+
+.reversal-zone-card:hover {
+  border-color: var(--rule-strong);
+  transform: translateY(-2px);
+}
+
+.reversal-zone-card:hover::after {
+  transform: scaleX(0.72);
+}
+
+.reversal-zone-icon,
+.reversal-state-icon {
+  background: color-mix(in oklch, currentColor 7%, transparent);
+  border-radius: 0.58rem;
+}
+
+.reversal-confidence,
+.reversal-posture,
+.move-map-state {
+  border-radius: 0.38rem;
+}
+
+.reversal-score-track {
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.expiry-lens {
+  align-items: stretch;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  display: grid;
+  gap: clamp(1.2rem, 3vw, 3.2rem);
+  grid-template-columns: minmax(13rem, 0.72fr) minmax(0, 1.65fr);
+  margin-top: 1.35rem;
+  overflow: hidden;
+  padding: 1.2rem 1.3rem;
+  position: relative;
+}
+
+.expiry-lens::before {
+  background: linear-gradient(180deg, var(--map), transparent);
+  content: "";
+  inset: 0 auto 0 0;
+  opacity: 0.7;
+  position: absolute;
+  width: 2px;
+}
+
+.expiry-lens-intro {
+  border-right: 1px solid var(--rule);
+  padding: 0.2rem 1.3rem 0.2rem 0;
+}
+
+.expiry-lens-intro h2 {
+  font-family: var(--font-serif);
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  font-weight: 440;
+  letter-spacing: -0.03em;
+  line-height: 1.04;
+  margin-top: 0.45rem;
+  max-width: 14ch;
+}
+
+.expiry-lens-intro p {
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+  line-height: 1.5;
+  margin-top: 0.65rem;
+  max-width: 28rem;
+}
+
+.expiry-lens-grid {
+  display: grid;
+  gap: 0;
+}
+
+.expiry-lens-row {
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 8rem minmax(8rem, 1fr) 15rem;
+  min-width: 0;
+  padding: 0.62rem 0;
+}
+
+.expiry-lens-row:last-child {
+  border-bottom: 0;
+}
+
+.expiry-lens-row header,
+.expiry-lens-row footer {
+  align-items: baseline;
+  display: flex;
+  gap: 0.65rem;
+}
+
+.expiry-lens-row header {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.expiry-lens-row header strong,
+.expiry-lens-row footer strong {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.expiry-lens-row header span,
+.expiry-lens-row footer span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.51rem;
+  white-space: nowrap;
+}
+
+.expiry-lens-row footer {
+  justify-content: flex-end;
+}
+
+.expiry-lens-row footer strong.positive { color: var(--constructive); }
+.expiry-lens-row footer strong.negative { color: var(--stress); }
+
+.expiry-pressure-track {
+  background: linear-gradient(90deg, transparent 49.8%, var(--rule-strong) 49.8% 50.2%, transparent 50.2%);
+  height: 1.4rem;
+  overflow: hidden;
+  position: relative;
+}
+
+.expiry-pressure-track::before,
+.expiry-pressure-track::after {
+  border-left: 1px dashed var(--rule);
+  content: "";
+  inset: 0 auto 0 25%;
+  position: absolute;
+}
+
+.expiry-pressure-track::after { left: 75%; }
+.expiry-pressure-axis { display: none; }
+
+.expiry-pressure-fill {
+  height: 0.42rem;
+  position: absolute;
+  top: calc(50% - 0.21rem);
+  width: 50%;
+}
+
+.expiry-pressure-fill--positive {
+  background: linear-gradient(90deg, color-mix(in oklch, var(--constructive) 58%, transparent), var(--constructive));
+  left: 50%;
+  transform-origin: left center;
+}
+
+.expiry-pressure-fill--negative {
+  background: linear-gradient(90deg, var(--stress), color-mix(in oklch, var(--stress) 58%, transparent));
+  right: 50%;
+  transform-origin: right center;
+}
+
+@media (min-width: 961px) {
+  .app-frame { padding-left: 11.75rem; }
+
+  /* The rail sits on the canvas rather than on a surface of its own. Given a
+     separate background it read as a floating panel and put a second vertical
+     edge beside the border that already separates it. */
+  .site-header {
+    background: var(--canvas);
+    border-right: 1px solid var(--rule);
+    padding: 1.45rem 1rem 1.1rem;
+    width: 11.75rem;
+  }
+
+  .reading-progress { left: 11.75rem; }
+  .brand { margin-bottom: 2.1rem; }
+
+  .workspace-nav {
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 0.68rem;
+    gap: 0.18rem;
+    padding: 0.32rem;
+  }
+
+  .workspace-nav a {
+    border-radius: 0.48rem;
+    font-size: 1.08rem;
+    padding: 0.62rem 0.62rem;
+  }
+
+  .workspace-nav a:hover { background: var(--surface); }
+
+  .workspace-nav a[data-active] {
+    background: var(--surface-raised);
+    box-shadow: inset 0 0 0 1px var(--rule);
+  }
+
+  /* Centred on the ink, not on the box. Half the mark's height puts it on the
+     midpoint of the line box — but a line box is ascent plus descent, so its
+     middle sits below where the eye reads the centre of a word. The extra
+     0.15em lifts it onto the midpoint of the cap band instead, which is where
+     the label looks centred. Measured against Newsreader at this size the two
+     differ by 2.6px, and that is the gap that read as a bar hanging low. */
+  .workspace-active-mark {
+    border-radius: 2px;
+    height: 1.2rem;
+    left: 0;
+    top: calc(50% - 0.6rem - 0.15em);
+    width: 2px;
+  }
+
+  .category-nav { padding: 1.35rem 0.35rem 0; }
+  .category-nav a { border-radius: 0.36rem; padding: 0.34rem 0.45rem; }
+  .category-nav a:hover { background: var(--surface); }
+  .category-active-mark { left: -0.35rem; }
+  .header-tools { margin-inline: 0.2rem; }
+}
+
+@media (max-width: 960px) {
+  .site-header {
+    backdrop-filter: blur(14px);
+    background: color-mix(in oklch, var(--canvas) 88%, transparent);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+}
+
+@media (max-width: 780px) {
+  .expiry-lens { grid-template-columns: 1fr; }
+  .expiry-lens-intro { border-bottom: 1px solid var(--rule); border-right: 0; padding: 0 0 1rem; }
+  .expiry-lens-intro h2 { max-width: none; }
+  .expiry-lens-row { grid-template-columns: 5.5rem minmax(6rem, 1fr); }
+  .expiry-lens-row footer { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+@media (max-width: 520px) {
+  .brand-lockup small { display: none; }
+  .expiry-lens { padding: 1rem; }
+  .expiry-lens-row { gap: 0.7rem; }
+  .expiry-lens-row footer span { white-space: normal; }
+}
 .move-map-reason strong { color: var(--ink); font-weight: 560; }
 .move-map-evaluation { border-top: 1px solid var(--rule); margin-top: 0.85rem; }
 .move-map-evaluation summary { color: var(--ink-muted); cursor: pointer; font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.05em; padding-top: 0.65rem; text-transform: uppercase; }
@@ -7643,6 +8664,11 @@ h3 {
   .reversal-explain-grid { grid-template-columns: 1fr 1fr; }
   .reversal-zone-grid .reversal-zone-card:last-child,
   .reversal-explain-grid p:last-child { grid-column: 1 / -1; }
+  .market-now-rail { grid-template-columns: 6.5rem minmax(0, 1fr); }
+  .market-now-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .market-now-items > div:nth-child(2) { border-right: 0; }
+  .market-now-items > div:nth-child(-n + 2) { border-bottom: 1px solid var(--rule); }
+  .zone-details-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 600px) {
@@ -7656,8 +8682,22 @@ h3 {
   .reversal-refresh { justify-content: center; }
   .reversal-asof-row { align-items: flex-start; flex-direction: column; gap: 0.35rem; justify-content: flex-start; margin-top: 1.8rem; }
   .reversal-map { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .reversal-map-tools { align-items: flex-start; width: 100%; }
+  .pressure-lens { width: 100%; }
   .reversal-map-legend { gap: 0.65rem; }
   .reversal-map-svg { height: 220px; }
+  .market-now-rail { display: block; }
+  .market-now-label { border-bottom: 1px solid var(--rule); border-right: 0; }
+  .market-now-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .market-now-items > div:nth-child(2) { border-right: 0; }
+  .market-now-items > div:nth-child(3),
+  .market-now-items > div:nth-child(4) { border-top: 1px solid var(--rule); }
+  .zone-ladder { padding-left: 0.9rem; padding-right: 0.9rem; }
+  .zone-ladder li { gap: 0.45rem; grid-template-columns: 0.45rem minmax(6rem, 1fr) minmax(5rem, 1fr) 4.2rem; }
+  .zone-ladder-kind { font-size: 0.56rem; }
+  .reversal-skeleton-rail { grid-template-columns: repeat(2, 1fr); }
+  .reversal-skeleton-hero { grid-template-columns: 1fr; }
+  .reversal-skeleton-hero i { height: 12rem; }
   .reversal-zone-grid,
   .reversal-explain-grid { grid-template-columns: 1fr; }
   .reversal-zone-grid .reversal-zone-card:last-child,
@@ -7676,4 +8716,446 @@ h3 {
     grid-column: 1 / -1;
     text-align: left;
   }
+}
+
+/* Recorded positioning.
+ *
+ * The one series on this site that cannot be refetched if it is lost, so the
+ * panel states its own coverage rather than implying a fixed window. */
+
+.positioning-tape {
+  border-top: 1px solid var(--ink);
+  padding: 1.7rem 0 1.9rem;
+}
+
+.positioning-tape--empty {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+}
+
+.positioning-tape-head {
+  align-items: end;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+}
+
+.positioning-tape-head h2 {
+  font-family: var(--font-serif);
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  font-weight: 460;
+  letter-spacing: -0.025em;
+  margin-top: 0.35rem;
+}
+
+.positioning-tape-coverage {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  margin: 0;
+  text-align: right;
+}
+
+.positioning-tape-coverage strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.positioning-tape-coverage span {
+  display: block;
+  font-size: 0.53rem;
+  letter-spacing: 0.04em;
+  margin-top: 0.3rem;
+  text-transform: uppercase;
+}
+
+.positioning-tape-svg {
+  display: block;
+  height: 190px;
+  margin-top: 1.2rem;
+  width: 100%;
+}
+
+.positioning-zero {
+  stroke: var(--rule-strong);
+  stroke-dasharray: 2 5;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.positioning-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.positioning-line--long,
+.positioning-area--long { stroke: var(--constructive); fill: var(--constructive); }
+.positioning-line--short,
+.positioning-area--short { stroke: var(--stress); fill: var(--stress); }
+.positioning-area { stroke: none; }
+
+.positioning-node {
+  fill: var(--canvas);
+  stroke: currentColor;
+  stroke-width: 1.4;
+  transition: r 160ms var(--ease-out);
+  vector-effect: non-scaling-stroke;
+}
+
+.positioning-tape-svg:hover .positioning-node { stroke: var(--ink-secondary); }
+
+.positioning-crosshair {
+  stroke: var(--ink-secondary);
+  stroke-dasharray: 2 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.positioning-axis-label {
+  fill: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.positioning-tape-readout {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0.9rem 0 0;
+}
+
+.positioning-tape-readout > div {
+  min-width: 0;
+  padding: 0.7rem 0.9rem 0.7rem 0;
+}
+
+.positioning-tape-readout > div + div {
+  border-left: 1px solid var(--rule);
+  padding-left: 0.9rem;
+}
+
+.positioning-tape-readout dt {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.53rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.positioning-tape-readout dd {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0.3rem 0 0;
+}
+
+.positioning-tape-readout dd.positive { color: var(--constructive); }
+.positioning-tape-readout dd.negative { color: var(--stress); }
+
+.positioning-tape-thin,
+.positioning-tape-note {
+  color: var(--ink-muted);
+  font-size: 0.63rem;
+  line-height: 1.5;
+  margin: 0.9rem 0 0;
+  max-width: 62rem;
+}
+
+@media (max-width: 780px) {
+  .positioning-tape-head { align-items: start; flex-direction: column; gap: 0.9rem; }
+  .positioning-tape-coverage { text-align: left; }
+  .positioning-tape-readout { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .positioning-tape-readout > div:nth-child(3) { border-left: 0; }
+  .positioning-tape-readout > div:nth-child(-n + 2) { border-bottom: 1px solid var(--rule); }
+}
+
+/* Hover readout on the exposure profile. Matches the reaction map's crosshair
+   so the same gesture answers the same question on both charts. */
+
+.profile-hover line {
+  stroke: var(--ink-secondary);
+  stroke-dasharray: 2 4;
+  stroke-width: 1;
+}
+
+.profile-hover circle {
+  stroke: var(--canvas);
+  stroke-width: 1.2;
+}
+
+.profile-hover-dot--positive { fill: var(--constructive); }
+.profile-hover-dot--negative { fill: var(--stress); }
+
+.profile-hover-plate {
+  fill: var(--surface-raised);
+  fill-opacity: 0.96;
+  stroke: var(--rule-strong);
+  stroke-width: 0.7;
+}
+
+.profile-hover-strike {
+  fill: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.profile-hover-value {
+  fill: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+}
+
+/* The always-visible structure rail. Sized for the narrow sidebar, hidden on
+   the horizontal header the narrow layout switches to. */
+
+.structure-rail {
+  display: none;
+}
+
+@media (min-width: 961px) {
+  .structure-rail {
+    border-top: 1px solid var(--rule);
+    display: block;
+    margin-top: auto;
+    padding-top: 1rem;
+  }
+
+  .structure-rail + .header-tools {
+    border-top: 0;
+    margin-top: 1rem;
+  }
+}
+
+.structure-rail > header {
+  align-items: center;
+  color: var(--ink-muted);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.structure-rail-toggle {
+  display: flex;
+  gap: 1px;
+}
+
+.structure-rail-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 0.2rem;
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  padding: 0.16rem 0.26rem;
+}
+
+.structure-rail-toggle button[data-active] {
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+
+.structure-rail-toggle button:hover {
+  color: var(--ink);
+}
+
+.structure-rail-spot {
+  align-items: baseline;
+  display: flex;
+  gap: 0.38rem;
+  margin: 0.5rem 0 0;
+}
+
+.structure-rail-spot strong {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.structure-rail-spot small {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.46rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.structure-rail-track {
+  height: 0.85rem;
+  margin-top: 0.5rem;
+  position: relative;
+}
+
+.structure-rail-line {
+  background: linear-gradient(90deg, var(--constructive), var(--rule-strong) 50%, var(--stress));
+  display: block;
+  height: 2px;
+  opacity: 0.55;
+  position: absolute;
+  top: calc(50% - 1px);
+  width: 100%;
+}
+
+.structure-rail-track--empty .structure-rail-line,
+.structure-rail-track--empty {
+  background: var(--rule);
+}
+
+.structure-rail-flip {
+  background: var(--caution);
+  display: block;
+  height: 0.5rem;
+  position: absolute;
+  top: calc(50% - 0.25rem);
+  transform: translateX(-50%);
+  width: 1px;
+}
+
+.structure-rail-spot-mark {
+  background: var(--map);
+  border: 2px solid var(--canvas);
+  border-radius: 50%;
+  display: block;
+  height: 0.55rem;
+  position: absolute;
+  top: calc(50% - 0.275rem);
+  transform: translateX(-50%);
+  width: 0.55rem;
+}
+
+.structure-rail-ends {
+  color: var(--ink-muted);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  justify-content: space-between;
+  margin: 0.1rem 0 0;
+}
+
+.structure-rail-reading {
+  color: var(--ink-muted);
+  font-size: 0.54rem;
+  line-height: 1.45;
+  margin: 0.45rem 0 0;
+}
+
+.structure-rail-reading span {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.structure-rail-reading span.positive { color: var(--constructive); }
+.structure-rail-reading span.negative { color: var(--stress); }
+
+/* Keyboard shortcut sheet. */
+
+.shortcut-hint {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink-muted);
+  display: flex;
+  font-size: 0.68rem;
+  gap: 0.4rem;
+  padding: 0;
+}
+
+.shortcut-hint:hover {
+  color: var(--ink);
+}
+
+kbd {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0.25rem;
+  color: var(--ink);
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  line-height: 1;
+  min-width: 1.15rem;
+  padding: 0.2rem 0.32rem;
+  text-align: center;
+}
+
+.shortcut-sheet {
+  align-items: center;
+  background: color-mix(in oklch, var(--canvas) 72%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 1.5rem;
+  position: fixed;
+  z-index: 60;
+}
+
+.shortcut-card {
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  max-width: 30rem;
+  padding: 1.6rem 1.8rem 1.4rem;
+  width: 100%;
+}
+
+.shortcut-card h2 {
+  font-family: var(--font-serif);
+  font-size: 1.7rem;
+  font-weight: 450;
+  letter-spacing: -0.03em;
+  margin-top: 0.3rem;
+}
+
+.shortcut-card dl {
+  display: grid;
+  gap: 0.15rem;
+  margin: 1.2rem 0 1.3rem;
+}
+
+.shortcut-card dl > div {
+  align-items: baseline;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  padding: 0.6rem 0;
+}
+
+.shortcut-card dt {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+.shortcut-card dd {
+  color: var(--ink-secondary);
+  font-size: 0.76rem;
+  margin: 0;
+}
+
+.shortcut-card > button {
+  background: var(--ink);
+  border: 0;
+  color: var(--canvas);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  padding: 0.55rem 1.1rem;
+  text-transform: uppercase;
+}
+
+.shortcut-card > button:hover {
+  opacity: 0.86;
 }

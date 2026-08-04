@@ -388,7 +388,7 @@ function SessionCharacter({
     { key: "volatilityExpansion", label: "Volatility expansion", target: character.volatilityExpansion },
   ];
   return (
-    <section className="session-character reveal reveal--2">
+    <section id="behavior" className="session-character reveal reveal--2">
       <div className="section-heading">
         <span className="card-kicker">Before the open · {session}</span>
         <h2>How the next session behaves</h2>
@@ -490,13 +490,21 @@ function RangeBar({ forecast }: { forecast: EngineData["forecast"] }) {
         </div>
       </dl>
       {forecast.dollarRange && forecast.dollarRange.low95Price !== null && forecast.dollarRange.high95Price !== null && (
-        <dl style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px dashed var(--border-subtle, rgba(255,255,255,0.1))" }}>
+        // Plain rows in the same list style as the percentage bounds above.
+        // The value used to be wrapped in <strong>, which this panel styles as
+        // its headline number at up to 3rem: in a two-column list of "label |
+        // value" that pushed the value column to a third of the card and left
+        // the label wrapping one word per line. The border was drawn from
+        // --border-subtle, which this stylesheet does not define, so it fell
+        // back to a hard-coded translucent white — invisible on the dark theme
+        // and a pale line across the light one.
+        <dl className="range-panel-prices">
           <div>
-            <dt>Exact Index Median Target</dt>
-            <dd><strong>${forecast.dollarRange.medianPrice?.toLocaleString()}</strong></dd>
+            <dt>Exact index median target</dt>
+            <dd>${forecast.dollarRange.medianPrice?.toLocaleString()}</dd>
           </div>
           <div>
-            <dt>90% Dollar Bounds (p05 - p95)</dt>
+            <dt>90% dollar bounds (p05–p95)</dt>
             <dd>
               ${forecast.dollarRange.low95Price?.toLocaleString()} – ${forecast.dollarRange.high95Price?.toLocaleString()}
             </dd>
@@ -572,7 +580,7 @@ function SessionContextPanel({ context }: { context: EngineData["forecast"]["ses
     : "Session log is starting";
 
   return (
-    <section className="session-context reveal reveal--2">
+    <section id="context" className="session-context reveal reveal--2">
       <div className="section-heading">
         <div>
           <p className="section-kicker">Pre-session context · {context.asOf}</p>
@@ -838,7 +846,7 @@ export function ForecastEngine() {
         caveat={data?.caveat ?? "No forecast is shown before the model has been scored against its baseline."}
       />
 
-      <section className="forecast-board reveal reveal--1">
+      <section id="forecast" className="forecast-board reveal reveal--1">
         <ProbabilityCard
           title="Direction"
           question="Will the next session close higher?"
@@ -848,7 +856,7 @@ export function ForecastEngine() {
           evaluation={data?.evaluation.direction ?? null}
         />
         <ProbabilityCard
-          title="Behaviour"
+          title="Behavior"
           question="Will it continue in the same direction as this session?"
           probability={data?.forecast.continuation.probability ?? null}
           baseRate={data?.forecast.continuation.baseRate ?? null}
@@ -873,9 +881,9 @@ export function ForecastEngine() {
               <p>Position: <strong>{data.forecast.recommendedExposure.positionPct}%</strong> · Cash: <strong>{data.forecast.recommendedExposure.cashPct}%</strong></p>
               <small>
                 {data.forecast.recommendedExposure.basis ??
-                  `Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualised).`}
+                  `Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualized).`}
                 {data.forecast.recommendedExposure.hasMeasuredEdge &&
-                  ` Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualised).`}
+                  ` Scaled inverse to realized vol (${(data.forecast.recommendedExposure.volatilityScale * 100).toFixed(1)}% annualized).`}
               </small>
             </div>
           </article>
@@ -894,7 +902,7 @@ export function ForecastEngine() {
       {data?.forecast.sessionContext && <SessionContextPanel context={data.forecast.sessionContext} />}
 
       {data?.evaluation.volatility && (
-        <section className="volatility-scorecard reveal reveal--2">
+        <section id="move-size" className="volatility-scorecard reveal reveal--2">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Where the model actually works</p>
@@ -925,7 +933,7 @@ export function ForecastEngine() {
         </section>
       )}
 
-      <section className="score-section reveal reveal--2">
+      <section id="scoring" className="score-section reveal reveal--2">
         <div className="section-heading">
           <div>
             <p className="section-kicker">Out-of-sample record</p>
@@ -948,7 +956,7 @@ export function ForecastEngine() {
       </section>
 
       {data && (
-        <section className="states-section reveal reveal--3">
+        <section id="states" className="states-section reveal reveal--3">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Conditional base rates · descriptive</p>
@@ -990,7 +998,7 @@ export function ForecastEngine() {
       )}
 
       {data && (
-        <section className="recorder-panel reveal reveal--3">
+        <section id="recorder" className="recorder-panel reveal reveal--3">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Positioning recorder · {data.positioning.status}</p>
@@ -1081,7 +1089,7 @@ export function ForecastEngine() {
       )}
 
       {data && (
-        <section className="live-log reveal reveal--3">
+        <section id="log" className="live-log reveal reveal--3">
           <div className="section-heading">
             <div>
               <p className="section-kicker">Live record · {data.modelVersion}</p>

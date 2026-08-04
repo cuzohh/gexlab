@@ -52,7 +52,24 @@ if not exist "node_modules\" (
 
 echo.
 echo   %MUTED%[03]%RESET%  %INK%Interface%RESET%
-echo         %GOOD%Starting local workspace%RESET%
+
+rem This launcher used to run the development server, which compiles each page
+rem the first time it is opened. That compile blocks the navigation that asked
+rem for it: moving to Reversal took 17 seconds and to Engine 40, during which
+rem the click appeared to do nothing and the workspace could not be left. The
+rem same navigations take well under a fifth of a second against a build. The
+rem build is done once here, up front, where waiting is expected.
+echo         %MUTED%Building workspace (first run takes longest)...%RESET%
+call npm run build >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo         %WARN%Build failed. Showing the error:%RESET%
+    echo.
+    call npm run build
+    pause
+    exit /b 1
+)
+echo         %GOOD%Workspace built%RESET%
 echo.
 echo   %MUTED%------------------------------------------------------------%RESET%
 echo   %MAP%http://localhost:3000%RESET%
@@ -61,7 +78,7 @@ echo.
 
 start "" /b powershell -NoProfile -WindowStyle Hidden -Command "$url='http://localhost:3000'; for ($attempt=0; $attempt -lt 60; $attempt++) { try { Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 1 | Out-Null; Start-Process $url; break } catch { Start-Sleep -Milliseconds 500 } }"
 
-call npm run dev
+call npm start
 
 if errorlevel 1 (
     echo.

@@ -9,13 +9,16 @@ import {
   parseUtcTimestamp,
 } from "@/lib/market-time";
 import {
+  aggregateExposure,
   buildSmile,
   calculateMaxPain,
   expirationIso,
+  type ExposureRow,
   interpolateZero,
   modelGamma,
-  modelGreeks,
+  priceStrikes,
   type Smile,
+  strikeKey,
   yearsToExpiry,
 } from "@/lib/options-math";
 import { sessionFlow, summariseFlow, type ChainContract } from "@/lib/block-flow";
@@ -67,26 +70,6 @@ type ParsedContract = {
   last: number;
 };
 
-type StrikeRow = {
-  strike: number;
-  gamma: number;
-  delta: number;
-  vanna: number;
-  charm: number;
-  vega: number;
-  speed: number;
-  zomma: number;
-  vomma: number;
-  callOi: number;
-  putOi: number;
-  callVolume: number;
-  putVolume: number;
-  callIvWeighted: number;
-  putIvWeighted: number;
-  callIvWeight: number;
-  putIvWeight: number;
-};
-
 type ExposureMetric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma";
 const EXPOSURE_METRICS: ExposureMetric[] = [
   "gamma",
@@ -118,6 +101,22 @@ type UpdateMode = "eod" | "live";
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Rounds a value for transport.
+ *
+ * A double serializes every digit it has: a moneyness of -0.04120556495460584
+ * and a charm of -769785.1327963665 travelled in full on every row of every
+ * response, seventeen significant figures each to feed a chart axis and a
+ * label rounded to one decimal. Applied only where the response is built, so
+ * everything computed from these values on the server — the sums, the levels,
+ * the recorded history — still uses the full precision.
+ */
+function round(value: number, decimals: number) {
+  if (!Number.isFinite(value)) return value;
+  const scale = 10 ** decimals;
+  return Math.round(value * scale) / scale;
 }
 
 function optionalNumber(value: unknown) {
@@ -154,101 +153,7 @@ function parseContract(raw: RawOption): ParsedContract | null {
   };
 }
 
-function aggregate(
-  contracts: ParsedContract[],
-  spot: number,
-  dividendYield: number,
-  valuationTime: number,
-  riskFreeRate: number,
-) {
-  const rows = new Map<number, StrikeRow>();
-
-  for (const contract of contracts) {
-    if (contract.strike < spot * 0.72 || contract.strike > spot * 1.28) continue;
-    const sign = contract.type === "call" ? 1 : -1;
-    const weight = contract.oi;
-    const modeled = modelGreeks({
-      spot,
-      strike: contract.strike,
-      years: yearsToExpiry(contract.expiry, valuationTime, contract.root),
-      iv: contract.iv && contract.iv > 0 ? contract.iv : 0.2,
-      type: contract.type,
-      riskFreeRate,
-      dividendYield,
-    });
-    const gamma = contract.gamma !== null && contract.gamma > 0 ? contract.gamma : modeled.gamma;
-    const delta = contract.delta ?? modeled.delta;
-    const vegaPerVolPoint =
-      contract.vega ?? modeled.vega / 100;
-    const row = rows.get(contract.strike) ?? {
-      strike: contract.strike,
-      gamma: 0,
-      delta: 0,
-      vanna: 0,
-      charm: 0,
-      vega: 0,
-      speed: 0,
-      zomma: 0,
-      vomma: 0,
-      callOi: 0,
-      putOi: 0,
-      callVolume: 0,
-      putVolume: 0,
-      callIvWeighted: 0,
-      putIvWeighted: 0,
-      callIvWeight: 0,
-      putIvWeight: 0,
-    };
-
-    row.gamma += sign * weight * gamma * 100 * spot * spot * 0.01;
-    row.delta += weight * delta * 100 * spot;
-    row.vanna += sign * weight * modeled.vanna * 100 * spot;
-    row.charm += sign * weight * modeled.charm * 100 * spot;
-    row.vega += sign * weight * vegaPerVolPoint * 100;
-    row.speed += sign * weight * modeled.speed * 100 * spot * spot * 0.01;
-    row.zomma += sign * weight * modeled.zomma * 100 * spot * spot * 0.01;
-    row.vomma += sign * weight * modeled.vomma * 100;
-
-    if (contract.type === "call") {
-      row.callOi += contract.oi;
-      row.callVolume += contract.volume;
-      if (contract.iv !== null && contract.iv > 0) {
-        row.callIvWeighted += contract.iv * Math.max(contract.oi, 1);
-        row.callIvWeight += Math.max(contract.oi, 1);
-      }
-    } else {
-      row.putOi += contract.oi;
-      row.putVolume += contract.volume;
-      if (contract.iv !== null && contract.iv > 0) {
-        row.putIvWeighted += contract.iv * Math.max(contract.oi, 1);
-        row.putIvWeight += Math.max(contract.oi, 1);
-      }
-    }
-    rows.set(contract.strike, row);
-  }
-
-  return [...rows.values()]
-    .map((row) => ({
-      strike: row.strike,
-      gamma: row.gamma,
-      delta: row.delta,
-      vanna: row.vanna,
-      charm: row.charm,
-      vega: row.vega,
-      speed: row.speed,
-      zomma: row.zomma,
-      vomma: row.vomma,
-      callOi: row.callOi,
-      putOi: row.putOi,
-      callVolume: row.callVolume,
-      putVolume: row.putVolume,
-      callIv: row.callIvWeight ? row.callIvWeighted / row.callIvWeight : null,
-      putIv: row.putIvWeight ? row.putIvWeighted / row.putIvWeight : null,
-    }))
-    .sort((left, right) => left.strike - right.strike);
-}
-
-function nearestProfileCrossing(rows: ReturnType<typeof aggregate>, metric: ExposureMetric, spot: number) {
+function nearestProfileCrossing(rows: ExposureRow[], metric: ExposureMetric, spot: number) {
   const crossings: number[] = [];
   for (let index = 1; index < rows.length; index += 1) {
     const left = number(rows[index - 1][metric]);
@@ -272,33 +177,52 @@ function calculateGammaFlip(
   valuationTime: number,
   riskFreeRate: number,
 ) {
-  const eligible = contracts
-    .filter(
-      (contract) =>
-        contract.oi > 0 &&
-        contract.iv !== null &&
-        contract.iv >= 0.01 &&
-        contract.strike >= spot * 0.7 &&
-        contract.strike <= spot * 1.3,
-    )
-    .map((contract) => ({
-      contract,
-      years: yearsToExpiry(contract.expiry, valuationTime, contract.root),
-    }));
-  if (!eligible.length) return null;
+  // Priced per strike, for the reason priceStrikes gives: the flip is the zero
+  // of the same profile the strike rows draw, so it has to be built out of the
+  // same volatility. Repricing each leg at its own quoted vol put the two sides
+  // of a strike on different curves and moved the crossing.
+  //
+  // A leg used to be dropped when its own volatility was missing, which deleted
+  // its open interest from the flip while the strike beside it kept its own.
+  // The strike's volatility now covers both legs, so a missing quote costs the
+  // book nothing.
+  const inBand = contracts.filter(
+    (contract) =>
+      contract.oi > 0 && contract.strike >= spot * 0.7 && contract.strike <= spot * 1.3,
+  );
+  const priced = priceStrikes(inBand, { spot, dividendYield, valuationTime, riskFreeRate });
 
+  // Collapsed to one entry per strike: the two legs share a gamma, so only the
+  // open interest they carry into it differs. This also halves the repricing,
+  // which runs sixty-four times over plus twenty bisection steps.
+  const eligible = new Map<string, { strike: number; years: number; iv: number; netOi: number }>();
+  for (const contract of inBand) {
+    const key = strikeKey(contract);
+    const strike = priced.get(key);
+    if (!strike || !(strike.iv >= 0.01)) continue;
+    const entry = eligible.get(key) ?? {
+      strike: contract.strike,
+      years: strike.years,
+      iv: strike.iv,
+      netOi: 0,
+    };
+    entry.netOi += (contract.type === "call" ? 1 : -1) * contract.oi;
+    eligible.set(key, entry);
+  }
+  if (!eligible.size) return null;
+
+  const legs = [...eligible.values()];
   const exposureAt = (candidateSpot: number) =>
-    eligible.reduce((total, item) => {
-      const { contract, years } = item;
+    legs.reduce((total, item) => {
       const gamma = modelGamma({
         spot: candidateSpot,
-        strike: contract.strike,
-        years,
-        iv: contract.iv!,
+        strike: item.strike,
+        years: item.years,
+        iv: item.iv,
         riskFreeRate,
         dividendYield,
       });
-      return total + (contract.type === "call" ? 1 : -1) * contract.oi * gamma;
+      return total + item.netOi * gamma;
     }, 0);
 
   const samples = 64;
@@ -338,9 +262,9 @@ function calculateGammaFlip(
 }
 
 function strongest(
-  rows: ReturnType<typeof aggregate>,
+  rows: ExposureRow[],
   metric: ExposureMetric,
-  predicate: (row: ReturnType<typeof aggregate>[number]) => boolean,
+  predicate: (row: ExposureRow) => boolean,
 ) {
   const candidates = rows.filter(predicate);
   if (!candidates.length) return null;
@@ -350,7 +274,7 @@ function strongest(
 }
 
 function calculateLevels(
-  rows: ReturnType<typeof aggregate>,
+  rows: ExposureRow[],
   contracts: ParsedContract[],
   spot: number,
   dividendYield: number,
@@ -440,7 +364,7 @@ type SurfaceSlice = {
 const memoContracts = memoize<ParsedContract[]>(8);
 const memoSurface = memoize<SurfaceSlice | null>(400);
 const memoSelection = memoize<{
-  rows: ReturnType<typeof aggregate>;
+  rows: ExposureRow[];
   levels: ReturnType<typeof calculateLevels>;
   contractCount: number;
   openInterestContracts: number;
@@ -465,6 +389,15 @@ const memoExpiryStats = memoize<{
   openInterest: number;
   volume: number;
 }>(400);
+/** Large-trade summary, which depends only on the snapshot and the one before it. */
+const memoFlow = memoize<{
+  session: string;
+  resolvedAgainst: string;
+  rows: ReturnType<typeof sessionFlow>;
+  summary: ReturnType<typeof summariseFlow>;
+  method: string;
+  caveat: string;
+} | null>(8);
 
 async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
   if (updateMode === "live" && !isRegularMarketOpen()) {
@@ -482,7 +415,7 @@ async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
       : Boolean(stored && snapshotIsFresh(stored));
   if (fresh && stored) return { ...stored, stale: false };
 
-  return dedupeRequest(`options:${key}`, async () => {
+  const refresh = () => dedupeRequest(`options:${key}`, async () => {
     const rechecked = getSnapshot<RawPayload>("options-raw", key);
     if (
       rechecked &&
@@ -592,6 +525,15 @@ async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
       throw error;
     }
   });
+
+  // A live chain can be many megabytes. Once there is a usable snapshot, do
+  // not hold the page open for CBOE's network response; display it and update
+  // the cache for the next read. EOD keeps its completed-session guarantee.
+  if (updateMode === "live" && stored) {
+    void refresh().catch(() => undefined);
+    return { ...stored, stale: true };
+  }
+  return refresh();
 }
 
 export async function GET(
@@ -607,9 +549,13 @@ export async function GET(
   try {
     const updateMode: UpdateMode =
       request.nextUrl.searchParams.get("updates") === "live" ? "live" : "eod";
+    // Reversal only ranks the nearby aggregated Greek book. It does not need
+    // the surface, historical flow, term structure, or chart-export payload
+    // used by the larger Options workspace.
+    const reversalView = request.nextUrl.searchParams.get("view") === "reversal";
     const [stored, rateSeries] = await Promise.all([
       fetchRaw(symbol, updateMode),
-      loadMacroSeries("DGS3MO").catch(() => []),
+      reversalView ? Promise.resolve([]) : loadMacroSeries("DGS3MO").catch(() => []),
     ]);
     const raw = stored.payload;
     const spot = number(raw.data?.current_price);
@@ -754,13 +700,12 @@ export async function GET(
     // the whole result is keyed by the exact expiry set the caller asked for.
     const selection = memoSelection(`${sliceKey}:set:${selectedExpiries.join(",")}`, () => {
       const selected = contracts.filter((contract) => selectedExpiries.includes(contract.expiry));
-      const aggregated = aggregate(
-        selected,
+      const aggregated = aggregateExposure(selected, {
         spot,
-        SYMBOLS[symbol].dividendYield,
+        dividendYield: SYMBOLS[symbol].dividendYield,
         valuationTime,
         riskFreeRate,
-      );
+      });
       return {
         rows: aggregated,
         levels: calculateLevels(
@@ -777,16 +722,100 @@ export async function GET(
       };
     });
     const { rows, levels } = selection;
+    if (reversalView) {
+      const netGamma = rows.reduce((total, row) => total + row.gamma, 0);
+      const frontExpiry = expiries[0] ?? null;
+      const frontExpiryContracts = frontExpiry
+        ? contracts
+            .filter((contract) => contract.expiry === frontExpiry && contract.iv !== null && contract.iv > 0)
+            .sort((left, right) => Math.abs(left.strike - spot) - Math.abs(right.strike - spot))
+        : [];
+      const frontContracts = frontExpiryContracts.slice(0, 8);
+      // This is a reachability context, not a directional forecast. Equally
+      // strong shelves are more useful when today's front-expiry option path
+      // can plausibly reach them.
+      const expectedMovePercent = frontContracts.length
+        ? frontContracts.reduce(
+            (total, contract) =>
+              total + contract.iv! * Math.sqrt(yearsToExpiry(contract.expiry, Date.now(), contract.root)) * 100,
+            0,
+          ) / frontContracts.length
+        : null;
+      const currentDate = easternDate();
+      const bucketDefinitions = [
+        { label: "0DTE", minimum: 0, maximum: 0 },
+        { label: "1–5D", minimum: 1, maximum: 5 },
+        { label: "6–45D", minimum: 6, maximum: 45 },
+      ] as const;
+      // Keep expiry attribution compact: the complete profile still powers the
+      // map, while these three independently aggregated shelves reveal whether
+      // a level is immediate hedging pressure or only a longer-dated landmark.
+      const expiryBuckets = bucketDefinitions.map((bucket) => {
+        const bucketContracts = contracts.filter((contract) => {
+          const dte = Math.round(
+            (Date.parse(`${contract.expiry}T12:00:00Z`) - Date.parse(`${currentDate}T12:00:00Z`)) / 86_400_000,
+          );
+          return dte >= bucket.minimum && dte <= bucket.maximum;
+        });
+        const bucketRows = aggregateExposure(bucketContracts, {
+          spot,
+          dividendYield: SYMBOLS[symbol].dividendYield,
+          valuationTime,
+          riskFreeRate,
+        });
+        const nearby = bucketRows.filter((row) => Math.abs(row.strike / spot - 1) <= 0.06);
+        return {
+          label: bucket.label,
+          contractCount: bucketContracts.length,
+          netGamma: bucketRows.reduce((total, row) => total + row.gamma, 0),
+          callWall: strongest(nearby, "gamma", (row) => row.strike >= spot && row.gamma > 0),
+          putWall: strongest(nearby, "gamma", (row) => row.strike <= spot && row.gamma < 0),
+          vannaMagnet: strongest(nearby, "vanna", () => true),
+        };
+      });
+      const frontSmile = frontExpiry && frontExpiryContracts.length
+        ? buildSmile({
+            contracts: frontExpiryContracts,
+            spot,
+            years: yearsToExpiry(frontExpiry, Date.now(), frontExpiryContracts[0].root),
+            riskFreeRate,
+            dividendYield: SYMBOLS[symbol].dividendYield,
+          })
+        : null;
+      const invalidStrike = rows.find((row) =>
+        Object.values(row).some(
+          (value) => value !== null && typeof value === "number" && !Number.isFinite(value),
+        ),
+      );
+      const invalidLevel = Object.values(levels).some(
+        (value) => value !== null && !Number.isFinite(value),
+      );
+      if (!Number.isFinite(spot) || !Number.isFinite(netGamma) || invalidStrike || invalidLevel) {
+        throw new Error("A reversal-zone calculation produced a non-finite value.");
+      }
+      return NextResponse.json({
+        symbol,
+        spot,
+        timestamp: sourceTime,
+        retrievedAt: stored.fetchedAt,
+        stale: stored.stale,
+        netGamma,
+        expectedMovePercent,
+        riskReversal25: frontSmile?.riskReversal25 ?? null,
+        expiryBuckets,
+        levels,
+        strikes: rows,
+      });
+    }
     const expiryLevels = selectedExpiries.map((date) =>
       memoExpiryLevels(`${sliceKey}:${date}`, () => {
         const sliceContracts = contracts.filter((contract) => contract.expiry === date);
-        const sliceRows = aggregate(
-          sliceContracts,
+        const sliceRows = aggregateExposure(sliceContracts, {
           spot,
-          SYMBOLS[symbol].dividendYield,
+          dividendYield: SYMBOLS[symbol].dividendYield,
           valuationTime,
           riskFreeRate,
-        );
+        });
         return {
           expiry: date,
           contractCount: sliceContracts.length,
@@ -870,7 +899,41 @@ export async function GET(
     // Record the shape summary so later sessions can compare against it. The
     // primary key is (symbol, snapshot, expiry), so replaying the same snapshot
     // rewrites the same rows instead of accumulating duplicates.
+    //
+    // Recorded from the full surface, before the per-strike points are trimmed
+    // out of the response below.
     saveSurfaceHistory(symbol, sourceTime, observationDate, surface);
+
+    // The per-strike smile of every listed expiry was 88% of this response —
+    // 844KB of 963KB on NDX, forty-eight slices of about a hundred and twenty
+    // points each — and most of it could not be displayed by anything. The
+    // surface grid reads the first fourteen slices and the smile chart reads
+    // the selected one; the remaining thirty-four were transferred, parsed and
+    // held on every request so they could be filtered out on arrival.
+    //
+    // Each slice keeps its summary either way, which is what the term
+    // structure and the change-on-yesterday comparison are built from. Only
+    // the strike-level points are dropped, and only where nothing can reach
+    // them.
+    const SURFACE_POINT_SLICES = 14;
+    const pointsWanted = new Set([
+      ...surface.slice(0, SURFACE_POINT_SLICES).map((slice) => slice.expiry),
+      ...selectedExpiries,
+    ]);
+    const responseSurface = surface.map((slice) =>
+      pointsWanted.has(slice.expiry)
+        ? {
+            ...slice,
+            points: slice.points.map((point) => ({
+              ...point,
+              moneyness: round(point.moneyness, 6),
+              standardized: round(point.standardized, 6),
+              delta: round(point.delta, 6),
+              iv: round(point.iv, 6),
+            })),
+          }
+        : { ...slice, points: [] },
+    );
 
     // Prior observations are matched at a constant days-to-expiry, since the
     // calendar expiry that was 3DTE yesterday is 2DTE today.
@@ -921,13 +984,12 @@ export async function GET(
         );
         const book = contracts.filter((contract) => horizon.includes(contract.expiry));
         if (!book.length) return null;
-        const bookRows = aggregate(
-          book,
+        const bookRows = aggregateExposure(book, {
           spot,
-          SYMBOLS[symbol].dividendYield,
+          dividendYield: SYMBOLS[symbol].dividendYield,
           valuationTime,
           riskFreeRate,
-        );
+        });
         const bookLevels = calculateLevels(
           bookRows,
           book,
@@ -999,7 +1061,12 @@ export async function GET(
     // Reported for the whole book rather than the selected expiries: size shows
     // up where it wants to, and filtering it to the current selection would
     // hide the strike that mattered.
-    const flow = (() => {
+    // Memoized on the snapshot: this reads the two most recent raw chains back
+    // out of the store and reparses both — about eleven megabytes of JSON and
+    // thirty thousand OCC symbols — to produce twenty-four rows that depend on
+    // nothing the caller asked for. Recomputing that per request cost a fifth
+    // of a second on every load of the workspace.
+    const flow = memoFlow(`${snapshotKey}:flow`, () => {
       const asContracts = (list: ParsedContract[]): ChainContract[] =>
         list.map((contract) => ({
           // Rebuild the OCC symbol, which is what pairs a contract across two
@@ -1057,7 +1124,7 @@ export async function GET(
           "sold, or whether one order was worked in slices. It shows what traded and how much of " +
           "it stayed on.",
       };
-    })();
+    });
 
     const expiryStats = expiries.map((date) => memoExpiryStats(`${sliceKey}:${date}`, () => {
       const expiryContracts = contracts.filter((contract) => contract.expiry === date);
@@ -1097,6 +1164,15 @@ export async function GET(
     const profileRows = rows.filter(
       (row) => Math.abs(row.strike - spot) <= spot * PROFILE_SPAN_PERCENT,
     );
+    // Exposures run to the millions and are read as "17.3M" or as a bar
+    // length, so three decimals is already far past anything that can be seen.
+    // Summed and ranked at full precision above; rounded only on the way out.
+    const responseRows = rows.map((row) => ({
+      ...row,
+      ...Object.fromEntries(EXPOSURE_METRICS.map((metric) => [metric, round(row[metric], 3)])),
+      callIv: row.callIv === null ? null : round(row.callIv, 6),
+      putIv: row.putIv === null ? null : round(row.putIv, 6),
+    }));
     const exposureMagnitude = summarizeExposureMetrics(profileRows, EXPOSURE_METRICS);
     const netGamma = rows.reduce((total, row) => total + row.gamma, 0);
     if (!Number.isFinite(spot) || !Number.isFinite(netGamma) || invalidStrike || invalidLevel) {
@@ -1129,7 +1205,7 @@ export async function GET(
       expiryLevels,
       expiryStats,
       flow,
-      surface,
+      surface: responseSurface,
       surfaceChange,
       surfaceHistoryDays: new Set(surfaceHistory.map((row) => row.observationDate)).size,
       contractCount: selection.contractCount,
@@ -1154,7 +1230,7 @@ export async function GET(
       // profile renders. The shape remains normalized in the chart; this is
       // the context needed to compare a small and a large profile honestly.
       exposureMagnitude,
-      strikes: rows,
+      strikes: responseRows,
     });
   } catch (error) {
     return NextResponse.json(

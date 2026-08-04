@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "motion/react";
 import {
-  buildBridgePayload,
   DEFAULT_BRIDGE_PARTS,
   readBridgeParts,
   type BridgePart,
   type BridgeSource,
 } from "@/lib/bridge-payload";
-import { PINE_SCRIPT } from "@/lib/indicator";
-import { MOTIVEWAVE_STUDY } from "@/lib/motivewave-indicator";
 import { interpolateAt } from "@/lib/options-math";
 import type { ExposureMagnitude } from "@/lib/exposure-magnitude";
-import { isRegularMarketOpen, nextQuarterHour } from "@/lib/market-time";
+import { isRegularMarketOpen, nextQuarterHour, nextWeekday, parseEasternTimestamp } from "@/lib/market-time";
+import { PositioningTape } from "@/components/positioning-tape";
 import { assessSnapshotQuality } from "@/lib/snapshot-quality";
 
 type Instrument = "NQ" | "ES";
@@ -258,6 +257,12 @@ function sourceDate(value: string) {
   return new Date(timezoneDeclared ? normalized : `${normalized}Z`);
 }
 
+function bridgeWarningAfter(snapshot: Date) {
+  const nextSession = nextWeekday(easternDate(snapshot.toISOString()));
+  const nextQuote = parseEasternTimestamp(`${nextSession} 09:45`);
+  return new Date(Math.max(snapshot.valueOf() + 24 * 60 * 60 * 1000, nextQuote ? Date.parse(nextQuote) : 0));
+}
+
 function formatSourceTime(value: string, includeDate = true) {
   return new Intl.DateTimeFormat("en-US", {
     ...(includeDate
@@ -280,6 +285,15 @@ function easternDate(value: string) {
 }
 
 const BRIDGE_PARTS_KEY = "gexlab:bridge-parts";
+
+// Geometry of the spot readout plate in the exposure profile, in viewBox units.
+// Named because the peak-label placement has to route around the same box that
+// draws it; two hand-copied numbers would drift the moment either moved.
+const SPOT_PLATE_LEFT = 352;
+const SPOT_PLATE_WIDTH = 120;
+const SPOT_PLATE_HALF_HEIGHT = 13;
+/** Roughly how wide a peak caption runs, used only to test for a collision. */
+const PEAK_LABEL_WIDTH = 46;
 
 function bridgeNumber(value: number | null) {
   return value === null || !Number.isFinite(value) ? "0" : String(Math.round(value * 100) / 100);
@@ -420,7 +434,11 @@ function MarketProfileChart({
   /** The selected strike, in this profile's own price space. */
   pinned?: number | null;
 }) {
-    if (!snapshot) {
+  // Declared before the waiting-for-data branch: a hook cannot sit behind a
+  // conditional return.
+  const [hoverStrike, setHoverStrike] = useState<number | null>(null);
+
+  if (!snapshot) {
     return (
       <section className="market-profile market-profile--loading">
         <header>
@@ -482,6 +500,7 @@ function MarketProfileChart({
       : rows.reduce((best, row) =>
           Math.abs(row.strike - pinned) < Math.abs(best.strike - pinned) ? row : best,
         );
+  const hovered = hoverStrike === null ? null : rows.find((row) => row.strike === hoverStrike) ?? null;
   const negativeClipId = `${snapshot.symbol.toLowerCase()}-${metric}-negative-exposure`;
   const positiveClipId = `${snapshot.symbol.toLowerCase()}-${metric}-positive-exposure`;
   const labelStride = Math.max(1, Math.ceil(rows.length / 8));
@@ -535,7 +554,15 @@ function MarketProfileChart({
       const labelY = Math.max(baseY, previousY + 13);
       const outward = point.raw >= 0 ? 9 : -9;
       const preferredX = point.x + outward;
-      const flips = preferredX > 462 || preferredX < 38;
+      // The spot plate is an opaque box on the right of the plot at the spot
+      // line. It is drawn after the labels, so a peak that landed under it
+      // simply disappeared — and the peak nearest spot is the one most worth
+      // reading. Labels that would sit beneath it flip to the other side of
+      // their point, the same escape the plot edge already uses.
+      const underSpotPlate =
+        preferredX + PEAK_LABEL_WIDTH > SPOT_PLATE_LEFT &&
+        Math.abs(labelY - yFor(snapshot.spot)) < SPOT_PLATE_HALF_HEIGHT + 5;
+      const flips = preferredX > 462 || preferredX < 38 || underSpotPlate;
       const labelX = flips ? point.x - outward : preferredX;
       const anchor: "start" | "end" =
         (point.raw >= 0) === !flips ? "start" : "end";
@@ -673,11 +700,62 @@ function MarketProfileChart({
           <g className="spot-rule">
             <line x1="28" x2="472" y1={yFor(snapshot.spot)} y2={yFor(snapshot.spot)} />
             <circle cx={center} cy={yFor(snapshot.spot)} r="5" />
-            <rect x="352" y={yFor(snapshot.spot) - 13} width="120" height="26" rx="2" />
-            <text x="362" y={yFor(snapshot.spot) + 4}>SPOT · {formatStrike(spotValue)}</text>
+            <rect
+              x={SPOT_PLATE_LEFT}
+              y={yFor(snapshot.spot) - SPOT_PLATE_HALF_HEIGHT}
+              width={SPOT_PLATE_WIDTH}
+              height={SPOT_PLATE_HALF_HEIGHT * 2}
+              rx="2"
+            />
+            <text x={SPOT_PLATE_LEFT + 10} y={yFor(snapshot.spot) + 4}>SPOT · {formatStrike(spotValue)}</text>
           </g>
 
-          {onPin && rows.map((row) => {
+          {/* The hovered strike, read without committing to it.
+              The reaction map on the Reversal workspace has had a hover
+              crosshair since it was built; this chart — the denser of the two
+              and the one people actually read strike by strike — offered only
+              click-to-pin and a native browser tooltip, which takes a second to
+              appear and cannot be styled. Same gesture, same answer, on both
+              charts now. */}
+          {hovered && (
+            <g className="profile-hover" aria-hidden="true">
+              <line x1="24" x2="476" y1={yFor(hovered.strike)} y2={yFor(hovered.strike)} />
+              <circle
+                cx={center + (hovered[metric] / maxExposure) * width}
+                cy={yFor(hovered.strike)}
+                r="3.5"
+                className={hovered[metric] >= 0 ? "profile-hover-dot--positive" : "profile-hover-dot--negative"}
+              />
+              {(() => {
+                const y = yFor(hovered.strike);
+                // Above the pointer normally, below it near the top edge.
+                const flipped = y < top + 34;
+                // On the side the curve is not using. Bars and peak captions
+                // grow away from the spine in the direction of the sign, so a
+                // plate fixed to the left sat on top of the very peak labels a
+                // negative reading had just drawn there. The spot plate holds
+                // the upper right, so a right-hand placement level with spot
+                // goes left instead and accepts the quieter overlap.
+                const nearSpot = Math.abs(y - yFor(snapshot.spot)) < SPOT_PLATE_HALF_HEIGHT + 22;
+                const onRight = hovered[metric] < 0 && !nearSpot;
+                const plateX = onRight ? 320 : 30;
+                return (
+                  <g transform={`translate(0, ${flipped ? y + 10 : y - 44})`}>
+                    <rect className="profile-hover-plate" x={plateX} y="0" width="150" height="34" rx="2" />
+                    <text className="profile-hover-strike" x={plateX + 8} y="14">
+                      {formatStrike(convert(hovered.strike))}
+                    </text>
+                    <text className="profile-hover-value" x={plateX + 8} y="27">
+                      {formatCompact(hovered[metric])} {metric} · OI{" "}
+                      {(hovered.callOi + hovered.putOi).toLocaleString()}
+                    </text>
+                  </g>
+                );
+              })()}
+            </g>
+          )}
+
+          {rows.map((row) => {
             const exposure = row[metric];
             const displayStrike = formatStrike(convert(row.strike));
             const selected = pinnedRow?.strike === row.strike;
@@ -689,20 +767,30 @@ function MarketProfileChart({
                 width="452"
                 height={band}
                 className="strike-hit"
-                tabIndex={0}
-                role="button"
-                aria-pressed={selected}
-                aria-label={`${snapshot.symbol} strike ${displayStrike}, ${formatCompact(exposure)} ${metric} exposure. Inspect strike.`}
-                onClick={() => onPin(row.strike)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onPin(row.strike);
-                  }
-                }}
-              >
-                <title>{`${snapshot.symbol} ${displayStrike} · ${formatCompact(exposure)} ${metric} exposure`}</title>
-              </rect>
+                tabIndex={onPin ? 0 : undefined}
+                role={onPin ? "button" : undefined}
+                aria-pressed={onPin ? selected : undefined}
+                aria-label={
+                  onPin
+                    ? `${snapshot.symbol} strike ${displayStrike}, ${formatCompact(exposure)} ${metric} exposure. Inspect strike.`
+                    : undefined
+                }
+                onMouseEnter={() => setHoverStrike(row.strike)}
+                onMouseLeave={() => setHoverStrike((current) => (current === row.strike ? null : current))}
+                onFocus={() => setHoverStrike(row.strike)}
+                onBlur={() => setHoverStrike((current) => (current === row.strike ? null : current))}
+                onClick={onPin ? () => onPin(row.strike) : undefined}
+                onKeyDown={
+                  onPin
+                    ? (event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onPin(row.strike);
+                        }
+                      }
+                    : undefined
+                }
+              />
             );
           })}
         </svg>
@@ -1154,21 +1242,6 @@ export function OptionsAtlas() {
   };
   const bridgeReferenceSpot =
     priceScale === "futures" ? futuresAnchor ?? 0 : marketData?.spot ?? 0;
-  const bridgePayload = marketData
-    ? buildBridgePayload(
-        [
-          ...bridgeSourceFor(marketData, "P"),
-          ...(bridgeParts.confirmation ? bridgeSourceFor(comparisonData, "C") : []),
-        ],
-        {
-          space: priceScale === "futures" ? "F" : "N",
-          instrument,
-          referenceSpot: bridgeReferenceSpot,
-          generatedAt: marketData.timestamp ? sourceDate(marketData.timestamp) : new Date(),
-          parts: bridgeParts,
-        },
-      )
-    : "";
   const strikes = useMemo(() => {
     if (marketData?.strikes.length) {
       const span = instrument === "NQ" ? 520 : 170;
@@ -1315,6 +1388,40 @@ export function OptionsAtlas() {
       return;
     }
     announce(message, id);
+  }
+
+  async function copyBridge() {
+    if (!marketData) return;
+    // The builder and indicator sources are useful only after an intentional
+    // copy action. Keeping them out of the initial workspace chunk avoids
+    // parsing tens of thousands of script characters just to view a profile.
+    const { buildBridgePayload } = await import("@/lib/bridge-payload");
+    const generatedAt = marketData.timestamp ? sourceDate(marketData.timestamp) : new Date();
+    const payload = buildBridgePayload(
+      [
+        ...bridgeSourceFor(marketData, "P"),
+        ...(bridgeParts.confirmation ? bridgeSourceFor(comparisonData, "C") : []),
+      ],
+      {
+        space: priceScale === "futures" ? "F" : "N",
+        instrument,
+        referenceSpot: bridgeReferenceSpot,
+        generatedAt,
+        warnAfter: bridgeWarningAfter(generatedAt),
+        parts: bridgeParts,
+      },
+    );
+    await copy(payload, `${instrument} bridge copied`, "bridge");
+  }
+
+  async function copyPineScript() {
+    const { PINE_SCRIPT } = await import("@/lib/indicator");
+    await copy(PINE_SCRIPT, "Pine script copied", "pine");
+  }
+
+  async function copyMotiveWaveStudy() {
+    const { MOTIVEWAVE_STUDY } = await import("@/lib/motivewave-indicator");
+    await copy(MOTIVEWAVE_STUDY, "MotiveWave study copied", "study");
   }
 
   function exportCsv() {
@@ -1801,6 +1908,7 @@ export function OptionsAtlas() {
               <span>{String(index + 1).padStart(2, "0")}</span>
               <strong>{item.label}</strong>
               <small>{item.hint}</small>
+              {metric === item.id ? <motion.b className="analysis-active-mark" layoutId="analysis-active" /> : null}
             </button>
           ))}
         </nav>
@@ -1944,6 +2052,8 @@ export function OptionsAtlas() {
         </aside>
       </div>
 
+      <PositioningTape symbol={marketData?.symbol ?? (instrument === "NQ" ? "NDX" : "SPX")} />
+
       <section className="research-shelf" id="research">
         <nav aria-label="Related structure studies">
           {([
@@ -1963,6 +2073,7 @@ export function OptionsAtlas() {
               }}
             >
               {label}
+              {shelf === id ? <motion.i className="shelf-active-mark" layoutId="shelf-active" /> : null}
             </button>
           ))}
         </nav>
@@ -2243,14 +2354,14 @@ export function OptionsAtlas() {
                 <button
                   data-confirmed={confirmed === "bridge" || undefined}
                   disabled={dataState !== "ready" || !marketData || (priceScale === "futures" && !futuresAnchor)}
-                  onClick={() => copy(bridgePayload, `${instrument} bridge copied`, "bridge")}
+                  onClick={() => void copyBridge()}
                 >
                   <span>Copy bridge</span>
                   <i aria-hidden="true" />
                 </button>
                 <button
                   data-confirmed={confirmed === "pine" || undefined}
-                  onClick={() => copy(PINE_SCRIPT, "Pine script copied", "pine")}
+                  onClick={() => void copyPineScript()}
                 >
                   <span>Copy Pine</span>
                   <i aria-hidden="true" />
@@ -2258,7 +2369,7 @@ export function OptionsAtlas() {
                 <button
                   data-confirmed={confirmed === "study" || undefined}
                   title="Java study source for MotiveWave. Save as GexLabLevels.java, compile against mwave_sdk.jar, and place the classes in your MotiveWave Extensions folder."
-                  onClick={() => copy(MOTIVEWAVE_STUDY, "MotiveWave study copied", "study")}
+                  onClick={() => void copyMotiveWaveStudy()}
                 >
                   <span>Copy MotiveWave</span>
                   <i aria-hidden="true" />
