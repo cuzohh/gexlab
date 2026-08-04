@@ -28,16 +28,6 @@ echo   %PURPLE%^| ^|    ) ^|^| (        /  \     ^| ^|       ^| (   ) ^| ^| (  \
 echo   %PINK%\ \___/  /^| (____/\ / /\ \    ^| (____/\ ^| )   ( ^| ^| (___) ) %RESET%   %CYAN%* REAL-TIME GAMMA STRUCTURE %RESET%
 echo   %PINK% \______/ (_______/ \_/  \_\  (_______/ ^|/     \^| (______/  %RESET%   %EMERALD%* FORECAST ^& REVERSAL ZONES %RESET%
 echo.
-echo   %MUTED%+------------------------------------------------------------------------------------+%RESET%
-echo   %MUTED%^|%RESET% %EMERALD%[+] CALL RESISTANCE WALL%RESET%   %CYAN%[ 21,450.00 ]%RESET%   %EMERALD%+14,250 GEX%RESET%   %MUTED%( Heavy Supply Zone )  %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %WHITE%[*] SPOT PRICE ANCHOR       %RESET%   %AMBER%[ 21,284.50 ]%RESET%   %WHITE%  +0.84%%%RESET%     %MUTED%( Dynamic Pivot )    %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %PURPLE%[!] ZERO-GAMMA FLIP LEVEL  %RESET%   %PURPLE%[ 21,190.00 ]%RESET%   %PURPLE% REGIME SHIFT%RESET%   %MUTED%( Volatility Trigger ) %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %MUTED%    ^|===^|                             ^|                             ^|     %MUTED%^|%RESET%
-echo   %MUTED%^|%RESET% %PINK%[-] PUT SUPPORT FLOOR      %RESET%   %CYAN%[ 21,100.00 ]%RESET%   %PINK%-18,600 GEX%RESET%   %MUTED%( Demand Cushion )   %MUTED%^|%RESET%
-echo   %MUTED%+------------------------------------------------------------------------------------+%RESET%
-echo.
 echo   %MUTED%------------------------------------------------------------------------------------%RESET%
 echo.
 echo.
