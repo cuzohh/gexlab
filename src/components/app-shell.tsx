@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import {
   AnimatePresence,
@@ -11,7 +12,11 @@ import {
   useSpring,
 } from "motion/react";
 import { useEffect, useState } from "react";
-import { StructureRail } from "@/components/structure-rail";
+
+const StructureRail = dynamic(
+  () => import("@/components/structure-rail").then((module) => module.StructureRail),
+  { ssr: false },
+);
 
 const workspaces = [
   { href: "/", label: "Macro", paths: ["/", "/regime", "/history"] },
@@ -378,7 +383,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         ) : null}
 
-        <StructureRail />
+        {(inOptions || inReversal) && <StructureRail />}
 
         <div className="header-tools">
           <span className="preview-status">

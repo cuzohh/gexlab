@@ -30,13 +30,12 @@ function money(value: number) {
 }
 
 /**
- * Where price sits inside the option structure, on every workspace.
+ * Where price sits inside the option structure, on the Options and Reversal workspaces.
  *
- * The same three levels are computed on the Options, Reversal and Macro pages
- * and drawn differently on each, so moving between them meant rebuilding the
- * same picture from scratch each time. This is the one part of that picture
- * that should not have to be re-read: spot, the walls either side of it, and
- * the flip. It is deliberately the least detailed view of the book on the site.
+ * The Options and Reversal workspaces use the same three levels, so moving
+ * between them should not require rebuilding the same picture. The Macro
+ * overview has a compact daily summary of its own. This is deliberately the
+ * least detailed view of the book on the site: spot, the walls, and the flip.
  */
 export function StructureRail() {
   const reducedMotion = useReducedMotion();

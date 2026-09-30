@@ -358,6 +358,113 @@ h3 {
   padding-top: 1rem;
 }
 
+.daily-workbench {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule);
+  margin: 0.25rem 0 2rem;
+}
+
+.daily-workbench-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 0.85rem 0;
+}
+
+.daily-workbench-heading > span {
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  text-align: right;
+}
+
+.daily-workbench nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.daily-workbench nav a {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-height: 7.2rem;
+  padding: 1rem 1.1rem 1rem 0;
+  text-decoration: none;
+}
+
+.daily-workbench nav a + a { padding-left: 1.1rem; }
+.daily-workbench nav a:last-child { border-right: 0; }
+.daily-workbench nav a > span,
+.daily-workbench nav a small { color: var(--ink-muted); font-size: 0.68rem; }
+.daily-workbench nav a > span { font-family: var(--font-mono); text-transform: uppercase; }
+.daily-workbench nav a strong { color: var(--ink); font-size: 0.92rem; font-weight: 550; }
+.daily-workbench nav a:hover strong { color: var(--focus); }
+
+.daily-options-context {
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.daily-options-context article {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 6.3rem;
+  padding: 0.9rem 1rem 0.9rem 0;
+}
+
+.daily-options-context article + article { padding-left: 1rem; }
+.daily-options-context article:last-child { border-right: 0; }
+.daily-options-context article > span { color: var(--ink-muted); font-family: var(--font-mono); font-size: 0.62rem; text-transform: uppercase; }
+.daily-options-context article strong { color: var(--ink); font-family: var(--font-serif); font-size: 1.2rem; font-weight: 500; }
+.daily-options-context article small { color: var(--ink-muted); font-size: 0.64rem; line-height: 1.4; margin-top: auto; }
+
+.geoeconomic-channel-summary {
+  align-items: start;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  padding: 0.85rem 1.1rem;
+}
+
+.geoeconomic-channel-summary > span {
+  color: var(--ink-secondary);
+  font-size: 0.72rem;
+}
+
+.geoeconomic-channel-summary > span small {
+  color: var(--ink-muted);
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.geoeconomic-channel-summary ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.geoeconomic-channel-summary li {
+  align-items: center;
+  border: 1px solid var(--rule);
+  color: var(--ink-secondary);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  gap: 0.55rem;
+  padding: 0.35rem 0.55rem;
+  text-transform: capitalize;
+}
+
+.geoeconomic-channel-summary li em { color: var(--ink-muted); font-style: normal; }
+
 .confidence-head {
   align-items: baseline;
   display: flex;
@@ -5473,6 +5580,49 @@ h3 {
   padding: 0;
 }
 
+.live-target-scores {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 1.35rem 0 0.5rem;
+}
+
+.live-target-score {
+  border: 1px solid var(--rule);
+  min-width: 0;
+  padding: 0.9rem 1rem;
+}
+
+.live-target-score-head {
+  align-items: center;
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+}
+
+.live-target-score-head > div { display: grid; gap: 0.35rem; }
+.live-target-score-head strong { font-size: 0.82rem; font-weight: 550; }
+.live-target-accuracy { color: var(--ink-secondary); font-family: var(--font-mono); font-size: 0.75rem; white-space: nowrap; }
+
+.live-score-metrics {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 0.85rem;
+  padding: 0.55rem 0;
+}
+
+.live-score-metrics span { display: grid; gap: 0.28rem; }
+.live-score-metrics b { color: var(--ink-muted); font-size: 0.62rem; font-weight: 450; }
+.live-score-metrics em { color: var(--ink); font-family: var(--font-mono); font-size: 0.75rem; font-style: normal; }
+.live-baseline-note { color: var(--ink-muted); font-size: 0.66rem; line-height: 1.5; margin: 0.55rem 0; }
+.live-calibration-title { color: var(--ink-muted); font-size: 0.62rem; }
+.live-calibration ol { list-style: none; margin: 0.45rem 0 0; padding: 0; }
+.live-calibration li { align-items: baseline; border-top: 1px solid var(--rule); display: flex; font-family: var(--font-mono); font-size: 0.62rem; justify-content: space-between; gap: 0.6rem; padding: 0.35rem 0; }
+.live-calibration li span { color: var(--ink-muted); white-space: nowrap; }
+.live-calibration li em { color: var(--ink-secondary); font-style: normal; text-align: right; }
+
 .live-list li {
   align-items: center;
   border-bottom: 1px solid var(--rule);
@@ -5488,6 +5638,9 @@ h3 {
 .live-list span {
   color: var(--ink-muted);
 }
+
+.live-list li strong { display: grid; gap: 0.15rem; }
+.live-record-baseline { color: var(--ink-muted); font-size: 0.55rem; font-weight: 400; }
 
 .live-mark {
   font-size: 0.58rem;
@@ -5510,6 +5663,24 @@ h3 {
 }
 
 @media (max-width: 720px) {
+  .daily-workbench-heading { align-items: flex-start; flex-direction: column; gap: 0.35rem; }
+  .daily-workbench-heading > span { text-align: left; }
+  .daily-workbench nav { grid-template-columns: 1fr; }
+  .daily-workbench nav a,
+  .daily-workbench nav a + a { border-bottom: 1px solid var(--rule); border-right: 0; min-height: 0; padding: 0.85rem 0; }
+  .daily-workbench nav a:last-child { border-bottom: 0; }
+  .daily-options-context { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .daily-options-context article { border-bottom: 1px solid var(--rule); min-height: 5.8rem; padding: 0.8rem 0.7rem 0.8rem 0; }
+  .daily-options-context article + article { padding-left: 0.7rem; }
+  .daily-options-context article:nth-child(2) { border-right: 0; }
+  .daily-options-context article:nth-child(3) { border-bottom: 0; }
+  .daily-options-context article:last-child { border-bottom: 0; }
+  .geoeconomic-channel-summary { display: block; }
+  .geoeconomic-channel-summary ul { margin-top: 0.75rem; }
+  .live-target-scores { grid-template-columns: 1fr; }
+  .live-calibration li { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
+  .live-calibration li em { text-align: left; }
+
   .coefficient-list li {
     grid-template-columns: 8rem 1fr 3rem;
   }
@@ -8919,8 +9090,8 @@ body {
   font-size: 7.5px;
 }
 
-/* The always-visible structure rail. Sized for the narrow sidebar, hidden on
-   the horizontal header the narrow layout switches to. */
+/* Structure rail for the Options and Reversal workspaces. Hidden on the
+   horizontal header the narrow layout switches to. */
 
 .structure-rail {
   display: none;

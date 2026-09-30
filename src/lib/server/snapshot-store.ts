@@ -19,9 +19,31 @@ type DatabaseGlobal = typeof globalThis & {
   __gexlabDatabase?: DatabaseSync;
 };
 
+let enginePredictionSchemaReady = false;
+
+function ensureEnginePredictionSchema(db: DatabaseSync) {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS engine_predictions_recent
+      ON engine_predictions(target_date DESC, target, predicted_at DESC, model_version DESC);
+    DROP INDEX IF EXISTS engine_predictions_lookup;
+  `);
+  const columns = new Set(
+    (db.prepare("PRAGMA table_info(engine_predictions)").all() as Array<{ name: string }>).map((column) => column.name),
+  );
+  if (!columns.has("baseline_probability")) {
+    db.exec("ALTER TABLE engine_predictions ADD COLUMN baseline_probability REAL");
+  }
+}
+
 function database() {
   const shared = globalThis as DatabaseGlobal;
-  if (shared.__gexlabDatabase) return shared.__gexlabDatabase;
+  if (shared.__gexlabDatabase) {
+    if (!enginePredictionSchemaReady) {
+      ensureEnginePredictionSchema(shared.__gexlabDatabase);
+      enginePredictionSchemaReady = true;
+    }
+    return shared.__gexlabDatabase;
+  }
 
   const dataDirectory =
     process.env.GEXLAB_DATA_DIR || path.join(process.cwd(), "data");
@@ -108,14 +130,12 @@ function database() {
       target_date TEXT NOT NULL,
       target TEXT NOT NULL,
       probability REAL,
+      baseline_probability REAL,
       expected_move REAL,
       model_version TEXT NOT NULL,
       predicted_at TEXT NOT NULL,
       PRIMARY KEY (target_date, target, model_version)
     );
-
-    CREATE INDEX IF NOT EXISTS engine_predictions_lookup
-      ON engine_predictions(target_date DESC);
 
     -- Positioning features cannot be reconstructed after the fact: no public
     -- archive carries yesterday's option chain. They are recorded one session
@@ -165,6 +185,11 @@ function database() {
     CREATE INDEX IF NOT EXISTS overnight_sessions_date
       ON overnight_sessions(session_date DESC);
   `);
+  // The composite index replaces a redundant single-column index. Keeping the
+  // schema check after the global-handle guard also covers development reloads
+  // that retain SQLite while replacing this module.
+  ensureEnginePredictionSchema(db);
+  enginePredictionSchemaReady = true;
   const emptyCsvMigration = "macro-empty-csv-v2";
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -593,6 +618,7 @@ export type EnginePrediction = {
   targetDate: string;
   target: string;
   probability: number | null;
+  baselineProbability: number | null;
   expectedMove: number | null;
   modelVersion: string;
   predictedAt: string;
@@ -607,13 +633,14 @@ export function saveEnginePrediction(prediction: EnginePrediction) {
   database()
     .prepare(`
       INSERT OR IGNORE INTO engine_predictions (
-        target_date, target, probability, expected_move, model_version, predicted_at
-      ) VALUES (?, ?, ?, ?, ?, ?)
+        target_date, target, probability, baseline_probability, expected_move, model_version, predicted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       prediction.targetDate,
       prediction.target,
       prediction.probability,
+      prediction.baselineProbability,
       prediction.expectedMove,
       prediction.modelVersion,
       prediction.predictedAt,
@@ -621,38 +648,53 @@ export function saveEnginePrediction(prediction: EnginePrediction) {
 }
 
 export function loadEnginePredictions(limit = 120): EnginePrediction[] {
+  const readLimit = Math.max(1, Math.trunc(limit));
   const rows = database()
     .prepare(`
-      SELECT target_date, target, probability, expected_move, model_version, predicted_at
-      FROM engine_predictions
+      WITH recent_keys AS (
+        SELECT DISTINCT target_date, target
+        FROM engine_predictions
+        ORDER BY target_date DESC, target ASC
+        LIMIT ?
+      ), ranked AS (
+        SELECT predictions.target_date, predictions.target, predictions.probability,
+               predictions.baseline_probability, predictions.expected_move,
+               predictions.model_version, predictions.predicted_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY predictions.target_date, predictions.target
+                 ORDER BY predictions.predicted_at DESC, predictions.model_version DESC
+               ) AS version_rank
+        FROM engine_predictions AS predictions
+        INNER JOIN recent_keys AS recent
+          ON recent.target_date = predictions.target_date
+         AND recent.target = predictions.target
+      )
+      SELECT target_date, target, probability, baseline_probability, expected_move,
+             model_version, predicted_at
+      FROM ranked
+      WHERE version_rank = 1
       ORDER BY target_date DESC, predicted_at DESC
+      LIMIT ?
     `)
-    .all() as Array<{
+    .all(readLimit, readLimit) as Array<{
       target_date: string;
       target: string;
       probability: number | null;
+      baseline_probability: number | null;
       expected_move: number | null;
       model_version: string;
       predicted_at: string;
     }>;
 
-  const unique = new Map<string, EnginePrediction>();
-  for (const row of rows) {
-    const key = `${row.target_date}-${row.target}`;
-    if (!unique.has(key)) {
-      unique.set(key, {
-        targetDate: row.target_date,
-        target: row.target,
-        probability: row.probability,
-        expectedMove: row.expected_move,
-        modelVersion: row.model_version,
-        predictedAt: row.predicted_at,
-      });
-    }
-    if (unique.size >= limit) break;
-  }
-  
-  return [...unique.values()];
+  return rows.map((row) => ({
+    targetDate: row.target_date,
+    target: row.target,
+    probability: row.probability,
+    baselineProbability: row.baseline_probability,
+    expectedMove: row.expected_move,
+    modelVersion: row.model_version,
+    predictedAt: row.predicted_at,
+  }));
 }
 
 /**

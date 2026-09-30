@@ -306,9 +306,26 @@ type EngineData = {
       targetDate: string;
       target: string;
       probability: number | null;
+      baselineProbability: number | null;
       realized: number | null;
+      outcome: boolean | null;
       correct: boolean | null;
       predictedAt: string;
+    }[];
+    targets?: {
+      target: "direction" | "continuation";
+      samples: number;
+      accuracy: number | null;
+      brier: number | null;
+      logLoss: number | null;
+      calibration: CalibrationBin[];
+      baselineSamples: number;
+      pairedBrier: number | null;
+      pairedLogLoss: number | null;
+      baselineAccuracy: number | null;
+      baselineBrier: number | null;
+      baselineLogLoss: number | null;
+      brierSkill: number | null;
     }[];
     settled: number;
     accuracy: number | null;
@@ -1194,9 +1211,48 @@ export function ForecastEngine() {
             </div>
             <p>
               {data.live.settled
-                ? `${data.live.settled} settled · ${data.live.accuracy?.toFixed(1)}% correct so far`
+                ? `${data.live.settled} settled target forecasts`
                 : "No forecast has settled yet."}
             </p>
+          </div>
+          <div className="live-target-scores">
+            {(data.live.targets ?? []).map((target) => (
+              <article className="live-target-score" key={target.target}>
+                <div className="live-target-score-head">
+                  <div>
+                    <span className="section-kicker">{target.target === "direction" ? "Next-session direction" : "Continuation"}</span>
+                    <strong>{target.samples} scored forecast{target.samples === 1 ? "" : "s"}</strong>
+                  </div>
+                  <span className="live-target-accuracy">{percent(target.accuracy)} accuracy</span>
+                </div>
+                <div className="live-score-metrics">
+                  <span><b>Brier</b><em>{target.brier?.toFixed(3) ?? "—"}</em></span>
+                  <span><b>Log loss</b><em>{target.logLoss?.toFixed(3) ?? "—"}</em></span>
+                  <span><b>Paired Brier skill</b><em>{target.brierSkill == null ? "—" : `${target.brierSkill >= 0 ? "+" : ""}${(target.brierSkill * 100).toFixed(1)}%`}</em></span>
+                </div>
+                <p className="live-baseline-note">
+                  {target.baselineSamples
+                    ? `Paired on ${target.baselineSamples} forecasts · Brier model/base ${target.pairedBrier?.toFixed(3) ?? "—"}/${target.baselineBrier?.toFixed(3) ?? "—"} · log loss ${target.pairedLogLoss?.toFixed(3) ?? "—"}/${target.baselineLogLoss?.toFixed(3) ?? "—"} · base-rate accuracy ${percent(target.baselineAccuracy)}`
+                    : "Baseline comparison begins with forecasts recorded after this update."}
+                </p>
+                {target.calibration.length > 0 && (
+                  <div className="live-calibration" aria-label={`${target.target} calibration by forecast probability rank`}>
+                    <span className="live-calibration-title">Calibration · equal-count probability ranks</span>
+                    <ol>
+                      {target.calibration.map((bin, index) => (
+                        <li key={`${target.target}-${index}`}>
+                          <span>Q{index + 1} · n={bin.count}</span>
+                          <em>forecast {percent(bin.predicted)} / observed {percent(bin.observed)}</em>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {target.samples > 0 && target.calibration.length === 0 && (
+                  <p className="live-baseline-note">Calibration groups appear after at least five scored forecasts.</p>
+                )}
+              </article>
+            ))}
           </div>
           {data.live.records.length > 0 ? (
             <ul className="live-list">
@@ -1204,7 +1260,10 @@ export function ForecastEngine() {
                 <li key={`${record.targetDate}-${record.target}`}>
                   <time dateTime={record.targetDate}>{shortDate(record.targetDate)}</time>
                   <span>{record.target}</span>
-                  <strong>{percent(record.probability)}</strong>
+                  <strong title={record.baselineProbability === null ? "No saved baseline for this forecast" : `Walk-forward training base rate: ${percent(record.baselineProbability)}`}>
+                    {percent(record.probability)}
+                    {record.baselineProbability !== null && <small className="live-record-baseline">base {percent(record.baselineProbability)}</small>}
+                  </strong>
                   <em>{record.realized === null ? "pending" : signed(record.realized, "%")}</em>
                   <i className={`live-mark live-mark--${record.correct === null ? "pending" : record.correct ? "hit" : "miss"}`}>
                     {record.correct === null ? "—" : record.correct ? "hit" : "miss"}

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { DailyOptionsContext } from "@/components/daily-options-context";
 import { OrientationHero } from "@/components/orientation-hero";
 import { RegimeMap } from "@/components/regime-map";
 import { describeSessionLag } from "@/lib/market-time";
@@ -598,10 +600,20 @@ function GeoeconomicContext({
             <div className="geoeconomic-countries">
               <span>Highest country readings · {geopolitical.countriesAsOf ? monthLabel(geopolitical.countriesAsOf) : "latest available"}</span>
               <ol>
-                {geopolitical.countries.slice(0, 6).map((country) => (
+                {geopolitical.countries.slice(0, 8).map((country) => (
                   <li key={country.code}><b>{country.code}</b><em>{country.value.toFixed(1)}</em></li>
                 ))}
               </ol>
+            </div>
+          )}
+          {events?.channels.some((channel) => channel.events > 0) && (
+            <div className="geoeconomic-channel-summary" aria-label="Event counts by transmission channel">
+              <span>Transmission channels <small>· counts can overlap</small></span>
+              <ul>
+                {events.channels.filter((channel) => channel.events > 0).map((channel) => (
+                  <li key={channel.channel}><b>{channel.channel}</b><em>{channel.events} event{channel.events === 1 ? "" : "s"}</em></li>
+                ))}
+              </ul>
             </div>
           )}
           <details className="learn-panel">
@@ -1323,6 +1335,31 @@ export function MacroDashboard({ view }: { view: View }) {
           confidenceLabel="Signal clarity"
           caveat={data?.marketRegime.caveat ?? "No regime conclusion is shown until the official observations load."}
         />
+
+        <section className="daily-workbench reveal reveal--1" aria-label="Daily market workbench">
+          <div className="daily-workbench-heading">
+            <p className="section-kicker">Daily workflow</p>
+            <span>{upcomingCalendar[0] ? `Next event · ${upcomingCalendar[0].date} · ${upcomingCalendar[0].title}` : "Move from the regime read to the levels that can confirm or invalidate it."}</span>
+          </div>
+          <DailyOptionsContext />
+          <nav aria-label="Daily analysis workspaces">
+            <Link href="/engine#log">
+              <span>01 · Forecast record</span>
+              <strong>Check the next-session model</strong>
+              <small>Probability, sample size, and live scoring</small>
+            </Link>
+            <Link href="/structure">
+              <span>02 · Options structure</span>
+              <strong>Review expected move and exposure</strong>
+              <small>Dealer map, expiry structure, and skew</small>
+            </Link>
+            <Link href="/reversal-zones">
+              <span>03 · Invalidation levels</span>
+              <strong>Find the reversal zones</strong>
+              <small>Levels where the current setup would change</small>
+            </Link>
+          </nav>
+        </section>
 
         <section className="market-state-board reveal reveal--1">
           <MarketBehaviorMap data={data} />

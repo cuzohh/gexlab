@@ -179,11 +179,16 @@ value off every call and produced a 100%-puts ranking. Each session now prices a
 4. **Paste the Pine into TradingView.** String assertions do not compile the indicator.
 5. Configure `GEXLAB_SEC_CONTACT` and set up access controls, HTTPS, monitoring, backups, and recovery before public hosting.
 6. Decide whether to schedule `npm run collect:intraday` every 15 minutes during RTH. The script takes one sample and exits; it is optional, and each missed session is unrecoverable for positioning research.
-7. Absolute histogram magnitude in the bridge — the profile normalises to +/-100 of its own peak, so
-   a dead tape and a monster expiry draw identically.
-8. Country-level geopolitical detail and the 8 category shares are parsed but not surfaced.
-9. UI direction: reference dashboards can inform information hierarchy, but keep the GEXLab visual
+7. UI direction: reference dashboards can inform information hierarchy, but keep the GEXLab visual
    style. A composite score should show its contribution breakdown; avoid flat equal-weight tiles.
+
+## Recently completed product work
+
+- The Macro overview now puts the market regime beside the NDX options snapshot, front-expiry expected move, nearest reversal-zone range and invalidation rule, source timestamp, and direct links to the live forecast record and reversal zones. It uses the existing EOD options endpoint.
+- The Engine live log now reports direction and continuation separately, with sample counts, Brier score, log loss, equal-count calibration groups, and a paired comparison against the training base rate saved when each forecast was made. Older records have no captured base rate and are excluded from that comparison.
+- The TradingView bridge carries peak, gross, and net raw gamma for the visible profile window. Pine keeps the histogram normalized for shape and prints those raw magnitudes beside it.
+- The Macro dashboard shows all eight available country readings and official event counts by transmission channel. Channel counts can overlap; they are not shares of a whole.
+- Forecast history is deduplicated in SQL with a composite recent-read index. The shared Structure rail and its five-minute polling load only on Options and Reversal; Macro reads a single cached EOD options summary for its daily overview.
 
 ## Product context
 

@@ -12,7 +12,7 @@
 //     warnAfterSec earliest instant at which an age warning is meaningful
 //
 //   block   <name>~<role>~<spot>~<step>~<agg>~<gamma>~<delta>~<expiries>
-//                 ~<profile>~<volume>~<move>
+//                 ~<profile>~<volume>~<move>~<magnitude>
 //     name        NDX | SPX | QQQ | SPY
 //     role        P = primary book, C = confirmation book
 //     spot        that book's spot, rescaled onto refSpot (so ≈ refSpot)
@@ -24,6 +24,7 @@
 //     profile     strike,exposure;…              exposure -100…100 of the peak
 //     volume      callVolumeWall,putVolumeWall
 //     move        oneSigmaBps,frontSettlesEpoch  bps of spot, already √-scaled
+//     magnitude   peak,gross,net raw gamma across the visible profile window
 //
 // Settlement travels because a payload outlives its own contracts. Exported at
 // 15:55 it is four hours old at 20:00 — fresh by any age test — while its 0DTE
@@ -286,8 +287,8 @@ export function minimumSeparation(step: number, spot: number) {
 
 /**
  * The strike-by-strike exposure profile, trimmed to the strikes near spot and
- * normalized to ±100 of the largest print. The chart draws this as a histogram,
- * so only the shape matters and the absolute notional would just cost payload.
+ * normalized to ±100 of the largest print. The chart draws the shape separately
+ * from a compact raw-magnitude summary, so normalized bar lengths stay readable.
  */
 export function exposureProfile(
   rows: BridgeStrikeRow[],
@@ -295,18 +296,42 @@ export function exposureProfile(
   count = 48,
   spanPercent = 0.035,
 ) {
-  const span = spot * spanPercent;
-  const near = rows
-    .filter((row) => Number.isFinite(row.strike) && Math.abs(row.strike - spot) <= span)
-    .sort((left, right) => Math.abs(left.strike - spot) - Math.abs(right.strike - spot))
-    .slice(0, count)
-    .sort((left, right) => left.strike - right.strike);
+  return normalizedProfile(profileRows(rows, spot, count, spanPercent));
+}
+
+function normalizedProfile(near: BridgeStrikeRow[]) {
   const peak = Math.max(...near.map((row) => Math.abs(row.gamma)), 0);
   if (!near.length || peak <= 0) return [];
   return near.map((row) => ({
     strike: row.strike,
     exposure: Math.round((row.gamma / peak) * 100),
   }));
+}
+
+function profileRows(rows: BridgeStrikeRow[], spot: number, count: number, spanPercent: number) {
+  const span = spot * spanPercent;
+  return rows
+    .filter((row) => Number.isFinite(row.strike) && Math.abs(row.strike - spot) <= span)
+    .sort((left, right) => Math.abs(left.strike - spot) - Math.abs(right.strike - spot))
+    .slice(0, count)
+    .sort((left, right) => left.strike - right.strike);
+}
+
+/** Raw gamma magnitude for the same near-spot strikes drawn in the histogram. */
+export function exposureMagnitude(rows: BridgeStrikeRow[], spot: number, count = 48, spanPercent = 0.035) {
+  return magnitudeFromProfileRows(profileRows(rows, spot, count, spanPercent));
+}
+
+function magnitudeFromProfileRows(near: BridgeStrikeRow[]) {
+  if (!near.length) return null;
+  return near.reduce(
+    (summary, row) => ({
+      peak: Math.max(summary.peak, Math.abs(row.gamma)),
+      gross: summary.gross + Math.abs(row.gamma),
+      net: summary.net + row.gamma,
+    }),
+    { peak: 0, gross: 0, net: 0 },
+  );
 }
 
 /**
@@ -406,12 +431,14 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
   // Both books ship a profile. Overlaying them would read as one distribution
   // and is not one, so the indicator draws a single book at a time and this
   // only decides which ones it can offer.
-  const profile =
-    parts.profile
-      ? exposureProfile(source.strikes, source.spot)
-          .map((point) => `${field(point.strike * factor)},${point.exposure}`)
-          .join(";")
-      : "";
+  const profileRowsVisible = parts.profile ? profileRows(source.strikes, source.spot, 48, 0.035) : [];
+  const profile = normalizedProfile(profileRowsVisible)
+    .map((point) => `${field(point.strike * factor)},${point.exposure}`)
+    .join(";");
+  const magnitudeSummary = parts.profile ? magnitudeFromProfileRows(profileRowsVisible) : null;
+  const magnitude = magnitudeSummary
+    ? [magnitudeSummary.peak, magnitudeSummary.gross, magnitudeSummary.net].map(field).join(",")
+    : "";
   const volume = parts.volumeWalls
     ? (() => {
         const walls = volumeWalls(source.strikes, source.spot);
@@ -438,6 +465,7 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
     profile,
     volume,
     move,
+    magnitude,
   ].join("~");
 }
 

@@ -7,6 +7,7 @@ import {
   harFeatures,
   logisticFit,
   logisticPredict,
+  reliabilityByQuantile,
   ridgeFit,
   smearingFactor,
   walkForward,
@@ -55,7 +56,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.12.0";
+const MODEL_VERSION = "engine-v1.12.1";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -622,6 +623,7 @@ async function buildPayload() {
       targetDate: nextSessionDate,
       target: "direction",
       probability: directionProbability,
+      baselineProbability: directionFit?.baseRate ?? null,
       expectedMove,
       modelVersion: MODEL_VERSION,
       predictedAt: new Date().toISOString(),
@@ -632,6 +634,7 @@ async function buildPayload() {
       targetDate: nextSessionDate,
       target: "continuation",
       probability: continuationProbability,
+      baselineProbability: continuationFit?.baseRate ?? null,
       expectedMove: null,
       modelVersion: MODEL_VERSION,
       predictedAt: new Date().toISOString(),
@@ -645,7 +648,7 @@ async function buildPayload() {
     .map((prediction) => {
       const index = priceByDate.get(prediction.targetDate);
       if (index === undefined || index < 1) {
-        return { ...prediction, realized: null, correct: null };
+        return { ...prediction, realized: null, outcome: null, correct: null };
       }
       const realized = Math.log(prices[index].value / prices[index - 1].value) * 100;
       const previous = index >= 2 ? Math.log(prices[index - 1].value / prices[index - 2].value) * 100 : null;
@@ -659,10 +662,54 @@ async function buildPayload() {
         outcome === null || prediction.probability === null
           ? null
           : (prediction.probability >= 0.5) === outcome;
-      return { ...prediction, realized, correct };
+      return { ...prediction, realized, outcome, correct };
     })
     .filter((record) => record.probability !== null);
   const settled = liveRecords.filter((record) => record.correct !== null);
+  const liveTargets = (["direction", "continuation"] as const).map((target) => {
+    const scored = liveRecords.filter(
+      (record) => record.target === target && record.outcome !== null && record.probability !== null,
+    );
+    const comparable = scored.filter((record) => record.baselineProbability !== null);
+    const labels = scored.map((record) => Number(record.outcome === true));
+    const probabilities = scored.map((record) => record.probability!);
+    const comparisonLabels = comparable.map((record) => Number(record.outcome === true));
+    const comparisonProbabilities = comparable.map((record) => record.probability!);
+    const baselineProbabilities = comparable.map((record) => record.baselineProbability!);
+    const average = (values: number[]) =>
+      values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+    const brier = (values: number[], outcomes: number[]) =>
+      average(values.map((value, index) => (value - outcomes[index]) ** 2));
+    const logLoss = (values: number[], outcomes: number[]) =>
+      average(values.map((value, index) => {
+        const probability = Math.min(1 - 1e-12, Math.max(1e-12, value));
+        return -(outcomes[index] * Math.log(probability) + (1 - outcomes[index]) * Math.log(1 - probability));
+      }));
+    const accuracy = (values: number[], outcomes: number[]) =>
+      average(values.map((value, index) => Number((value >= 0.5) === Boolean(outcomes[index]))));
+    const modelBrier = brier(comparisonProbabilities, comparisonLabels);
+    const modelLogLoss = logLoss(comparisonProbabilities, comparisonLabels);
+    const baselineBrier = brier(baselineProbabilities, comparisonLabels);
+
+    return {
+      target,
+      samples: scored.length,
+      accuracy: accuracy(probabilities, labels),
+      brier: brier(probabilities, labels),
+      logLoss: logLoss(probabilities, labels),
+      calibration: reliabilityByQuantile(probabilities, labels, 5),
+      baselineSamples: comparable.length,
+      pairedBrier: modelBrier,
+      pairedLogLoss: modelLogLoss,
+      baselineAccuracy: accuracy(baselineProbabilities, comparisonLabels),
+      baselineBrier,
+      baselineLogLoss: logLoss(baselineProbabilities, comparisonLabels),
+      brierSkill:
+        modelBrier !== null && baselineBrier !== null && baselineBrier > 0
+          ? 1 - modelBrier / baselineBrier
+          : null,
+    };
+  });
 
   const lastPrice = prices.at(-1)?.value ?? 0;
   const dollarRange =
@@ -891,8 +938,9 @@ async function buildPayload() {
       accuracy: settled.length
         ? (settled.filter((record) => record.correct).length / settled.length) * 100
         : null,
+      targets: liveTargets,
       reason:
-        "Every forecast is written to the database before the session it describes and scored afterwards from the same price series. A short record proves nothing yet; it is shown so the model cannot be quietly re-tuned after a bad run.",
+      "Probabilities and their walk-forward training base rates are saved before the session and scored afterwards. Brier score and log loss compare those paired forecasts; calibration groups are equal-count probability ranks. A short record is descriptive, not evidence of durable skill.",
     },
     method:
       `Regularized logistic regression on ${FEATURE_NAMES.length} market, rates, credit, and volatility features for the binary questions, and a walk-forward augmented HAR model of log absolute return for the size of the move. The size model uses close-return persistence, Yahoo OHLC true range, Wilder ATR(14)/ATR(50) expansion, implied-volatility level, and VIX/VXV term structure. Missing observations withhold a row rather than becoming a zero-change signal. All scores come from walk-forward evaluation: fit on the past, predict the block that follows, never look back, with an embargo between the two.`,

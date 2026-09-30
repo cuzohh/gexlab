@@ -13,7 +13,7 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //
 //   GX2#H~<space>~<instrument>~<refSpot>~<epochSec>|<block>|<block>
 //   block: <name>~<role>~<spot>~<step>~<agg>~<gamma>~<delta>~<expiries>
-//          ~<profile>~<volume>~<move>
+//          ~<profile>~<volume>~<move>~<magnitude>
 //     role      P primary book, C confirmation book (QQQ / SPY)
 //     step      that book's strike increment, already rescaled onto refSpot
 //     agg       call,put,flip,maxpain,vanna
@@ -23,6 +23,7 @@ indicator("GEXLab V3 Option Levels", overlay=true, max_bars_back=5000, calc_bars
 //     profile   strike,exposure;…      exposure -100…100 of the peak
 //     volume    callVolumeWall,putVolumeWall
 //     move      oneSigmaBps,frontSettlesEpoch
+//     magnitude raw gamma peak,gross,net over the same strikes the histogram draws
 //
 // A payload outlives its own contracts, and payload age cannot detect it: one
 // exported at 15:55 is four hours old at 20:00 while its 0DTE walls describe
@@ -125,6 +126,9 @@ var int[] hist_book = array.new_int()
 // Strike increment per book, which sets how tall a histogram bar is drawn.
 var float[] book_step = array.new_float(2, na)
 var string[] book_name = array.new_string(2, "")
+var float[] book_gamma_peak = array.new_float(2, na)
+var float[] book_gamma_gross = array.new_float(2, na)
+var float[] book_gamma_net = array.new_float(2, na)
 
 var bool parsed = false
 var bool payload_is_futures = false
@@ -256,6 +260,13 @@ f_parse_block(block) =>
             // a contract that no longer trades. This subfield was the front
             // expiry's days to expiry, which nothing read.
             array.set(meta_levels, 2, f_number(move, 1))
+
+        if array.size(fields) >= 12 and f_str(fields, 11) != ""
+            magnitude = str.split(f_str(fields, 11), ",")
+            if array.size(magnitude) >= 3
+                array.set(book_gamma_peak, role, f_number(magnitude, 0))
+                array.set(book_gamma_gross, role, f_number(magnitude, 1))
+                array.set(book_gamma_net, role, f_number(magnitude, 2))
 
 // Parsed once. Any change to the payload input recompiles the whole script, so
 // there is nothing to invalidate.
@@ -740,6 +751,25 @@ if barstate.islast
                       bgcolor=color.new(tone, 55)))
                     highest_level := na(highest_level) or level > highest_level ? level : highest_level
                     lowest_level := na(lowest_level) or level < lowest_level ? level : lowest_level
+        if not na(highest_level)
+            int first_book = profile_both ? 0 : profile_shown
+            int last_book = profile_both ? 1 : profile_shown
+            for book = first_book to last_book
+                peak = array.get(book_gamma_peak, book)
+                gross = array.get(book_gamma_gross, book)
+                net = array.get(book_gamma_net, book)
+                if not na(peak) and not na(gross) and not na(net)
+                    magnitude_text = array.get(book_name, book) + " γ P " + str.tostring(peak, format.volume) + " · G " + str.tostring(gross, format.volume) + " · N " + str.tostring(net, format.volume)
+                    label_x = profile_both and book == 0 ? math.max(bar_index + 1, axis - profile_bars) : profile_both ? f_future(right_bars + 2 + profile_bars * 2) : axis
+                    label_y = highest_level + math.max(nz(f_map_width(array.get(book_step, book)), syminfo.mintick), syminfo.mintick) * 2
+                    array.push(drawn_labels, label.new(
+                      x=label_x,
+                      y=label_y,
+                      text=magnitude_text,
+                      style=label.style_label_down,
+                      color=color.new(color.gray, 100),
+                      textcolor=color.new(color.gray, 15),
+                      size=size.tiny))
         if profile_both and not na(highest_level)
             array.push(drawn_lines, line.new(
               x1=axis,
