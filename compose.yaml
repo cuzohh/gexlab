@@ -1,0 +1,22 @@
+services:
+  web:
+    build: .
+    image: gexlab-v3:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GEXLAB_PORT:-3000}:3000"
+    environment:
+      GEXLAB_DATA_DIR: /data
+      GEXLAB_RAW_SESSIONS: ${GEXLAB_RAW_SESSIONS:-20}
+      GEXLAB_CALIBRATE: ${GEXLAB_CALIBRATE:-0}
+      GEXLAB_ESTIMATE_TICKERS: ${GEXLAB_ESTIMATE_TICKERS:-}
+      GEXLAB_SEC_CONTACT: ${GEXLAB_SEC_CONTACT:-}
+    volumes:
+      - gexlab-v3-data:/data
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  gexlab-v3-data:
+    name: gexlab-v3-data

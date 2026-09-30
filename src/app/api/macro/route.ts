@@ -6,6 +6,8 @@ import {
   sessionsBehind,
 } from "@/lib/market-time";
 import { loadGeopoliticalRisk } from "@/lib/server/geopolitical-sources";
+import { loadGeoeconomicEvents } from "@/lib/server/geoeconomic-event-sources";
+import { loadNewsSentiment, type NewsSentiment } from "@/lib/server/news-sentiment";
 import { loadCftcData, type CftcPositioningRow } from "@/lib/server/cftc-sources";
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { nextSessionOutlook, pivotReturn } from "@/lib/regime-forecast";
@@ -72,7 +74,7 @@ type MacroMetric = {
 const FRED_IDS = MACRO_SERIES_IDS;
 
 const CACHE_MS = 15 * 60 * 1000;
-const METHODOLOGY_VERSION = "macro-regime-v3.16.0";
+const METHODOLOGY_VERSION = "macro-regime-v3.18.0";
 // Derived, not written out again. These were two hand-kept strings, so adding a
 // field to the payload left the key pointing at the old shape and the cached
 // response was served for the full window with the new field missing — and
@@ -670,7 +672,7 @@ function eventWindowStudy(
 }
 
 async function buildPayload() {
-  const [seriesResult, cftcRows, fomcMeetings, recentReleases, scheduledReleases, geopolitical] = await Promise.all([
+  const [seriesResult, cftcRows, fomcMeetings, recentReleases, scheduledReleases, geopolitical, geoeconomicEvents, newsSentiment] = await Promise.all([
     loadMacroSeriesStore(FRED_IDS),
     loadCftcData(),
     loadFomcMeetings().catch(() => null),
@@ -679,6 +681,11 @@ async function buildPayload() {
     // Never fatal: the geopolitical workbooks are a third-party academic site,
     // and the rest of this page must not depend on their availability.
     loadGeopoliticalRisk().catch(() => null),
+    // Official policy events are evidence to review, not a regime input. A
+    // source listing outage must never cost the macro data that confirms it.
+    loadGeoeconomicEvents().catch(() => null),
+    // News is contextual evidence and must never make the macro page fail.
+    loadNewsSentiment().catch(() => null),
   ]);
   const studyYears = Array.from({ length: 11 }, (_, index) => new Date().getUTCFullYear() - 10 + index);
   const publishedReleaseDates = await loadPublishedReleaseDates(studyYears).catch(() => []);
@@ -1564,6 +1571,8 @@ async function buildPayload() {
           };
         })()
       : null,
+    geoeconomicEvents,
+    newsSentiment: newsSentiment as NewsSentiment | null,
     regime: {
       name: regime,
       confidence,
@@ -1728,29 +1737,67 @@ async function refreshMacroOutput() {
   return payload;
 }
 
-export async function GET() {
+type MacroPayload = Awaited<ReturnType<typeof buildPayload>>;
+type MacroResponsePayload = MacroPayload & { stale?: boolean; staleReason?: string };
+type MacroView = "overview" | "regime" | "history";
+
+/**
+ * The overview needs the current read, not an 800-session replay and every
+ * event-study row. Keeping one complete SQLite snapshot preserves consistency
+ * across pages, while trimming it at the response boundary cuts parsing and
+ * transfer work for the premarket landing page.
+ */
+function payloadForView(payload: MacroResponsePayload, view: MacroView): MacroResponsePayload {
+  if (view === "history") return payload;
+  return {
+    ...payload,
+    history: {
+      ...payload.history,
+      rows: payload.history.rows.slice(0, 3),
+      daily: [],
+      quantiles: [],
+      eventWindows: { ...payload.history.eventWindows, rows: [] },
+      transitions: { ...payload.history.transitions, rows: [] },
+    },
+  };
+}
+
+function macroResponse(payload: MacroResponsePayload, view: MacroView) {
+  return NextResponse.json(payloadForView(payload, view), {
+    headers: {
+      // The server-side SQLite snapshot remains authoritative. This short
+      // browser cache prevents a back/forward navigation from re-parsing the
+      // same response, while stale-while-revalidate keeps the first paint fast.
+      "Cache-Control": "private, max-age=60, stale-while-revalidate=840",
+    },
+  });
+}
+
+export async function GET(request: Request) {
+  const requested = new URL(request.url).searchParams.get("view");
+  const view: MacroView = requested === "history" || requested === "regime" ? requested : "overview";
   const stored = getSnapshot<Awaited<ReturnType<typeof buildPayload>>>(
     "macro-output",
     OUTPUT_CACHE_KEY,
   );
   try {
-    if (stored && snapshotIsFresh(stored)) return NextResponse.json(stored.payload);
+    if (stored && snapshotIsFresh(stored)) return macroResponse(stored.payload, view);
     if (stored) {
       void dedupeRequest("macro-output-refresh", refreshMacroOutput).catch(() => undefined);
-      return NextResponse.json({
+      return macroResponse({
         ...stored.payload,
         stale: true,
         staleReason: "Refreshing the saved macro snapshot in the background.",
-      });
+      }, view);
     }
-    return NextResponse.json(await refreshMacroOutput());
+    return macroResponse(await refreshMacroOutput(), view);
   } catch (error) {
     if (stored) {
-      return NextResponse.json({
+      return macroResponse({
         ...stored.payload,
         stale: true,
         staleReason: error instanceof Error ? error.message : "Refresh failed.",
-      });
+      }, view);
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load macro data." },

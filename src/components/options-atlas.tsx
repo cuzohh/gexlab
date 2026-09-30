@@ -13,13 +13,15 @@ import type { ExposureMagnitude } from "@/lib/exposure-magnitude";
 import { isRegularMarketOpen, nextQuarterHour, nextWeekday, parseEasternTimestamp } from "@/lib/market-time";
 import { PositioningTape } from "@/components/positioning-tape";
 import { assessSnapshotQuality } from "@/lib/snapshot-quality";
+import { readTopology, sampleTopology, type TopologyRow } from "@/lib/options-topology";
+import { DxyStudy } from "@/components/dxy-study";
 
 type Instrument = "NQ" | "ES";
 type Metric = "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma";
 type View = "spine" | "bars";
 type ExpiryMode = "single" | "through" | "custom" | "composite";
 type PriceScale = "native" | "futures";
-type Shelf = "levels" | "chain" | "flow" | "volatility" | "term" | "indicator";
+type Shelf = "levels" | "chain" | "flow" | "volatility" | "term" | "indicator" | "topology";
 type UpdateMode = "eod" | "live";
 
 type LiveStrike = {
@@ -69,6 +71,27 @@ type SurfaceSlice = {
   riskReversal25: number | null;
   butterfly25: number | null;
   points: SurfacePoint[];
+};
+
+type SurfaceGrid = {
+  buckets: number[];
+  rows: {
+    expiry: string;
+    dte: number;
+    atmIv: number;
+    riskReversal25: number | null;
+    cells: (number | null)[];
+  }[];
+  min: number;
+  max: number;
+};
+
+type TopologySurfaceRow = Pick<LiveStrike, "strike" | "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma">;
+
+type TopologySurfaceSlice = {
+  expiry: string;
+  dte: number;
+  rows: TopologySurfaceRow[];
 };
 
 type LiveOptionsData = {
@@ -129,6 +152,7 @@ type LiveOptionsData = {
     settlesAt?: string | null;
     levels: OptionLevels;
   }[];
+  topology: TopologySurfaceSlice[];
   expiryStats: {
     expiry: string;
     atmIv: number | null;
@@ -136,6 +160,27 @@ type LiveOptionsData = {
     volume: number;
   }[];
   surface: SurfaceSlice[];
+  /**
+   * Strikes priced away from the volatility curve fitted through the strikes
+   * beside them. Demand for one contract, and nothing about dealer hedging —
+   * that is gamma, and it is the wall levels above.
+   */
+  volDislocation: {
+    expiry: string;
+    noise: number;
+    rejected: { illiquid: number; unquoted: number; total: number };
+    readable: number;
+    strikes: {
+      strike: number;
+      iv: number;
+      fitted: number;
+      residual: number;
+      openInterest: number;
+      volume: number;
+      relativeSpread: number;
+      ivUncertainty: number;
+    }[];
+  } | null;
   surfaceChange: {
     comparedTo: string;
     dte: number;
@@ -408,6 +453,249 @@ function LargeTrades({ flow }: { flow: NonNullable<LiveOptionsData["flow"]> }) {
 
       <p className="data-disclaimer">{flow.method}</p>
       <p className="data-disclaimer">{flow.caveat}</p>
+    </div>
+  );
+}
+
+function topologyRows(snapshot: LiveOptionsData | null, metric: Metric): TopologyRow[] {
+  if (!snapshot) return [];
+  const halfRange = snapshot.spot * 0.032;
+  return sampleTopology(
+    snapshot.strikes
+      .filter((row) => row.strike >= snapshot.spot - halfRange && row.strike <= snapshot.spot + halfRange)
+      .map((row) => ({ strike: row.strike, value: row[metric] })),
+  );
+}
+
+function topologyPath(rows: TopologyRow[], left: number, top: number, width: number, height: number) {
+  if (!rows.length) return "";
+  const high = rows.at(-1)?.strike ?? 1;
+  const low = rows[0]?.strike ?? 0;
+  const maxAbs = Math.max(...rows.map((row) => Math.abs(row.value)), 1);
+  const center = left + width / 2;
+  return rows
+    .map((row, index) => {
+      const y = top + ((high - row.strike) / Math.max(high - low, 1)) * height;
+      const x = center + (row.value / maxAbs) * (width / 2 - 8);
+      return `${index ? "L" : "M"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function TopologyStudy({
+  snapshot,
+  comparison,
+  metric,
+  surfaceGrid,
+  topology,
+  expiryStats,
+  instrument,
+  onMetric,
+}: {
+  snapshot: LiveOptionsData | null;
+  comparison: LiveOptionsData | null;
+  metric: Metric;
+  surfaceGrid: SurfaceGrid | null;
+  topology: TopologySurfaceSlice[];
+  expiryStats: LiveOptionsData["expiryStats"];
+  instrument: Instrument;
+  onMetric: (metric: Metric) => void;
+}) {
+  const [topologyView, setTopologyView] = useState<"surface" | "iv" | "field" | "expiry">("surface");
+  const primaryRows = topologyRows(snapshot, metric);
+  const primaryReading = readTopology(primaryRows);
+  const comparisonRows = topologyRows(comparison, metric);
+  const comparisonReading = readTopology(comparisonRows);
+  const maxTermIv = Math.max(...expiryStats.map((row) => row.atmIv ?? 0), 0.01);
+  const totalOpenInterest = expiryStats.reduce((sum, row) => sum + Math.max(row.openInterest, 0), 0);
+  const surfaceSlices = topology.filter((slice) => slice.rows.length).slice(0, 24);
+  const surfaceValues = surfaceSlices.flatMap((slice) => slice.rows.map((row) => row[metric]));
+  const surfaceMax = Math.max(...surfaceValues.map((value) => Math.abs(value)), 1);
+  const surfaceMinMoneyness = -3.2;
+  const surfaceMaxMoneyness = 3.2;
+  const surfaceX = (strike: number) => {
+    const moneyness = snapshot ? ((strike / snapshot.spot) - 1) * 100 : 0;
+    return 96 + ((Math.max(surfaceMinMoneyness, Math.min(surfaceMaxMoneyness, moneyness)) - surfaceMinMoneyness) / (surfaceMaxMoneyness - surfaceMinMoneyness)) * 728;
+  };
+  const surfaceCells = surfaceSlices.flatMap((slice, sliceIndex) => {
+    const rows = [...slice.rows].sort((left, right) => left.strike - right.strike);
+    const y = 28 + sliceIndex * Math.max(14, 380 / Math.max(surfaceSlices.length, 1));
+    const rowHeight = Math.max(12, 380 / Math.max(surfaceSlices.length, 1));
+    return rows.map((row, rowIndex) => {
+      const x = surfaceX(row.strike);
+      const previousX = rowIndex ? surfaceX(rows[rowIndex - 1].strike) : 96;
+      const nextX = rowIndex < rows.length - 1 ? surfaceX(rows[rowIndex + 1].strike) : 824;
+      const left = rowIndex ? (previousX + x) / 2 : 96;
+      const right = rowIndex < rows.length - 1 ? (x + nextX) / 2 : 824;
+      const value = row[metric];
+      return { key: `${slice.expiry}-${row.strike}`, x: left, y, width: Math.max(2, right - left), height: rowHeight, value };
+    });
+  });
+
+  return (
+    <div className="topology-study">
+      <header className="topology-study-head">
+        <div>
+          <p className="section-kicker">Options topology</p>
+          <h3>Where the field clusters, bends, and changes shape.</h3>
+          <p>
+            Topology describes the arrangement of exposure and volatility across strikes and expiries.
+            It is a shape read, not a directional signal.
+          </p>
+        </div>
+        <div className="expiry-mode" aria-label="Topology view">
+          <button data-active={topologyView === "surface" || undefined} onClick={() => setTopologyView("surface")}>
+            Greek surface
+          </button>
+          <button data-active={topologyView === "iv" || undefined} onClick={() => setTopologyView("iv")}>
+            IV surface
+          </button>
+          <button data-active={topologyView === "field" || undefined} onClick={() => setTopologyView("field")}>
+            Greek field
+          </button>
+          <button data-active={topologyView === "expiry" || undefined} onClick={() => setTopologyView("expiry")}>
+            Expiry field
+          </button>
+        </div>
+      </header>
+
+      {topologyView === "surface" && (
+        <div className="topology-greek-surface">
+          <div className="topology-metric-picker" aria-label="Greek surface metric">
+            {metrics.map((item) => (
+              <button key={item.id} data-active={metric === item.id || undefined} onClick={() => onMetric(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {!surfaceSlices.length ? (
+            <div className="data-pending"><strong>Not enough per-expiry exposure rows to build the Greek surface.</strong></div>
+          ) : (
+            <svg className="topology-surface-map" viewBox="0 0 860 450" role="img" aria-label={`${metric} exposure surface by expiry and strike`}>
+              <line x1="96" x2="824" y1="416" y2="416" className="topology-axis" />
+              <line x1={surfaceX(snapshot?.spot ?? 0)} x2={surfaceX(snapshot?.spot ?? 0)} y1="20" y2="416" className="topology-spot-axis" />
+              <text x="96" y="438" className="topology-axis-label">−3.2% moneyness</text>
+              <text x="824" y="438" textAnchor="end" className="topology-axis-label">+3.2%</text>
+              <text x={surfaceX(snapshot?.spot ?? 0)} y="438" textAnchor="middle" className="topology-axis-label">SPOT</text>
+              {surfaceSlices.map((slice, index) => (
+                <text key={slice.expiry} x="84" y={36 + index * Math.max(14, 380 / Math.max(surfaceSlices.length, 1))} textAnchor="end" className="topology-expiry-label">
+                  {slice.dte}D
+                </text>
+              ))}
+              {surfaceCells.map((cell) => (
+                <rect
+                  key={cell.key}
+                  x={cell.x}
+                  y={cell.y}
+                  width={cell.width}
+                  height={cell.height}
+                  fill={cell.value >= 0 ? "var(--constructive)" : "var(--stress)"}
+                  fillOpacity={0.12 + Math.min(Math.abs(cell.value) / surfaceMax, 1) * 0.78}
+                  className="topology-surface-cell"
+                >
+                  <title>{`${metric} ${formatCompact(cell.value)}`}</title>
+                </rect>
+              ))}
+            </svg>
+          )}
+          <p className="data-disclaimer">Each row is a listed expiry and each column is strike moneyness around spot. Color shows the selected Greek’s signed exposure; intensity shows magnitude within this surface.</p>
+        </div>
+      )}
+
+      {topologyView === "field" && (
+        <div className="topology-field-layout">
+          <div className="topology-field-copy">
+            <div className="topology-reading topology-reading--primary">
+              <span>{snapshot?.symbol ?? (instrument === "NQ" ? "NDX" : "SPX")} · {metric}</span>
+              <strong>{primaryReading.label}</strong>
+              <p>{primaryReading.detail}</p>
+            </div>
+            <div className="topology-reading">
+              <span>{comparison?.symbol ?? (instrument === "NQ" ? "QQQ" : "SPY")} · {metric}</span>
+              <strong>{comparisonReading.label}</strong>
+              <p>{comparison ? comparisonReading.detail : "Waiting for the comparison book."}</p>
+            </div>
+            <p className="data-disclaimer">
+              Each line is zero-centered and normalized within its own book. The selected {metric} lens is
+              highlighted in the field; use the main exposure atlas below the expiry controls to inspect an exact row.
+            </p>
+          </div>
+          <svg className="topology-field" viewBox="0 0 720 420" role="img" aria-label="Greek exposure topology by strike">
+            <line x1="360" x2="360" y1="20" y2="400" className="topology-axis" />
+            {metrics.map((item, index) => {
+              const top = 12 + index * 49;
+              const rows = topologyRows(snapshot, item.id);
+              const companionRows = topologyRows(comparison, item.id);
+              const active = item.id === metric;
+              return (
+                <g key={item.id} className={active ? "topology-row topology-row--active" : "topology-row"}>
+                  <text x="8" y={top + 19}>{item.label.toUpperCase()}</text>
+                  <line x1="74" x2="646" y1={top + 25} y2={top + 25} className="topology-row-rule" />
+                  <path d={topologyPath(rows, 74, top + 4, 572, 40)} className="topology-path topology-path--primary" />
+                  {companionRows.length > 1 && (
+                    <path d={topologyPath(companionRows, 74, top + 4, 572, 40)} className="topology-path topology-path--comparison" />
+                  )}
+                  {active && <circle cx="360" cy={top + 25} r="3" className="topology-focus" />}
+                </g>
+              );
+            })}
+            <text x="360" y="415" textAnchor="middle" className="topology-axis-label">ZERO · normalized field</text>
+          </svg>
+        </div>
+      )}
+
+      {topologyView === "iv" && (
+        <div className="topology-surface">
+          {!surfaceGrid ? (
+            <div className="data-pending"><strong>Not enough quoted strikes to build the IV topology.</strong></div>
+          ) : (
+            <>
+              <table className="topology-surface-table" aria-label="Implied volatility topology">
+                <thead>
+                  <tr>
+                    <th scope="col">DTE</th>
+                    {surfaceGrid.buckets.map((bucket) => <th key={bucket} scope="col">{bucket > 0 ? `+${bucket}` : bucket}</th>)}
+                    <th scope="col">RR</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {surfaceGrid.rows.map((row) => (
+                    <tr key={row.expiry}>
+                      <th scope="row">{row.dte}</th>
+                      {row.cells.map((cell, index) => (
+                        <td
+                          key={surfaceGrid.buckets[index]}
+                          title={cell === null ? "No quote" : `${row.expiry} at ${surfaceGrid.buckets[index]} sigma: ${(cell * 100).toFixed(1)}%`}
+                          style={cell === null ? undefined : { background: `color-mix(in oklab, var(--surface-hot) ${(((cell - surfaceGrid.min) / Math.max(surfaceGrid.max - surfaceGrid.min, 0.0001)) * 100).toFixed(0)}%, var(--surface-cold))` }}
+                        >
+                          {cell === null ? "" : (cell * 100).toFixed(0)}
+                        </td>
+                      ))}
+                      <td className="surface-rr">{row.riskReversal25 === null ? "—" : (row.riskReversal25 * 100).toFixed(1)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="data-disclaimer">Rows are expiries; columns are standardized moneyness. Hotter cells are richer implied volatility, not a forecast of direction.</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {topologyView === "expiry" && (
+        <div className="topology-expiry">
+          <div className="topology-expiry-head"><span>Expiry</span><span>ATM IV</span><span>Open-interest share</span></div>
+          {expiryStats.slice(0, 12).map((row) => (
+            <div className="topology-expiry-row" key={row.expiry}>
+              <span><strong>{calendarDte(row.expiry, easternDate(snapshot?.timestamp ?? new Date().toISOString()))}DTE</strong><small>{shortExpiry(row.expiry).monthDay}</small></span>
+              <i><b style={{ width: `${((row.atmIv ?? 0) / maxTermIv) * 100}%` }} /></i>
+              <span>{row.atmIv === null ? "—" : `${(row.atmIv * 100).toFixed(1)}%`} · {totalOpenInterest ? `${((row.openInterest / totalOpenInterest) * 100).toFixed(0)}% OI` : "—"}</span>
+            </div>
+          ))}
+          {!expiryStats.length && <div className="data-pending"><strong>Expiry topology is waiting for contract statistics.</strong></div>}
+          <p className="data-disclaimer">Expiry topology combines the term shape of ATM IV with the share of open interest in each listed expiry.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -887,7 +1175,7 @@ export function OptionsAtlas() {
   useEffect(() => {
     const selectStudy = (event: Event) => {
       const study = (event as CustomEvent<string>).detail;
-      if (["levels", "chain", "volatility", "term", "indicator"].includes(study)) {
+      if (["topology", "levels", "chain", "volatility", "term", "indicator"].includes(study)) {
         setShelf(study as Shelf);
       }
     };
@@ -1319,7 +1607,7 @@ export function OptionsAtlas() {
   // Surface grid: expiries down the term axis, standardized moneyness across.
   // Standardizing by atm IV and sqrt(T) is what makes a 3DTE column comparable
   // to a 90DTE one; raw strike distance is not.
-  const surfaceGrid = useMemo(() => {
+  const surfaceGrid = useMemo<SurfaceGrid | null>(() => {
     const slices = (marketData?.surface ?? []).filter((slice) => slice.points.length >= 3);
     if (!slices.length) return null;
     const buckets = [-2.5, -1.75, -1.25, -0.75, -0.25, 0.25, 0.75, 1.25, 1.75, 2.5];
@@ -2054,6 +2342,8 @@ export function OptionsAtlas() {
 
       <PositioningTape symbol={marketData?.symbol ?? (instrument === "NQ" ? "NDX" : "SPX")} />
 
+      {instrument === "NQ" && <DxyStudy />}
+
       <section className="research-shelf" id="research">
         <nav aria-label="Related structure studies">
           {([
@@ -2079,6 +2369,19 @@ export function OptionsAtlas() {
         </nav>
 
         <div className="shelf-content">
+          {shelf === "topology" && (
+            <TopologyStudy
+              snapshot={marketData}
+              comparison={comparisonData}
+              metric={metric}
+              surfaceGrid={surfaceGrid}
+              topology={marketData?.topology ?? []}
+              expiryStats={marketData?.expiryStats ?? []}
+              instrument={instrument}
+              onMetric={setMetric}
+            />
+          )}
+
           {shelf === "levels" && (
             <div>
               <p className="data-disclaimer">
@@ -2282,6 +2585,71 @@ export function OptionsAtlas() {
                   </p>
                 </div>
               )}
+
+              {/*
+                * Strikes priced away from the curve fitted through the strikes
+                * beside them. It sits under the smile because it is the same
+                * object read one strike at a time, and deliberately nowhere
+                * near the wall levels: a rich strike is somebody's demand for
+                * a contract, while a wall is dealer gamma that moves the
+                * underlying. Conflating the two is the entire error in the
+                * "IV wall" idea this answers.
+                */}
+              <div className="dislocation-study">
+                <p className="section-kicker">Strike dislocation</p>
+                {!marketData?.volDislocation ? (
+                  <p>No expiry has enough tightly quoted strikes to fit a curve worth comparing against.</p>
+                ) : (
+                  <>
+                    <h3>
+                      {marketData.volDislocation.strikes.length
+                        ? `${marketData.volDislocation.strikes.length} strike${marketData.volDislocation.strikes.length === 1 ? "" : "s"} priced off the ${marketData.volDislocation.expiry} curve.`
+                        : `Every readable strike on ${marketData.volDislocation.expiry} sits on its own curve.`}
+                    </h3>
+                    {marketData.volDislocation.strikes.length ? (
+                      <table className="dislocation-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Strike</th>
+                            <th scope="col">IV</th>
+                            <th scope="col">Curve</th>
+                            <th scope="col">Away by</th>
+                            <th scope="col">OI</th>
+                            <th scope="col">Volume</th>
+                            <th scope="col">± quote</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marketData.volDislocation.strikes.map((row) => (
+                            <tr key={row.strike}>
+                              <th scope="row">{row.strike.toLocaleString()}</th>
+                              <td>{row.iv.toFixed(1)}%</td>
+                              <td>{row.fitted.toFixed(1)}%</td>
+                              <td data-rich={row.residual > 0 || undefined}>
+                                {row.residual > 0 ? "+" : ""}{row.residual.toFixed(2)}
+                              </td>
+                              <td>{row.openInterest.toLocaleString()}</td>
+                              <td>{row.volume.toLocaleString()}</td>
+                              <td>±{row.ivUncertainty.toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : null}
+                    <p>
+                      {marketData.volDislocation.readable} strikes quoted tightly enough to read, {marketData.volDislocation.rejected.total} discarded
+                      ({marketData.volDislocation.rejected.illiquid} too thin, {marketData.volDislocation.rejected.unquoted} unquoted).
+                      Typical distance from the curve is {(marketData.volDislocation.noise).toFixed(2)} volatility points, and a strike is only
+                      reported when it clears both that scatter and the volatility its own bid-ask leaves undetermined.
+                    </p>
+                    <p>
+                      Read as demand for a contract. It is not support or resistance, and it is not dealer hedging pressure — that is
+                      gamma, and it is the wall levels on the exposure plot. Open interest alone cannot make a strike rich: the same
+                      size built by sellers leaves dealers long and quoting it cheaper.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           )}
 

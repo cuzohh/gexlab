@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fitSmile } from "@/lib/vol-smile";
 import {
   easternDate,
   isRegularMarketOpen,
@@ -83,12 +84,20 @@ const EXPOSURE_METRICS: ExposureMetric[] = [
 ];
 const PROFILE_SPAN_PERCENT = 0.032;
 
-const SYMBOLS = {
+const INDEX_SYMBOLS = {
   NDX: { endpoint: "_NDX", dividendYield: 0.006 },
   SPX: { endpoint: "_SPX", dividendYield: 0.012 },
   QQQ: { endpoint: "QQQ", dividendYield: 0.005 },
   SPY: { endpoint: "SPY", dividendYield: 0.011 },
 } as const;
+
+function optionConfig(symbol: string) {
+  if (symbol in INDEX_SYMBOLS) return INDEX_SYMBOLS[symbol as keyof typeof INDEX_SYMBOLS];
+  // Cboe publishes delayed chains under the equity ticker. We deliberately use
+  // a zero dividend-yield assumption for unknown equities rather than inventing
+  // a company-specific yield; the response documents that assumption.
+  return { endpoint: symbol, dividendYield: 0 };
+}
 
 const DEFAULT_RISK_FREE_RATE = 0.045;
 const USER_AGENT = "Mozilla/5.0 (compatible; GEXLab/3.0)";
@@ -123,6 +132,30 @@ function optionalNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function fetchNasdaqFallback(symbol: string): Promise<{ payload: RawPayload; sourceTime: string | null }> {
+  // Nasdaq's public quote page exposes its composite OPRA view for equities.
+  // It is a fallback, never mixed into a Cboe snapshot: partial books make OI
+  // changes and flow rankings look more precise than they are.
+  const response = await fetch(
+    `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/option-chain?assetclass=stocks&limit=5000&fromdate=all&excode=oprac&callput=callput&money=all&type=all`,
+    {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": USER_AGENT,
+      },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok) throw new Error(`Nasdaq fallback returned ${response.status}`);
+  const payload = nasdaqPayload(symbol, await response.json());
+  if (!payload) throw new Error("Nasdaq fallback returned no usable option contracts.");
+  const observedAt = new Date();
+  payload.timestamp = observedAt.toISOString();
+  return { payload, sourceTime: latestMarketObservationTime(observedAt.toISOString()) };
 }
 
 function parseContract(raw: RawOption): ParsedContract | null {
@@ -316,8 +349,84 @@ type RawPayload = {
   data?: {
     current_price?: number;
     options?: RawOption[];
+    /** The source is transported with the raw chain: activity is not comparable
+        unless the reader can see which delayed book supplied it. */
+    provider?: "cboe" | "nasdaq";
+    providerLabel?: string;
+    coverageNote?: string;
   };
 };
+
+type NasdaqChainRow = Record<string, string | null> & {
+  expirygroup?: string | null;
+  expiryDate?: string | null;
+  drillDownURL?: string | null;
+  strike?: string | null;
+};
+
+/** Nasdaq publishes display strings, not a contract API schema. Keep its
+ * normalisation deliberately narrow, and use it only when Cboe has no book. */
+function nasdaqNumber(value: unknown) {
+  const text = String(value ?? "").replaceAll(",", "").trim();
+  return text === "--" || text === "" ? 0 : number(text.replace(/^\$/, ""));
+}
+
+function nasdaqExpiry(value: string | null | undefined) {
+  const match = String(value ?? "").match(/^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/);
+  if (!match) return null;
+  const month = new Date(`${match[1]} 1, 2000`).getMonth() + 1;
+  if (!Number.isFinite(month)) return null;
+  return `${match[3]}-${String(month).padStart(2, "0")}-${match[2].padStart(2, "0")}`;
+}
+
+function nasdaqPayload(symbol: string, raw: unknown): RawPayload | null {
+  const payload = raw as {
+    data?: { lastTrade?: string | null; table?: { rows?: NasdaqChainRow[] } | null } | null;
+  };
+  const rows = payload.data?.table?.rows;
+  const spot = Number(String(payload.data?.lastTrade ?? "").match(/\$([\d,.]+)/)?.[1]?.replaceAll(",", ""));
+  if (!rows?.length || !Number.isFinite(spot) || spot <= 0) return null;
+
+  let activeExpiry: string | null = null;
+  const options: RawOption[] = [];
+  for (const row of rows) {
+    if (row.expirygroup) {
+      activeExpiry = nasdaqExpiry(row.expirygroup);
+      continue;
+    }
+    const strike = nasdaqNumber(row.strike);
+    if (!activeExpiry || strike <= 0) continue;
+    const compactDate = activeExpiry.replaceAll("-", "").slice(2);
+    const strikeCode = String(Math.round(strike * 1000)).padStart(8, "0");
+    for (const [prefix, type] of [["c", "C"], ["p", "P"]] as const) {
+      const volume = nasdaqNumber(row[`${prefix}_Volume`]);
+      const openInterest = nasdaqNumber(row[`${prefix}_Openinterest`]);
+      const bid = nasdaqNumber(row[`${prefix}_Bid`]);
+      const ask = nasdaqNumber(row[`${prefix}_Ask`]);
+      const last = nasdaqNumber(row[`${prefix}_Last`]);
+      // A side with no quote, volume or OI is merely an empty display cell.
+      if (!(volume || openInterest || bid || ask || last)) continue;
+      options.push({
+        option: `${symbol}${compactDate}${type}${strikeCode}`,
+        open_interest: openInterest,
+        volume,
+        bid,
+        ask,
+        last_trade_price: last,
+      });
+    }
+  }
+  if (!options.length) return null;
+  return {
+    data: {
+      current_price: spot,
+      options,
+      provider: "nasdaq",
+      providerLabel: "Nasdaq composite delayed chain",
+      coverageNote: "Fallback chain: volume and open interest are available; provider greeks are not, so activity is readable but exposure fields are modeled or unavailable.",
+    },
+  };
+}
 
 // Per-expiry levels are a pure function of one stored snapshot, so a composite
 // request reuses whatever a narrower selection already computed. Only the
@@ -346,6 +455,17 @@ type ExpiryLevels = {
   expiry: string;
   contractCount: number;
   levels: ReturnType<typeof calculateLevels>;
+};
+
+type TopologyRow = Pick<
+  ExposureRow,
+  "strike" | "gamma" | "delta" | "vanna" | "charm" | "vega" | "speed" | "zomma" | "vomma"
+>;
+
+type TopologySlice = {
+  expiry: string;
+  dte: number;
+  rows: TopologyRow[];
 };
 
 type SurfaceSlice = {
@@ -399,7 +519,7 @@ const memoFlow = memoize<{
   caveat: string;
 } | null>(8);
 
-async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
+async function fetchRaw(symbol: string, updateMode: UpdateMode) {
   if (updateMode === "live" && !isRegularMarketOpen()) {
     return fetchRaw(symbol, "eod");
   }
@@ -430,26 +550,30 @@ async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
     }
 
     try {
-      const endpoint = SYMBOLS[symbol].endpoint;
+      const endpoint = optionConfig(symbol).endpoint;
       // The origin supports conditional requests, so a poll that finds nothing
       // new costs one 304 instead of re-downloading roughly thirteen megabytes.
       const validator = getSnapshot<{ etag: string }>("http-validators", key);
-      const response = await fetch(
-        `https://cdn.cboe.com/api/global/delayed_quotes/options/${endpoint}.json`,
-        {
-          cache: "no-store",
-          headers: {
-            Accept: "application/json",
-            Referer: "https://www.cboe.com/",
-            "User-Agent": USER_AGENT,
-            ...(stored && validator?.payload.etag
-              ? { "If-None-Match": validator.payload.etag }
-              : {}),
+      let payload: RawPayload;
+      let sourceTime: string | null;
+      let etag: string | null = null;
+      try {
+        const response = await fetch(
+          `https://cdn.cboe.com/api/global/delayed_quotes/options/${endpoint}.json`,
+          {
+            cache: "no-store",
+            headers: {
+              Accept: "application/json",
+              Referer: "https://www.cboe.com/",
+              "User-Agent": USER_AGENT,
+              ...(stored && validator?.payload.etag
+                ? { "If-None-Match": validator.payload.etag }
+                : {}),
+            },
+            signal: AbortSignal.timeout(30_000),
           },
-          signal: AbortSignal.timeout(30_000),
-        },
-      );
-      if (response.status === 304 && stored) {
+        );
+        if (response.status === 304 && stored) {
         // Unchanged upstream. Hold the existing snapshot and defer the next
         // check rather than re-parsing identical data.
         putSnapshot({
@@ -464,14 +588,23 @@ async function fetchRaw(symbol: keyof typeof SYMBOLS, updateMode: UpdateMode) {
           methodologyVersion: METHODOLOGY_VERSION,
         });
         return { ...stored, stale: false };
-      }
-      if (!response.ok) throw new Error(`Market-data request returned ${response.status}`);
-      const etag = response.headers.get("etag");
-      const payload = (await response.json()) as RawPayload;
-      const generatedAt = parseUtcTimestamp(payload.timestamp);
-      const sourceTime = generatedAt ? latestMarketObservationTime(generatedAt) : null;
-      if (!payload.data?.options?.length || !number(payload.data.current_price)) {
-        throw new Error("Market-data snapshot was empty or incomplete.");
+        }
+        if (!response.ok) throw new Error(`Cboe returned ${response.status}`);
+        etag = response.headers.get("etag");
+        payload = (await response.json()) as RawPayload;
+        payload.data = { ...payload.data, provider: "cboe", providerLabel: "Cboe delayed option chain" };
+        const generatedAt = parseUtcTimestamp(payload.timestamp);
+        sourceTime = generatedAt ? latestMarketObservationTime(generatedAt) : null;
+        if (!payload.data?.options?.length || !number(payload.data.current_price)) {
+          throw new Error("Cboe snapshot was empty or incomplete.");
+        }
+      } catch (cboeError) {
+        // Index roots are Cboe-specific in this workspace. For equity symbols,
+        // Nasdaq's composite quote page is the independent free fallback.
+        if (symbol in INDEX_SYMBOLS) throw cboeError;
+        const fallback = await fetchNasdaqFallback(symbol);
+        payload = fallback.payload;
+        sourceTime = fallback.sourceTime;
       }
       const fetchedAt = new Date().toISOString();
       const unchanged = Boolean(stored?.sourceTime && sourceTime === stored.sourceTime);
@@ -541,10 +674,11 @@ export async function GET(
   context: { params: Promise<{ symbol: string }> },
 ) {
   const { symbol: requested } = await context.params;
-  const symbol = requested.toUpperCase() as keyof typeof SYMBOLS;
-  if (!(symbol in SYMBOLS)) {
-    return NextResponse.json({ error: "Supported sources are NDX, SPX, QQQ, and SPY." }, { status: 404 });
+  const symbol = requested.toUpperCase();
+  if (!/^[A-Z]{1,5}$/.test(symbol)) {
+    return NextResponse.json({ error: "Use a 1-5 letter U.S. option symbol." }, { status: 400 });
   }
+  const config = optionConfig(symbol);
 
   try {
     const updateMode: UpdateMode =
@@ -702,7 +836,7 @@ export async function GET(
       const selected = contracts.filter((contract) => selectedExpiries.includes(contract.expiry));
       const aggregated = aggregateExposure(selected, {
         spot,
-        dividendYield: SYMBOLS[symbol].dividendYield,
+        dividendYield: config.dividendYield,
         valuationTime,
         riskFreeRate,
       });
@@ -712,7 +846,7 @@ export async function GET(
           aggregated,
           selected,
           spot,
-          SYMBOLS[symbol].dividendYield,
+          config.dividendYield,
           valuationTime,
           riskFreeRate,
         ),
@@ -759,7 +893,7 @@ export async function GET(
         });
         const bucketRows = aggregateExposure(bucketContracts, {
           spot,
-          dividendYield: SYMBOLS[symbol].dividendYield,
+          dividendYield: config.dividendYield,
           valuationTime,
           riskFreeRate,
         });
@@ -779,7 +913,7 @@ export async function GET(
             spot,
             years: yearsToExpiry(frontExpiry, Date.now(), frontExpiryContracts[0].root),
             riskFreeRate,
-            dividendYield: SYMBOLS[symbol].dividendYield,
+            dividendYield: config.dividendYield,
           })
         : null;
       const invalidStrike = rows.find((row) =>
@@ -812,7 +946,7 @@ export async function GET(
         const sliceContracts = contracts.filter((contract) => contract.expiry === date);
         const sliceRows = aggregateExposure(sliceContracts, {
           spot,
-          dividendYield: SYMBOLS[symbol].dividendYield,
+          dividendYield: config.dividendYield,
           valuationTime,
           riskFreeRate,
         });
@@ -833,13 +967,53 @@ export async function GET(
             sliceRows,
             sliceContracts,
             spot,
-            SYMBOLS[symbol].dividendYield,
+            config.dividendYield,
             valuationTime,
             riskFreeRate,
           ),
         };
       }),
     );
+    // Topology is a separate, compact field because the active profile can be
+    // narrowed to one expiry while the surface still needs the term axis.
+    // Keep only the near-spot window and a stable sample of each expiry's
+    // listed strikes so a composite request does not return the full chain
+    // eight times over.
+    const topology = expiries.map<TopologySlice>((date) => {
+      const sliceContracts = contracts.filter((contract) => contract.expiry === date);
+      const sliceRows = aggregateExposure(sliceContracts, {
+        spot,
+        dividendYield: config.dividendYield,
+        valuationTime,
+        riskFreeRate,
+      });
+      const nearSpot = sliceRows
+        .filter((row) => Math.abs(row.strike / spot - 1) <= 0.032)
+        .sort((left, right) => left.strike - right.strike);
+      const stride = Math.max(1, Math.ceil(nearSpot.length / 36));
+      return {
+        expiry: date,
+        dte: Math.max(
+          0,
+          Math.round(
+            (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${observationDate}T12:00:00Z`)) / 86_400_000,
+          ),
+        ),
+        rows: nearSpot
+          .filter((_, index) => index % stride === 0 || index === nearSpot.length - 1)
+          .map(({ strike, gamma, delta, vanna, charm, vega, speed, zomma, vomma }) => ({
+            strike,
+            gamma,
+            delta,
+            vanna,
+            charm,
+            vega,
+            speed,
+            zomma,
+            vomma,
+          })),
+      };
+    });
     // One smile per listed expiry. Together these are the volatility surface:
     // the term axis comes from the expiry list, the strike axis from each
     // slice's own out-of-the-money quotes. Pooling strikes across expiries
@@ -855,7 +1029,7 @@ export async function GET(
             spot,
             years,
             riskFreeRate,
-            dividendYield: SYMBOLS[symbol].dividendYield,
+            dividendYield: config.dividendYield,
           });
           if (!smile) return null;
           // Real time left, not the floored year fraction. yearsToExpiry clamps
@@ -949,6 +1123,14 @@ export async function GET(
         )
       : [];
     const priorSurface = surfaceHistory[0] ?? null;
+    // Percentile has meaning only against a real, constant-DTE history. A
+    // shorter history would turn a handful of observations into a confident
+    // sounding "rank", so withhold it until twenty distinct sessions exist.
+    const ivHistory = [...new Map(surfaceHistory.map((row) => [row.observationDate, row.atmIv])).values()]
+      .filter((value) => Number.isFinite(value));
+    const ivRank = frontSlice && ivHistory.length >= 20
+      ? (ivHistory.filter((value) => value <= frontSlice.atmIv).length / ivHistory.length) * 100
+      : null;
     const surfaceChange =
       frontSlice && priorSurface
         ? {
@@ -986,7 +1168,7 @@ export async function GET(
         if (!book.length) return null;
         const bookRows = aggregateExposure(book, {
           spot,
-          dividendYield: SYMBOLS[symbol].dividendYield,
+          dividendYield: config.dividendYield,
           valuationTime,
           riskFreeRate,
         });
@@ -994,7 +1176,7 @@ export async function GET(
           bookRows,
           book,
           spot,
-          SYMBOLS[symbol].dividendYield,
+          config.dividendYield,
           valuationTime,
           riskFreeRate,
         );
@@ -1174,13 +1356,82 @@ export async function GET(
       putIv: row.putIv === null ? null : round(row.putIv, 6),
     }));
     const exposureMagnitude = summarizeExposureMetrics(profileRows, EXPOSURE_METRICS);
+    const frontSurface = responseSurface[0] ?? null;
+    const expectedMove = frontSurface?.atmIv !== null && frontSurface?.atmIv !== undefined && frontSurface.years !== null && frontSurface.years !== undefined
+      ? { expiry: frontSurface.expiry, percent: frontSurface.atmIv * Math.sqrt(frontSurface.years) * 100, dollars: spot * frontSurface.atmIv * Math.sqrt(frontSurface.years) }
+      : null;
     const netGamma = rows.reduce((total, row) => total + row.gamma, 0);
     if (!Number.isFinite(spot) || !Number.isFinite(netGamma) || invalidStrike || invalidLevel) {
       throw new Error("An option exposure calculation produced a non-finite value.");
     }
 
+    const volDislocation = (() => {
+      /**
+       * The nearest expiry that can actually carry a curve.
+       *
+       * Not simply the front one. A three-day single-name chain is quoted in
+       * pennies at two-and-a-half dollar strike spacing, so only a handful of
+       * strikes are precise enough to compare — Apple offered three. Fitting a
+       * curve through three points and reporting what lies off it would be
+       * inventing structure. The search walks out in time until an expiry has
+       * enough readable strikes, which for an index is usually the front week
+       * and for a single name a week or two later.
+       */
+      const buildQuotes = (expiry: string) => {
+        // The out-of-the-money side at every strike, which is the only side
+        // whose implied volatility means anything. An in-the-money option is
+        // almost all intrinsic value, so its volatility is inferred from the
+        // sliver of extrinsic left over and the vendor's figure is unusable —
+        // reading them produced a "smile" through 780% volatility and a fit
+        // whose own noise was 262 volatility points.
+        const byStrike = new Map<number, { strike: number; iv: number | null; openInterest: number; volume: number; bid: number; ask: number; vega: number | null }>();
+        for (const contract of contracts) {
+          if (contract.expiry !== expiry) continue;
+          const wantCall = contract.strike >= spot;
+          if (wantCall !== (contract.type === "call")) continue;
+          byStrike.set(contract.strike, {
+            strike: contract.strike,
+            // A volatility outside this range is a broken quote rather than a
+            // frightened market: nothing trades at half a vol or at 400.
+            iv: contract.iv !== null && contract.iv > 0.01 && contract.iv < 3 ? contract.iv : null,
+            openInterest: contract.oi,
+            volume: contract.volume,
+            bid: contract.bid,
+            ask: contract.ask,
+            vega: contract.vega,
+          });
+        }
+        return [...byStrike.values()];
+      };
+
+      for (const expiry of expiries.slice(0, 8)) {
+        const fit = fitSmile(buildQuotes(expiry), spot);
+        if (!fit || !fit.points.length) continue;
+        return {
+          expiry,
+          noise: round(fit.noise * 100, 2),
+          rejected: fit.rejected,
+          readable: fit.points.length,
+          strikes: fit.dislocations.slice(0, 6).map((point) => ({
+            strike: point.strike,
+            iv: round(point.iv * 100, 2),
+            fitted: round(point.fitted * 100, 2),
+            // Volatility points, the unit the reader thinks in.
+            residual: round(point.residual * 100, 2),
+            openInterest: point.openInterest,
+            volume: point.volume,
+            relativeSpread: round(point.relativeSpread * 100, 1),
+            ivUncertainty: round(point.ivUncertainty, 2),
+          })),
+        };
+      }
+      return null;
+    })();
+
     return NextResponse.json({
-      source: "Options market snapshot",
+      source: raw.data?.providerLabel ?? "Options market snapshot",
+      provider: raw.data?.provider ?? "cboe",
+      coverageNote: raw.data?.coverageNote ?? null,
       symbol,
       roots: selection.roots,
       spot,
@@ -1203,10 +1454,13 @@ export async function GET(
         settledExpiries,
       },
       expiryLevels,
+      topology,
       expiryStats,
       flow,
       surface: responseSurface,
+      expectedMove,
       surfaceChange,
+      ivRank,
       surfaceHistoryDays: new Set(surfaceHistory.map((row) => row.observationDate)).size,
       contractCount: selection.contractCount,
       openInterestContracts: selection.openInterestContracts,
@@ -1215,7 +1469,7 @@ export async function GET(
         riskFreeRate,
         riskFreeRateDate: riskFreeObservation?.date ?? null,
         riskFreeRateSource: riskFreeObservation ? "3-month Treasury constant maturity" : "documented fallback",
-        dividendYield: SYMBOLS[symbol].dividendYield,
+        dividendYield: config.dividendYield,
         higherGreeks: "Black-Scholes-Merton from snapshot IV; AM/PM settlement follows the option root",
         standardGreeks: "Snapshot supplied where available; missing delta, gamma, and vega are modeled",
         gammaFlip: "Nearest zero of the full selected book after repricing gamma across ±15% spot",
@@ -1231,6 +1485,20 @@ export async function GET(
       // the context needed to compare a small and a large profile honestly.
       exposureMagnitude,
       strikes: responseRows,
+      // Where one strike is priced away from the volatility curve fitted
+      // through its neighbours. Deliberately separate from the walls above:
+      // those are gamma, which is what forces dealers to trade the underlying,
+      // while this is demand for one contract and moves nothing by itself.
+      volDislocation,
+    }, {
+      // The chain is republished on a fifteen-minute cadence at best, and in
+      // EOD mode not at all during the session. Every stock view that shows a
+      // wall was re-deriving this from the saved chain on each navigation.
+      headers: {
+        "Cache-Control": updateMode === "live"
+          ? "private, max-age=60, stale-while-revalidate=900"
+          : "private, max-age=600, stale-while-revalidate=3600",
+      },
     });
   } catch (error) {
     return NextResponse.json(

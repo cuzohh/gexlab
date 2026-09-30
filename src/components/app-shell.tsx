@@ -18,6 +18,7 @@ const workspaces = [
   { href: "/structure", label: "Options", paths: ["/structure"] },
   { href: "/reversal-zones", label: "Reversal", paths: ["/reversal-zones"] },
   { href: "/engine", label: "Engine", paths: ["/engine"] },
+  { href: "/stocks", label: "Stocks", paths: ["/stocks"] },
 ];
 
 const macroCategories = [
@@ -48,10 +49,12 @@ const WORKSPACE_KEYS: Record<string, string> = {
   o: "/structure",
   r: "/reversal-zones",
   e: "/engine",
+  s: "/stocks",
 };
 
 const optionsCategories = [
   { href: "/structure#exposure", label: "Exposure", study: "exposure" },
+  { href: "/structure#research", label: "Topologies", study: "topology" },
   { href: "/structure#research", label: "Levels", study: "levels" },
   { href: "/structure#research", label: "Chain", study: "chain" },
   { href: "/structure#research", label: "Volatility", study: "volatility" },
@@ -201,8 +204,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const inOptions = pathname.startsWith("/structure");
   const inReversal = pathname.startsWith("/reversal-zones");
   const inEngine = pathname.startsWith("/engine");
-  const workspaceName = inOptions ? "Options" : inReversal ? "Reversal" : inEngine ? "Engine" : "Macro";
-  const categories = inOptions ? optionsCategories : inReversal ? reversalCategories : inEngine ? engineCategories : macroCategories;
+  const inStocks = pathname.startsWith("/stocks");
+  const workspaceName = inOptions ? "Options" : inReversal ? "Reversal" : inEngine ? "Engine" : inStocks ? "Stocks" : "Macro";
+  // The equity workspace carries its own view tabs on the detail route, so a
+  // rail index for it was a single entry pointing at the page already open.
+  const categories = inOptions ? optionsCategories : inReversal ? reversalCategories : inEngine ? engineCategories : inStocks ? [] : macroCategories;
   const [optionCategory, setOptionCategory] = useState("exposure");
   const sectionIds = categories
     .map((item) => ("section" in item ? String(item.section) : null))
@@ -236,7 +242,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const [showShortcuts, setShowShortcuts] = useState(false);
 
-  // Keyboard navigation. Four workspaces and six studies, all of them a mouse
+  // Keyboard navigation. Four workspaces and seven studies, all of them a mouse
   // trip to the rail away, is the difference between a site and a terminal.
   // "g" opens a chord in the vim tradition rather than binding bare letters,
   // which would fire on any stray keypress; the study digits are unprefixed
@@ -298,7 +304,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (inOptions && /^[1-6]$/.test(event.key)) {
+      if (inOptions && /^[1-7]$/.test(event.key)) {
         const target = optionsCategories[Number(event.key) - 1];
         if (target) {
           event.preventDefault();
@@ -338,6 +344,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
+        {categories.length > 0 ? (
         <nav className="category-nav" aria-label={`${workspaceName} categories`}>
           <span>{workspaceName} index</span>
           {categories.map((item) => {
@@ -369,13 +376,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        ) : null}
 
         <StructureRail />
 
         <div className="header-tools">
           <span className="preview-status">
             <i aria-hidden="true" />
-            {inOptions || inReversal ? "Market data" : inEngine ? "Model output" : "Macro data"}
+            {inOptions || inReversal ? "Market data" : inEngine ? "Model output" : inStocks ? "Equity data" : "Macro data"}
           </span>
           <button
             className="theme-toggle"
@@ -443,8 +451,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <dd>Engine</dd>
                 </div>
                 <div>
-                  <dt><kbd>1</kbd>–<kbd>6</kbd></dt>
-                  <dd>Options study: exposure, levels, chain, volatility, term, indicator</dd>
+                  <dt><kbd>g</kbd> <kbd>s</kbd></dt>
+                  <dd>Stocks</dd>
+                </div>
+                <div>
+                  <dt><kbd>1</kbd>–<kbd>7</kbd></dt>
+                  <dd>Options study: exposure, topologies, levels, chain, volatility, term, indicator</dd>
                 </div>
                 <div>
                   <dt><kbd>?</kbd></dt>

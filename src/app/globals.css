@@ -17,12 +17,41 @@
   --stress-wash: #f3deda;
   --comparison: #6f6378;
   --focus-ring: #315f78;
+  --up: var(--constructive);
+  --down: var(--stress);
+  --accent: var(--map);
+  --focus: var(--focus-ring);
+  --meaningful-axis: var(--rule-strong);
   --font-sans: var(--font-ui), "Helvetica Neue", sans-serif;
   --font-serif: var(--font-editorial), Georgia, serif;
   --font-mono: var(--font-data), "SFMono-Regular", Consolas, monospace;
   --page-width: 86rem;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* One vertical rhythm for every page band, and one type scale for the
+     headings that open them. Both used to be written per-section, which is how
+     a single page ended up carrying nineteen heading sizes and enough band
+     padding to push a session's work past nine thousand pixels. A desk page is
+     read by scanning, so the rhythm is set once here and referenced below. */
+  --band-pad-top: clamp(1.5rem, 2.4vw, 2.2rem);
+  --band-pad-bottom: clamp(2rem, 3.4vw, 3rem);
+  --hero-pad-top: clamp(2.2rem, 3.6vw, 3.4rem);
+  --hero-pad-bottom: clamp(1.8rem, 2.8vw, 2.6rem);
+  --type-hero: clamp(2rem, 3.2vw, 3rem);
+  --type-section: clamp(1.2rem, 1.45vw, 1.5rem);
+  /* Card titles sit below section headings on purpose. Several of them used to
+     be larger than the heading of the section containing them, which is the
+     inversion that made a page of cards read as a page of competing pages. */
+  --type-card: clamp(0.98rem, 1.05vw, 1.1rem);
 }
+
+/* Motion is used as orientation: the desk settles into view, then lets the
+   highest-signal surfaces breathe on hover. Nothing here changes a value. */
+
+.stock-research--flow > .stock-section:not(.stock-flow), .stock-research--metrics > .stock-section:not(.metric-rack):not(.research-ledger):not(.official-metrics), .stock-research--sec > .stock-section:not(.official-metrics):not(.research-ledger), .stock-research--analysts > .stock-section:not(.analyst-consensus), .stock-research--ownership > .stock-section:not(.ownership-intel), .stock-research--value > .stock-section:not(.dcf-workbench), .stock-research--risk > .stock-section:not(.trade-intel):not(.setup-planner) { display: none; }.stock-research--flow .section-heading > p, .stock-research--metrics .section-heading > p, .stock-research--sec .section-heading > p, .stock-research--analysts .section-heading > p, .stock-research--ownership .section-heading > p, .stock-research--value .section-heading > p, .stock-research--risk .section-heading > p { display: none; }.stock-research--flow .stock-section, .stock-research--metrics .stock-section, .stock-research--sec .stock-section, .stock-research--analysts .stock-section, .stock-research--ownership .stock-section, .stock-research--value .stock-section, .stock-research--risk .stock-section { margin-block: 1.5rem; }.stock-research--analysts .analyst-consensus { padding: clamp(1rem, 2.2vw, 1.8rem); }
+.stock-research--overview > .stock-section:not(.stock-price-visual):not(.metric-rack):not(.stock-flow), .stock-research--flow .orientation-hero, .stock-research--metrics .orientation-hero, .stock-research--sec .orientation-hero, .stock-research--analysts .orientation-hero, .stock-research--ownership .orientation-hero, .stock-research--value .orientation-hero, .stock-research--risk .orientation-hero { display: none; }
+.stock-research--overview > .dxy-study { display: none; }
+.stock-research .section-heading { align-items: flex-start; gap: clamp(1rem, 3vw, 2.5rem); }.stock-research .section-heading > div { min-width: 0; }.stock-research .section-heading h2 { max-width: 34rem; }.stock-research .section-heading > p { flex: 0 1 19rem; margin-top: .35rem; }.stock-research .data-disclaimer { max-width: 72ch; overflow-wrap: anywhere; }
+.workspace-compare__tickers button.is-selected { background: var(--ink); border-color: var(--ink); color: var(--canvas); }.command-palette { background: var(--surface-raised); border: 1px solid var(--rule-strong); box-shadow: 0 1rem 3rem color-mix(in srgb, var(--ink) 22%, transparent); max-width: 34rem; padding: .8rem; width: min(92vw, 34rem); }.command-palette > input { background: var(--surface); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); margin: .65rem 0; padding: .65rem; width: 100%; }
 
 /* The dark palette is deliberately hue-free. It used to carry a green cast
    (#151917 and friends), which read as a tint laid over the page rather than as
@@ -211,69 +240,6 @@ h3 {
   letter-spacing: 0.08em;
 }
 
-.brand-mark {
-  align-items: flex-end;
-  display: flex;
-  gap: 2px;
-  height: 1.1rem;
-  width: 1.1rem;
-}
-
-.brand-mark i {
-  background: var(--ink);
-  display: block;
-  width: 3px;
-}
-
-.brand-mark i:nth-child(1) {
-  height: 42%;
-}
-
-.brand-mark i:nth-child(2) {
-  height: 100%;
-}
-
-.brand-mark i:nth-child(3) {
-  height: 68%;
-}
-
-.primary-nav {
-  align-items: stretch;
-  align-self: stretch;
-  display: flex;
-  gap: 1.65rem;
-}
-
-.primary-nav a {
-  align-items: center;
-  color: var(--ink-muted);
-  display: flex;
-  font-size: 0.82rem;
-  font-weight: 540;
-  position: relative;
-}
-
-.primary-nav a::after {
-  background: var(--ink);
-  bottom: -1px;
-  content: "";
-  height: 1px;
-  left: 50%;
-  position: absolute;
-  transform: translateX(-50%) scaleX(0);
-  transition: transform 220ms var(--ease-out);
-  width: 100%;
-}
-
-.primary-nav a:hover,
-.primary-nav a[data-active] {
-  color: var(--ink);
-}
-
-.primary-nav a[data-active]::after {
-  transform: translateX(-50%) scaleX(1);
-}
-
 .header-tools {
   align-items: center;
   display: flex;
@@ -345,7 +311,7 @@ h3 {
   display: grid;
   gap: clamp(2.5rem, 7vw, 8rem);
   grid-template-columns: minmax(0, 1.65fr) minmax(16rem, 0.55fr);
-  padding: clamp(4.5rem, 9vw, 8.5rem) 0 clamp(3.5rem, 6vw, 5.5rem);
+  padding: var(--hero-pad-top) 0 var(--hero-pad-bottom);
 }
 
 .orientation-copy {
@@ -371,10 +337,10 @@ h3 {
 
 .orientation-hero h1 {
   font-family: var(--font-serif);
-  font-size: clamp(2.75rem, 6.2vw, 6.6rem);
+  font-size: var(--type-hero);
   font-weight: 430;
-  letter-spacing: -0.045em;
-  line-height: 0.95;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
   margin-top: 1rem;
   max-width: 14ch;
 }
@@ -444,7 +410,7 @@ h3 {
   display: grid;
   gap: clamp(2.25rem, 5vw, 5rem);
   grid-template-columns: minmax(0, 1.72fr) minmax(17rem, 0.58fr);
-  padding: clamp(4rem, 7vw, 6.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .visual-heading,
@@ -455,15 +421,13 @@ h3 {
   justify-content: space-between;
 }
 
-.visual-heading h2,
-.section-heading h2,
-.landscape-heading h2 {
+.visual-heading h2, .section-heading h2 {
   font-family: var(--font-serif);
-  font-size: clamp(1.75rem, 2.6vw, 2.65rem);
+  font-size: var(--type-section);
   font-weight: 450;
-  letter-spacing: -0.032em;
-  line-height: 1.08;
-  margin-top: 0.55rem;
+  letter-spacing: -0.018em;
+  line-height: 1.18;
+  margin-top: 0.35rem;
 }
 
 .visual-heading > div,
@@ -614,19 +578,13 @@ h3 {
   fill: var(--map);
 }
 
-.current-leader {
-  stroke: var(--map);
-  stroke-width: 1;
-}
-
 .current-note {
   fill: var(--ink-secondary);
   font-size: 9px;
   letter-spacing: 0;
 }
 
-.regime-map figcaption,
-.price-landscape figcaption {
+.regime-map figcaption {
   border-top: 1px solid var(--rule);
   color: var(--ink-muted);
   display: grid;
@@ -638,9 +596,7 @@ h3 {
   padding-top: 0.9rem;
 }
 
-.regime-map figcaption span,
-.price-landscape figcaption span,
-.plot-reading span {
+.regime-map figcaption span, .plot-reading span {
   color: var(--ink);
   font-size: 0.66rem;
   font-weight: 650;
@@ -674,47 +630,6 @@ h3 {
   line-height: 1.65;
 }
 
-.event-callout {
-  align-items: center;
-  border-bottom: 1px solid var(--rule);
-  border-top: 1px solid var(--rule);
-  display: grid;
-  gap: 1.2rem;
-  grid-template-columns: 4rem 1fr;
-  padding: 1.5rem 0;
-}
-
-.event-date {
-  border-right: 1px solid var(--rule);
-  display: flex;
-  flex-direction: column;
-}
-
-.event-date span {
-  color: var(--stress);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.08em;
-}
-
-.event-date strong {
-  font-family: var(--font-serif);
-  font-size: 2.35rem;
-  font-weight: 460;
-  line-height: 1.1;
-}
-
-.event-callout h2 {
-  font-family: var(--font-serif);
-  font-size: 1.55rem;
-  font-weight: 480;
-}
-
-.event-callout div:last-child > p:last-child {
-  color: var(--ink-muted);
-  font-size: 0.72rem;
-}
-
 .learn-panel {
   border-bottom: 1px solid var(--rule);
   padding: 1.25rem 0;
@@ -746,25 +661,9 @@ h3 {
   margin-top: 1rem;
 }
 
-.daily-drivers,
-.structure-preview,
-.event-runway,
-.transmission,
-.regime-timeline-section {
+.daily-drivers, .event-runway, .transmission, .regime-timeline-section {
   border-top: 1px solid var(--ink);
-  padding: clamp(2.2rem, 4vw, 3.4rem) 0 clamp(4.5rem, 8vw, 7rem);
-}
-
-.text-link,
-.section-link {
-  color: var(--ink);
-  font-size: 0.78rem;
-  font-weight: 620;
-}
-
-.text-link span {
-  color: var(--map);
-  margin-left: 0.25rem;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .driver-list {
@@ -847,8 +746,440 @@ h3 {
   font-weight: 540;
 }
 
-.structure-stack {
-  margin-top: 2.6rem;
+.news-context {
+  border-top: 1px solid var(--ink);
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
+}
+
+.news-context .section-heading {
+  align-items: end;
+}
+
+.news-context-status {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.news-context-summary {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule-strong);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 2.2rem;
+}
+
+.news-context-summary article {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 8.5rem;
+  padding: 1rem 1.1rem;
+}
+
+.news-context-summary article:last-child {
+  border-right: 0;
+}
+
+.news-context-summary span,
+.news-topic > span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.news-context-summary strong {
+  align-self: flex-start;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.news-context-summary strong.state-label {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: none;
+}
+
+.news-context-summary p,
+.news-topic small {
+  color: var(--ink-secondary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin-top: auto;
+}
+
+.news-topic-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.news-topic {
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 7rem;
+  padding: 1rem 1.1rem;
+}
+
+.news-topic:last-child {
+  border-right: 0;
+}
+
+.news-topic strong {
+  align-self: flex-start;
+}
+
+.news-topic small {
+  margin-top: auto;
+}
+
+.geoeconomic-context {
+  border-top: 1px solid var(--ink);
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
+}
+
+.geoeconomic-context .section-heading {
+  align-items: end;
+}
+
+.geoeconomic-lead {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule-strong);
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.85fr) minmax(10rem, 0.85fr) minmax(16rem, 1.5fr);
+  margin-top: 2.2rem;
+}
+
+.geoeconomic-lead > div,
+.geoeconomic-reading {
+  display: flex;
+  flex-direction: column;
+  min-height: 8.5rem;
+  padding: 1rem 1.1rem;
+}
+
+.geoeconomic-lead > div + div,
+.geoeconomic-reading {
+  border-left: 1px solid var(--rule);
+}
+
+.geoeconomic-lead span,
+.transmission-grid span,
+.geoeconomic-countries > span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.geoeconomic-lead strong {
+  align-self: flex-start;
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  font-weight: 500;
+  line-height: 1;
+  margin-top: 0.55rem;
+}
+
+.geoeconomic-lead strong.state-label {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.geoeconomic-lead p,
+.transmission-grid p {
+  color: var(--ink-secondary);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin-top: auto;
+}
+
+.geoeconomic-reading {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 1rem !important;
+  line-height: 1.45 !important;
+}
+
+.transmission-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.transmission-grid article {
+  border-bottom: 1px solid var(--rule);
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 8.25rem;
+  padding: 1rem 1.1rem;
+}
+
+.transmission-grid article:last-child { border-right: 0; }
+
+.transmission-grid strong {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin-top: 0.65rem;
+}
+
+.geoeconomic-countries {
+  align-items: start;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  padding: 1rem 1.1rem;
+}
+
+.geoeconomic-countries ol {
+  display: grid;
+  gap: 0.55rem 1.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.geoeconomic-countries li {
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-secondary);
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  justify-content: space-between;
+  padding-bottom: 0.35rem;
+}
+
+.geoeconomic-countries b { color: var(--ink); font-weight: 600; }
+.geoeconomic-countries em { font-style: normal; }
+
+.transmission-map {
+  border-bottom: 1px solid var(--rule);
+  padding: 1.2rem 1.1rem 1.35rem;
+}
+
+.transmission-map-title,
+.official-event-ledger-head {
+  align-items: baseline;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.transmission-map-title > span,
+.official-event-ledger-head > span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.transmission-map-title p,
+.official-event-ledger-head p {
+  color: var(--ink-secondary);
+  font-size: 0.68rem;
+}
+
+.transmission-map-body {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 6rem minmax(12rem, 1fr) 7.5rem;
+  margin-top: 1rem;
+}
+
+.transmission-map-body svg { height: 8.3rem; overflow: visible; width: 100%; }
+
+.transmission-source-stack,
+.transmission-confirmation-stack {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.transmission-source-stack span,
+.transmission-confirmation-stack span {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.transmission-source-stack .is-live { color: var(--ink); }
+
+.transmission-confirmation-stack span {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.transmission-confirmation-stack b { font-weight: 500; }
+.transmission-confirmation-stack em { font-size: 0.58rem; font-style: normal; }
+.transmission-confirmation-stack .is-live em { color: var(--focus); }
+
+.transmission-path {
+  fill: none;
+  stroke: var(--focus);
+  stroke-dasharray: 8 8;
+  stroke-linecap: round;
+  stroke-width: 1.25;
+  animation: transmission-drift 3.4s linear infinite;
+}
+
+.transmission-path--delay { animation-delay: -1.1s; stroke: var(--map); }
+.transmission-path--slow { animation-delay: -2.2s; stroke: var(--caution); }
+.transmission-node { fill: var(--ink-muted); }
+.transmission-node--out { fill: var(--focus); }
+
+@keyframes transmission-drift { to { stroke-dashoffset: -32; } }
+
+.official-event-ledger {
+  border-bottom: 1px solid var(--rule);
+  padding: 1.25rem 1.1rem 0;
+}
+
+.official-event-ledger ol { list-style: none; margin: 1rem 0 0; padding: 0; }
+
+.official-event-ledger li {
+  align-items: start;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: 4rem 4.8rem minmax(10rem, 1fr) minmax(8rem, 0.55fr);
+  padding: 0.75rem 0;
+}
+
+.official-event-ledger time,
+.event-status,
+.official-event-ledger li div,
+.official-event-empty {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+
+.event-status { letter-spacing: 0.03em; text-transform: uppercase; }
+.event-status--effective { color: var(--stress); }
+.event-status--announced { color: var(--focus); }
+.event-status--proposed { color: var(--caution); }
+
+.official-event-ledger a {
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-size: 0.89rem;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.official-event-ledger a:hover { color: var(--focus); text-decoration: underline; }
+
+.official-event-ledger li div { display: flex; flex-wrap: wrap; gap: 0.28rem; }
+.official-event-ledger i {
+  background: var(--map-wash);
+  color: var(--map);
+  font-style: normal;
+  padding: 0.16rem 0.25rem;
+}
+.official-event-ledger .event-tag { background: var(--canvas); color: var(--ink-secondary); }
+.official-event-empty { padding: 1rem 0 1.25rem; }
+
+.engine-geoeconomic {
+  border-top: 1px solid var(--ink);
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
+}
+
+.engine-geoeconomic-grid {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule-strong);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 1.8rem;
+}
+
+.engine-geoeconomic-grid a {
+  border-right: 1px solid var(--rule);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 9rem;
+  padding: 1rem 1.1rem;
+  text-decoration: none;
+  transition: background-color 180ms ease-out;
+}
+
+.engine-geoeconomic-grid a:last-child { border-right: 0; }
+.engine-geoeconomic-grid a:hover { background: var(--canvas); }
+.engine-geoeconomic-grid span,
+.engine-geoeconomic-grid small,
+.engine-geoeconomic-empty {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+}
+.engine-geoeconomic-grid strong { font-family: var(--font-serif); font-size: 1rem; font-weight: 500; line-height: 1.25; }
+.engine-geoeconomic-grid small { line-height: 1.45; margin-top: auto; }
+.engine-geoeconomic-empty { margin-top: 1.25rem; }
+
+.long-horizon-outlook {
+  border-top: 1px solid var(--ink);
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
+}
+
+.long-horizon-grid {
+  border-bottom: 1px solid var(--rule);
+  border-top: 1px solid var(--rule-strong);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1.8rem;
+}
+
+.long-horizon-card {
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  min-height: 11rem;
+  padding: 1.15rem 1.25rem;
+}
+
+.long-horizon-card:last-child { border-right: 0; }
+.long-horizon-card > span,
+.long-horizon-card small { color: var(--ink-muted); font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.long-horizon-card strong { color: var(--ink); font-family: var(--font-serif); font-size: clamp(1.45rem, 2vw, 2rem); font-weight: 500; margin-top: 0.8rem; }
+.long-horizon-card p { color: var(--ink-secondary); font-size: 0.78rem; line-height: 1.5; margin-top: 0.7rem; }
+.long-horizon-card small { margin-top: auto; }
+.long-horizon-card--constructive strong { color: var(--constructive); }
+.long-horizon-card--stress strong { color: var(--stress); }
+.stock-fundamentals { border-bottom: 1px solid var(--rule); border-top: 1px solid var(--rule-strong); display: grid; grid-template-columns: repeat(3, 1fr); }
+.stock-fundamentals article { border-right: 1px solid var(--rule); padding: 1rem 1.1rem; }
+.stock-fundamentals article:last-child { border-right: 0; }
+.stock-fundamentals span { color: var(--ink-muted); font-family: var(--font-mono); font-size: .58rem; letter-spacing: .05em; text-transform: uppercase; }
+.stock-fundamentals strong { color: var(--ink); display: block; font-family: var(--font-serif); font-size: 1.45rem; font-weight: 500; margin-top: .5rem; }
+.stock-section { border-top: 1px solid var(--ink); margin-top: clamp(2.5rem, 5vw, 4.5rem); padding-top: 1.5rem; }
+.stock-fundamentals { grid-template-columns: repeat(5, 1fr); margin-top: 1.5rem; }
+.stock-fundamentals strong { font-size: 1.05rem; }.earnings-context .section-kicker { color: var(--ink-muted); display: block; font-family: var(--font-mono); font-size: .57rem; text-transform: uppercase; }
+.dxy-study { background: var(--surface); padding: 1.35rem; }.dxy-grid { border-top: 1px solid var(--rule); display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 1rem; }.dxy-grid article { border-right: 1px solid var(--rule); padding: .8rem .8rem .15rem 0; }.dxy-grid article + article { padding-left: .8rem; }.dxy-grid span { color: var(--ink-muted); display: block; font-family: var(--font-mono); font-size: .57rem; text-transform: uppercase; }.dxy-grid strong { display: block; font-family: var(--font-serif); font-size: 1.35rem; font-weight: 500; margin: .28rem 0; }.dxy-grid small { color: var(--ink-muted); font-size: .67rem; }.dxy-grid input { background: var(--surface-raised); border: 1px solid var(--rule); color: var(--ink); font-family: var(--font-mono); margin: 0 .2rem; padding: .2rem; width: 3rem; }.dxy-alert { color: var(--down); }.dxy-note { color: var(--ink-muted); display: flex; font-family: var(--font-mono); font-size: .58rem; justify-content: space-between; margin-top: .8rem; text-transform: uppercase; }.metric-grid strong.up { color: var(--up); }.metric-grid strong.down { color: var(--down); }.fcf-bars i.up { background: var(--up); }.fcf-bars i.down { background: var(--down); }
+.analyst-consensus { background: var(--surface); padding: 1.35rem; }.analyst-headline b.up { color: var(--up); }.analyst-headline b.down { color: var(--down); }.analyst-consensus .data-disclaimer a { color: var(--ink); }.stock-price-visual p:not(.section-kicker) { color: var(--ink-muted); font-size: .75rem; max-width: 32rem; }
+.stock-bridge > p:not(.section-kicker) { color: var(--ink-secondary); font-size: .82rem; line-height: 1.6; max-width: 74ch; }
+
+@media (prefers-reduced-motion: reduce) {
+  .transmission-path { animation: none; }
 }
 
 .structure-strip {
@@ -992,18 +1323,6 @@ h3 {
   font-family: var(--font-mono);
 }
 
-.section-link {
-  align-items: center;
-  display: flex;
-  justify-content: space-between;
-  margin-top: 1.35rem;
-}
-
-.section-link span {
-  color: var(--map);
-  font-size: 1rem;
-}
-
 .runway-track {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -1057,7 +1376,7 @@ h3 {
 
 .runway-event h3 {
   font-family: var(--font-serif);
-  font-size: 1.15rem;
+  font-size: var(--type-card);
   font-weight: 520;
   margin-top: 0.55rem;
 }
@@ -1110,7 +1429,7 @@ h3 {
 
 .atlas-masthead h1 {
   font-family: var(--font-serif);
-  font-size: clamp(2rem, 3.4vw, 3.45rem);
+  font-size: var(--type-hero);
   font-weight: 440;
   letter-spacing: -0.04em;
   line-height: 1;
@@ -1250,7 +1569,7 @@ h3 {
   align-items: baseline;
   display: flex;
   font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-size: var(--type-section);
   font-weight: 460;
   gap: 0.65rem;
   letter-spacing: -0.025em;
@@ -1789,7 +2108,7 @@ h3 {
 
 .converter-intro h3 {
   font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-size: var(--type-section);
   font-weight: 460;
   letter-spacing: -0.025em;
   margin-top: 0.35rem;
@@ -1973,7 +2292,7 @@ h3 {
 
 .atlas-plot-head h2 {
   font-family: var(--font-serif);
-  font-size: 1.7rem;
+  font-size: var(--type-section);
   font-weight: 460;
   letter-spacing: -0.025em;
   margin-top: 0.35rem;
@@ -2283,17 +2602,6 @@ h3 {
   justify-content: center;
   min-height: 31rem;
   text-align: center;
-}
-
-.atlas-grid {
-  fill: url("#atlas-grid");
-}
-
-.atlas-grid-line {
-  fill: none;
-  stroke: var(--rule);
-  stroke-opacity: 0.55;
-  stroke-width: 0.65;
 }
 
 .strike-spine,
@@ -2822,10 +3130,6 @@ h3 {
   stroke-width: 2;
 }
 
-.study-chart--pending {
-  opacity: 0.72;
-}
-
 .study-chart .study-dash {
   stroke-dasharray: 3 4;
 }
@@ -3193,243 +3497,6 @@ h3 {
   font-style: normal;
 }
 
-.structure-explorer {
-  border-top: 1px solid var(--ink);
-  padding: 1.2rem 0 6rem;
-}
-
-.explorer-toolbar {
-  align-items: center;
-  display: grid;
-  gap: 1.5rem;
-  grid-template-columns: auto auto 1fr;
-  padding-bottom: 2.8rem;
-}
-
-.segmented-control,
-.lens-control {
-  align-items: center;
-  display: flex;
-}
-
-.segmented-control {
-  border: 1px solid var(--rule-strong);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.segmented-control button,
-.lens-control button {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  font-size: 0.72rem;
-}
-
-.segmented-control button {
-  border-radius: 3px;
-  min-width: 3.1rem;
-  padding: 0.45rem 0.72rem;
-}
-
-.segmented-control button[data-active] {
-  background: var(--ink);
-  color: var(--canvas);
-}
-
-.lens-control {
-  gap: 1.2rem;
-}
-
-.lens-control button {
-  color: var(--ink-muted);
-  padding: 0.5rem 0;
-  position: relative;
-}
-
-.lens-control button::after {
-  background: var(--ink);
-  bottom: 0;
-  content: "";
-  height: 1px;
-  left: 0;
-  position: absolute;
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 180ms var(--ease-out);
-  width: 100%;
-}
-
-.lens-control button[data-active] {
-  color: var(--ink);
-}
-
-.lens-control button[data-active]::after {
-  transform: scaleX(1);
-}
-
-.source-line {
-  color: var(--ink-muted);
-  font-size: 0.68rem;
-  justify-self: end;
-}
-
-.landscape-heading {
-  align-items: end;
-  display: flex;
-  justify-content: space-between;
-}
-
-.landscape-heading h2 span {
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  margin-left: 0.45rem;
-}
-
-.landscape-summary {
-  align-items: center;
-  display: flex;
-  gap: 0.8rem;
-}
-
-.landscape-summary p {
-  color: var(--ink-muted);
-  font-size: 0.7rem;
-}
-
-.price-landscape {
-  margin: 2.6rem 0 0;
-}
-
-.price-landscape svg {
-  background: var(--surface);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  display: block;
-  height: auto;
-  width: 100%;
-}
-
-.landscape-axis,
-.landscape-tick,
-.landscape-zone line {
-  stroke: var(--rule-strong);
-  stroke-width: 1;
-}
-
-.landscape-tick-label,
-.landscape-zone text,
-.spot-marker text {
-  fill: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-
-.landscape-zone rect {
-  fill: var(--map-wash);
-}
-
-.landscape-zone--support rect {
-  fill: var(--constructive-wash);
-}
-
-.landscape-zone--support line {
-  stroke: var(--constructive);
-}
-
-.landscape-zone--resistance rect {
-  fill: var(--stress-wash);
-}
-
-.landscape-zone--resistance line {
-  stroke: var(--stress);
-}
-
-.landscape-zone--flip rect {
-  fill: var(--caution-wash);
-}
-
-.landscape-zone--flip line {
-  stroke: var(--caution);
-  stroke-dasharray: 4 4;
-}
-
-.landscape-zone--mapped line {
-  stroke: var(--comparison);
-  stroke-dasharray: 3 5;
-}
-
-.landscape-zone text {
-  fill: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: 620;
-}
-
-.landscape-zone .landscape-value {
-  fill: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 400;
-}
-
-.spot-marker line {
-  stroke: var(--map);
-  stroke-width: 1.5;
-}
-
-.spot-marker circle,
-.spot-marker rect {
-  fill: var(--map);
-}
-
-.spot-marker text {
-  fill: var(--surface-raised);
-  font-size: 9px;
-  font-weight: 500;
-}
-
-.landscape-notes {
-  border-bottom: 1px solid var(--rule);
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.landscape-notes article {
-  padding: 1.6rem 2rem 1.6rem 0;
-}
-
-.landscape-notes article + article {
-  border-left: 1px solid var(--rule);
-  padding-left: 2rem;
-}
-
-.landscape-notes span,
-.flow-fact span,
-.flow-meaning span {
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.landscape-notes strong {
-  display: block;
-  font-size: 0.86rem;
-  font-weight: 620;
-  margin-top: 0.55rem;
-}
-
-.landscape-notes p {
-  color: var(--ink-secondary);
-  font-size: 0.76rem;
-  margin-top: 0.45rem;
-}
-
 /* Market behavior */
 
 .market-state-board {
@@ -3455,7 +3522,7 @@ h3 {
 .market-behavior-figure h2,
 .market-state-reading h2 {
   font-family: var(--font-serif);
-  font-size: clamp(1.55rem, 3vw, 2.65rem);
+  font-size: var(--type-section);
   font-weight: 430;
   letter-spacing: -0.025em;
   line-height: 1.05;
@@ -3775,70 +3842,6 @@ h3 {
   padding-top: 4rem;
 }
 
-.transmission-flow {
-  margin-top: 2.8rem;
-}
-
-.flow-row {
-  align-items: center;
-  border-top: 1px solid var(--rule);
-  display: grid;
-  gap: 2rem;
-  grid-template-columns: 1fr 6rem 1fr;
-  min-height: 7rem;
-}
-
-.flow-row:last-child {
-  border-bottom: 1px solid var(--rule);
-}
-
-.flow-fact strong,
-.flow-meaning strong {
-  display: block;
-  font-size: 0.84rem;
-  font-weight: 570;
-  margin-top: 0.4rem;
-}
-
-.flow-connector {
-  height: 1px;
-  position: relative;
-}
-
-.flow-connector::before,
-.flow-connector i {
-  background: var(--rule-strong);
-  content: "";
-  height: 1px;
-  left: 0;
-  position: absolute;
-  right: 0;
-}
-
-.flow-connector i {
-  border-radius: 50%;
-  height: 0.46rem;
-  left: auto;
-  right: 0;
-  top: -0.22rem;
-  width: 0.46rem;
-}
-
-.flow-connector--constructive::before,
-.flow-connector--constructive i {
-  background: var(--constructive);
-}
-
-.flow-connector--caution::before,
-.flow-connector--caution i {
-  background: var(--caution);
-}
-
-.flow-connector--stress::before,
-.flow-connector--stress i {
-  background: var(--stress);
-}
-
 .risk-scale {
   border-bottom: 1px solid var(--rule);
   border-top: 1px solid var(--rule);
@@ -3995,7 +3998,7 @@ h3 {
 
 .macro-ledger {
   border-top: 1px solid var(--ink);
-  padding: clamp(3rem, 6vw, 5.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .metric-group {
@@ -4022,9 +4025,13 @@ h3 {
   cursor: pointer;
   display: grid;
   gap: 1.2rem;
-  grid-template-columns: minmax(12rem, 1fr) minmax(8rem, 0.45fr) minmax(12rem, 0.7fr) 6rem;
+  /* Five children — label, value, change, sparkline, observation date — so the
+     track list has to name five columns. It named four, which pushed the date
+     onto an implicit second row and gave every ledger row a stray floating
+     timestamp along with roughly thirty pixels it did not need. */
+  grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 0.4fr) minmax(10rem, 0.6fr) 6rem 8rem;
   list-style: none;
-  min-height: 4.6rem;
+  min-height: 2.9rem;
 }
 
 .metric-row summary::-webkit-details-marker {
@@ -4105,7 +4112,7 @@ h3 {
 
 .regime-path-panel {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(3rem, 6vw, 5.5rem) 0 clamp(2rem, 4vw, 3.5rem);
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .regime-path-panel .visual-heading {
@@ -4303,14 +4310,13 @@ h3 {
 
 .recession-panel {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(3rem, 6vw, 5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .recession-stat-row {
   display: grid;
   gap: 1px;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  background: var(--rule);
   border: 1px solid var(--rule);
   margin-top: clamp(1.6rem, 4vw, 2.6rem);
 }
@@ -4441,7 +4447,7 @@ h3 {
 
 .term-structure-block h3 {
   font-family: var(--font-serif);
-  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  font-size: var(--type-section);
   font-weight: 500;
   margin: 0.4rem 0 0.6rem;
 }
@@ -4548,7 +4554,7 @@ h3 {
 .transition-panel,
 .event-study-panel {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(3rem, 6vw, 5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .transition-grid-wrapper {
@@ -4647,7 +4653,6 @@ h3 {
 .event-study-grid {
   display: grid;
   gap: 1px;
-  background: var(--rule);
   border: 1px solid var(--rule);
   grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
   margin-top: clamp(1.6rem, 4vw, 2.6rem);
@@ -4660,7 +4665,7 @@ h3 {
 
 .event-study-grid header h3 {
   font-family: var(--font-serif);
-  font-size: 1.15rem;
+  font-size: var(--type-card);
   font-weight: 500;
   margin: 0;
 }
@@ -4768,7 +4773,6 @@ h3 {
 .forecast-board {
   display: grid;
   gap: 1px;
-  background: var(--rule);
   border: 1px solid var(--rule);
   grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
   margin-top: clamp(2rem, 5vw, 3.5rem);
@@ -4788,7 +4792,7 @@ h3 {
 
 .card-header h3 {
   font-family: var(--font-serif);
-  font-size: clamp(1.25rem, 2vw, 1.7rem);
+  font-size: var(--type-card);
   font-weight: 480;
   line-height: 1.08;
   margin: 0.45rem 0 0;
@@ -5029,13 +5033,12 @@ h3 {
 .states-section,
 .live-log {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(2.6rem, 6vw, 4.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .baseline-grid {
   display: grid;
   gap: 1px;
-  background: var(--rule);
   border: 1px solid var(--rule);
   grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
   margin-top: 1.6rem;
@@ -5074,11 +5077,70 @@ h3 {
   font-size: 0.62rem;
 }
 
+/* One column, not an auto-fit pair: the closed rows are meant to be read down
+   like a ledger, and a two-up grid of them puts two unrelated verdicts on the
+   same line. */
 .score-grid {
+  border-top: 1px solid var(--rule);
   display: grid;
-  gap: clamp(1.6rem, 4vw, 3rem);
-  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
   margin-top: 1.6rem;
+}
+
+.score-block {
+  border-bottom: 1px solid var(--rule);
+}
+
+.score-block > summary {
+  align-items: baseline;
+  cursor: pointer;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(9rem, auto) 9.5rem;
+  list-style: none;
+  padding: 0.72rem 0;
+}
+
+.score-block > summary::-webkit-details-marker {
+  display: none;
+}
+
+.score-block > summary:hover h3 {
+  color: var(--map);
+}
+
+.score-block-stat {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-align: right;
+}
+
+.score-block-stat small {
+  display: block;
+  font-size: 0.58rem;
+  margin-top: 0.15rem;
+}
+
+.score-block > summary .state-label {
+  justify-self: end;
+}
+
+/* The supporting detail keeps its own breathing room once opened, which the
+   closed row must not pay for. */
+.score-block[open] > summary {
+  border-bottom: 1px solid var(--rule);
+}
+
+.score-block[open] > *:not(summary) {
+  margin-left: 0;
+}
+
+.score-block > .score-table {
+  margin-top: 1.1rem;
+}
+
+.score-block > *:last-child:not(summary) {
+  margin-bottom: 1.6rem;
 }
 
 .score-block header {
@@ -5090,7 +5152,7 @@ h3 {
 
 .score-block h3 {
   font-family: var(--font-serif);
-  font-size: 1.1rem;
+  font-size: var(--type-card);
   font-weight: 500;
   margin: 0;
 }
@@ -5292,7 +5354,7 @@ h3 {
 
 .recorder-panel {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(2.6rem, 6vw, 4.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .recorder-progress {
@@ -5354,7 +5416,7 @@ h3 {
 
 .recorder-grid h3 {
   font-family: var(--font-serif);
-  font-size: 1.05rem;
+  font-size: var(--type-card);
   font-weight: 500;
   margin: 0 0 0.7rem;
 }
@@ -5477,7 +5539,7 @@ h3 {
   display: grid;
   gap: clamp(2rem, 5vw, 5rem);
   grid-template-columns: minmax(0, 1.5fr) minmax(16rem, 0.5fr);
-  padding: clamp(4rem, 7vw, 6.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .distribution-panel {
@@ -5781,15 +5843,6 @@ h3 {
     grid-template-columns: 1fr auto;
   }
 
-  .primary-nav {
-    border-top: 1px solid var(--rule);
-    grid-column: 1 / -1;
-    grid-row: 2;
-    height: 3.4rem;
-    justify-content: center;
-    order: 3;
-  }
-
   .site-header {
     height: auto;
     min-height: 4.2rem;
@@ -5832,15 +5885,6 @@ h3 {
     grid-column: 3;
   }
 
-  .explorer-toolbar {
-    grid-template-columns: auto 1fr;
-  }
-
-  .source-line {
-    grid-column: 1 / -1;
-    justify-self: start;
-  }
-
   .atlas-masthead {
     align-items: start;
     grid-template-columns: 1fr;
@@ -5880,16 +5924,6 @@ h3 {
     padding-right: 1rem;
   }
 
-  .primary-nav {
-    gap: 0;
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .primary-nav a {
-    font-size: 0.76rem;
-  }
-
   .preview-status {
     display: none;
   }
@@ -5903,9 +5937,7 @@ h3 {
     max-width: 12ch;
   }
 
-  .visual-heading,
-  .section-heading,
-  .landscape-heading {
+  .visual-heading, .section-heading {
     align-items: start;
     flex-direction: column;
     gap: 1rem;
@@ -5935,9 +5967,7 @@ h3 {
     width: calc(100% + 1rem);
   }
 
-  .regime-map figcaption,
-  .price-landscape figcaption,
-  .plot-reading {
+  .regime-map figcaption, .plot-reading {
     grid-template-columns: 1fr;
     gap: 0.4rem;
   }
@@ -6002,63 +6032,6 @@ h3 {
   .site-footer {
     flex-direction: column;
     gap: 0.3rem;
-  }
-
-  .explorer-toolbar {
-    align-items: start;
-    grid-template-columns: 1fr;
-  }
-
-  .lens-control {
-    gap: 0.95rem;
-    overflow-x: auto;
-    width: 100%;
-  }
-
-  .source-line {
-    grid-column: auto;
-  }
-
-  .landscape-summary {
-    align-items: start;
-    flex-direction: column;
-    gap: 0.45rem;
-  }
-
-  .price-landscape {
-    overflow-x: auto;
-  }
-
-  .price-landscape svg {
-    min-width: 48rem;
-  }
-
-  .price-landscape figcaption {
-    min-width: 0;
-  }
-
-  .landscape-notes {
-    grid-template-columns: 1fr;
-  }
-
-  .landscape-notes article {
-    padding: 1.2rem 0;
-  }
-
-  .landscape-notes article + article {
-    border-left: 0;
-    border-top: 1px solid var(--rule);
-    padding-left: 0;
-  }
-
-  .flow-row {
-    gap: 0.8rem;
-    grid-template-columns: 1fr;
-    padding: 1.4rem 0;
-  }
-
-  .flow-connector {
-    width: 3rem;
   }
 
   .distribution-plot {
@@ -6284,12 +6257,17 @@ h3 {
     padding: 0.45rem 0;
   }
 
+  /* The rail reads as a control surface, not a contents page. At 1.35rem in the
+     editorial serif these five entries occupied more vertical space than the
+     structure readout below them and set an essay-like tone for a workspace
+     that is mostly numbers. */
   .workspace-nav a {
     color: var(--ink-muted);
-    font-family: var(--font-serif);
-    font-size: 1.35rem;
+    font-family: var(--font-sans);
+    font-size: 0.92rem;
+    letter-spacing: 0.01em;
     line-height: 1;
-    padding: 0.7rem 0;
+    padding: 0.52rem 0;
   }
 
   .workspace-nav a:hover {
@@ -6467,6 +6445,30 @@ h3 {
   scroll-margin-top: 1.5rem;
 }
 
+/* These are independent research sections below the initial decision read.
+   Browsers may skip their layout and paint until the reader gets near them;
+   intrinsic sizes preserve the scroll geometry so the page does not jump. */
+@media (min-width: 721px) {
+  .daily-drivers,
+  .news-context,
+  .geoeconomic-context,
+  .availability-strip,
+  .event-board,
+  .recession-panel,
+  .macro-ledger,
+  .transition-panel,
+  .event-study-panel,
+  .regime-timeline-section,
+  .score-section,
+  .states-section,
+  .recorder-panel,
+  .live-log {
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 42rem;
+  }
+}
+
 .shelf-content {
   margin: 0 auto;
   max-width: 74rem;
@@ -6485,12 +6487,12 @@ h3 {
   .orientation-hero {
     gap: 4rem;
     grid-template-columns: minmax(0, 1.5fr) minmax(15rem, 0.5fr);
-    padding: 3.7rem 0 3.2rem;
+    padding: var(--hero-pad-top) 0 var(--hero-pad-bottom);
   }
 
   .orientation-hero h1 {
-    font-size: clamp(3rem, 4.7vw, 5.15rem);
-    max-width: 16ch;
+    font-size: var(--type-hero);
+    max-width: 30ch;
   }
 
   .today-composition .regime-map,
@@ -6876,7 +6878,7 @@ h3 {
 
 .regime-outlook-head h3 {
   font-family: var(--font-serif);
-  font-size: 1.35rem;
+  font-size: var(--type-section);
   font-weight: 430;
   letter-spacing: -0.015em;
   margin: 0.3rem 0 0;
@@ -7015,16 +7017,28 @@ h3 {
 
 .session-context {
   border-bottom: 1px solid var(--rule);
-  padding: clamp(2.6rem, 6vw, 4.5rem) 0;
+  padding: var(--band-pad-top) 0 var(--band-pad-bottom);
 }
 
 .session-context-grid {
-  background: var(--rule);
   border: 1px solid var(--rule);
   display: grid;
   gap: 1px;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   margin-top: 1.5rem;
+}
+
+/* These grids draw their hairlines as a 1px gap over a filled container.
+   That works only while the items fill every track: a row with three
+   spare cells painted the container colour straight through and read as
+   a grey slab of missing content. The rule now belongs to each cell, so
+   an unfilled track stays canvas. */
+.recession-stat-row > *,
+.event-study-grid > *,
+.forecast-board > *,
+.baseline-grid > *,
+.session-context-grid > * {
+  box-shadow: 0 0 0 1px var(--rule);
 }
 
 .session-context-grid article {
@@ -7222,7 +7236,7 @@ h3 {
 
 .reversal-heading h1 {
   font-family: var(--font-serif);
-  font-size: clamp(2.35rem, 4.2vw, 4.8rem);
+  font-size: var(--type-hero);
   font-weight: 420;
   letter-spacing: -0.045em;
   line-height: 0.98;
@@ -7326,12 +7340,7 @@ h3 {
   margin-top: 1.5rem;
 }
 
-.reversal-zone-card,
-.reversal-state-card,
-.reversal-map,
-.reversal-empty-state,
-.reversal-loading,
-.reversal-error {
+.reversal-zone-card, .reversal-state-card, .reversal-map, .reversal-empty-state, .reversal-error {
   background: var(--surface);
   border: 1px solid var(--rule);
 }
@@ -7736,7 +7745,7 @@ h3 {
 .reversal-map-head h2,
 .reversal-section-head h2 {
   font-family: var(--font-serif);
-  font-size: 1.55rem;
+  font-size: var(--type-section);
   font-weight: 430;
   letter-spacing: -0.025em;
   margin: 0.35rem 0 0;
@@ -7989,7 +7998,7 @@ h3 {
 
 .zone-ladder-head h2 {
   font-family: var(--font-serif);
-  font-size: 1.4rem;
+  font-size: var(--type-section);
   font-weight: 430;
   letter-spacing: -0.025em;
   margin: 0.35rem 0 0;
@@ -8136,7 +8145,6 @@ h3 {
 
 .reversal-explain-grid strong { color: var(--ink); font-weight: 550; }
 
-.reversal-loading,
 .reversal-error {
   align-items: center;
   display: flex;
@@ -8463,7 +8471,7 @@ body {
 
 .expiry-lens-intro h2 {
   font-family: var(--font-serif);
-  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  font-size: var(--type-section);
   font-weight: 440;
   letter-spacing: -0.03em;
   line-height: 1.04;
@@ -8742,7 +8750,7 @@ body {
 
 .positioning-tape-head h2 {
   font-family: var(--font-serif);
-  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  font-size: var(--type-section);
   font-weight: 460;
   letter-spacing: -0.025em;
   margin-top: 0.35rem;
@@ -9159,3 +9167,425 @@ kbd {
 .shortcut-card > button:hover {
   opacity: 0.86;
 }
+
+/* Options topology study. It keeps shape in the foreground: the field is
+   zero-centred, the surface uses the existing volatility tokens, and expiry
+   rows pair IV with the amount of open interest actually present. */
+.topology-study {
+  background: var(--surface);
+  border-top: 1px solid var(--rule-strong);
+  padding: 1.45rem 1.4rem 1.55rem;
+}
+
+.topology-study-head {
+  align-items: end;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.topology-study-head h3 {
+  font-family: var(--font-serif);
+  font-size: var(--type-section);
+  font-weight: 430;
+  letter-spacing: -0.025em;
+  margin: 0.25rem 0 0.45rem;
+}
+
+.topology-study-head p:not(.section-kicker) {
+  color: var(--ink-secondary);
+  font-size: 0.73rem;
+  line-height: 1.55;
+  margin: 0;
+  max-width: 34rem;
+}
+
+.topology-field-layout {
+  align-items: stretch;
+  display: grid;
+  gap: 1.4rem;
+  grid-template-columns: minmax(11rem, 0.65fr) minmax(0, 2fr);
+}
+
+.topology-field-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.topology-reading {
+  border-left: 2px solid var(--rule-strong);
+  padding: 0.15rem 0 0.15rem 0.8rem;
+}
+
+.topology-reading--primary {
+  border-left-color: var(--focus);
+}
+
+.topology-reading span {
+  color: var(--ink-muted);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.topology-reading strong {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 1.2rem;
+  font-weight: 430;
+  margin: 0.2rem 0;
+}
+
+.topology-reading p {
+  color: var(--ink-secondary);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.topology-field {
+  background: color-mix(in srgb, var(--canvas) 58%, var(--surface));
+  border: 1px solid var(--rule);
+  display: block;
+  min-height: 22rem;
+  width: 100%;
+}
+
+.topology-greek-surface {
+  background: color-mix(in srgb, var(--canvas) 58%, var(--surface));
+  border: 1px solid var(--rule);
+  padding: 0.8rem 0.8rem 0.55rem;
+}
+
+.topology-metric-picker {
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.65rem;
+}
+
+.topology-metric-picker button {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.05em;
+  padding: 0.3rem 0.42rem;
+  text-transform: uppercase;
+}
+
+.topology-metric-picker button:hover,
+.topology-metric-picker button[data-active] {
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+
+.topology-surface-map {
+  display: block;
+  min-height: 22rem;
+  width: 100%;
+}
+
+.topology-surface-map .topology-axis {
+  stroke: var(--meaningful-axis);
+}
+
+.topology-spot-axis {
+  stroke: var(--focus);
+  stroke-dasharray: 2 4;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.topology-surface-cell {
+  shape-rendering: crispEdges;
+}
+
+.topology-expiry-label {
+  fill: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.topology-axis,
+.topology-row-rule {
+  stroke: var(--rule-strong);
+  vector-effect: non-scaling-stroke;
+}
+
+.topology-axis {
+  stroke: var(--meaningful-axis);
+  stroke-dasharray: 2 4;
+}
+
+.topology-row text {
+  fill: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.topology-row--active text {
+  fill: var(--ink);
+}
+
+.topology-path {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.topology-path--primary { stroke: var(--focus); }
+.topology-path--comparison { stroke: var(--ink-muted); stroke-dasharray: 4 3; stroke-width: 1; }
+.topology-focus { fill: var(--focus); }
+.topology-axis-label { fill: var(--ink-muted); font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.08em; }
+
+.topology-surface {
+  overflow-x: auto;
+}
+
+.topology-surface-table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  min-width: 42rem;
+  width: 100%;
+}
+
+.topology-surface-table th {
+  color: var(--ink-muted);
+  font-size: 0.54rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 0.45rem 0.35rem;
+  text-align: center;
+}
+
+.topology-surface-table td {
+  border: 1px solid color-mix(in srgb, var(--canvas) 65%, var(--rule));
+  color: var(--ink);
+  min-width: 3.15rem;
+  padding: 0.58rem 0.35rem;
+  text-align: center;
+}
+
+.topology-surface-table tbody th {
+  border-top: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: 0.62rem;
+  text-align: left;
+}
+
+.topology-surface-table .surface-rr {
+  border-left: 1px solid var(--rule-strong);
+  color: var(--ink-secondary);
+}
+
+.topology-expiry {
+  max-width: 58rem;
+}
+
+.topology-expiry-head,
+.topology-expiry-row {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 8rem minmax(8rem, 1fr) 10rem;
+}
+
+.topology-expiry-head {
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  letter-spacing: 0.07em;
+  padding: 0 0.2rem 0.5rem;
+  text-transform: uppercase;
+}
+
+.topology-expiry-row {
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  padding: 0.6rem 0.2rem;
+}
+
+.topology-expiry-row > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.topology-expiry-row strong { color: var(--ink); font-weight: 500; }
+.topology-expiry-row small { color: var(--ink-muted); font-size: 0.56rem; }
+.topology-expiry-row i { background: var(--canvas); display: block; height: 0.45rem; }
+.topology-expiry-row i b { background: var(--focus); display: block; height: 100%; }
+
+@media (max-width: 720px) {
+  .geoeconomic-context .section-heading {
+    align-items: start;
+    display: block;
+  }
+
+  .geoeconomic-lead,
+  .transmission-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .geoeconomic-lead > div + div,
+  .geoeconomic-reading,
+  .transmission-grid article {
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .geoeconomic-countries {
+    display: block;
+  }
+
+  .geoeconomic-countries ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 1rem;
+  }
+
+  .transmission-map-title,
+  .official-event-ledger-head {
+    align-items: start;
+    display: block;
+  }
+
+  .transmission-map-title p,
+  .official-event-ledger-head p { margin-top: 0.4rem; }
+
+  .transmission-map-body { grid-template-columns: 4.7rem minmax(9rem, 1fr) 5.5rem; }
+
+  .official-event-ledger li {
+    grid-template-columns: 3.6rem 4.7rem minmax(0, 1fr);
+  }
+
+  .official-event-ledger li > div { grid-column: 3; }
+
+  .engine-geoeconomic-grid { grid-template-columns: 1fr; }
+  .engine-geoeconomic-grid a { border-bottom: 1px solid var(--rule); border-right: 0; min-height: 0; }
+  .long-horizon-grid { grid-template-columns: 1fr; }
+  .long-horizon-card { border-bottom: 1px solid var(--rule); border-right: 0; min-height: 0; }
+  .stock-fundamentals { grid-template-columns: 1fr; }
+  .dxy-grid { grid-template-columns: repeat(2, 1fr); }.dxy-grid article:nth-child(2) { border-right: 0; }.dxy-grid article:nth-child(n+3) { border-top: 1px solid var(--rule); }.dxy-note { align-items: start; flex-direction: column; gap: .3rem; }
+  .stock-fundamentals article { border-bottom: 1px solid var(--rule); border-right: 0; }
+
+  .news-context .section-heading {
+    align-items: start;
+    display: block;
+  }
+
+  .news-context-status {
+    display: block;
+    margin-top: 0.8rem;
+  }
+
+  .news-context-summary,
+  .news-topic-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .news-context-summary article:nth-child(2),
+  .news-topic:nth-child(2) {
+    border-right: 0;
+  }
+
+  .topology-study-head,
+  .topology-field-layout {
+    display: block;
+  }
+
+  .topology-study-head .expiry-mode {
+    margin-top: 1rem;
+  }
+
+  .topology-field-copy {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 1rem;
+  }
+
+  .topology-field-copy .data-disclaimer {
+    grid-column: 1 / -1;
+  }
+
+  .topology-expiry-head,
+  .topology-expiry-row {
+    grid-template-columns: 6rem minmax(6rem, 1fr) 8rem;
+  }
+}
+
+/* ---------------------------------------------- strike vol dislocation ---- */
+
+.dislocation-study {
+  border-top: 1px solid var(--rule);
+  grid-column: 1 / -1;
+  margin-top: 1.4rem;
+  padding-top: 1.1rem;
+}
+
+.dislocation-study h3 {
+  font-size: 1rem;
+  font-weight: 500;
+  margin: 0.3rem 0 0.7rem;
+}
+
+.dislocation-study p {
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  margin: 0.55rem 0 0;
+  max-width: 74ch;
+}
+
+.dislocation-table {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+}
+
+.dislocation-table th[scope="col"] {
+  color: var(--ink-muted);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.dislocation-table th[scope="col"]:first-child,
+.dislocation-table th[scope="row"] {
+  text-align: left;
+}
+
+.dislocation-table th,
+.dislocation-table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.34rem 0.5rem;
+  text-align: right;
+}
+
+.dislocation-table th[scope="row"] {
+  font-weight: 500;
+}
+
+/* Rich and cheap are both findings, so neither is coloured as a direction —
+   the emphasis marks which side of the curve the strike sits on, nothing more. */
+.dislocation-table td[data-rich] { color: var(--caution); }
+.dislocation-table td:nth-child(4):not([data-rich]) { color: var(--map); }

@@ -1,0 +1,14 @@
+.git
+.next
+node_modules
+out
+build
+coverage
+data
+.env*
+.codex-final-profile
+.chrome-qa
+.chrome-qa-history
+*.log
+*.sqlite*
+*.db*

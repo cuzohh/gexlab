@@ -33,6 +33,7 @@ import type { ClassifierJob } from "@/lib/server/engine-worker";
 import { buildSessionContext } from "@/lib/session-context";
 import type { SessionContext } from "@/lib/session-context";
 import { loadFomcMeetings, loadPublishedReleaseDates } from "@/lib/server/event-sources";
+import { loadGeoeconomicEvents } from "@/lib/server/geoeconomic-event-sources";
 import { nowcastIndexPair } from "@/lib/server/index-nowcast";
 import { loadMacroSeriesStore } from "@/lib/server/macro-sources";
 import { loadYahooOvernightContext } from "@/lib/server/yahoo-futures";
@@ -54,7 +55,7 @@ import {
 
 export const runtime = "nodejs";
 
-const MODEL_VERSION = "engine-v1.10.0";
+const MODEL_VERSION = "engine-v1.12.0";
 const CACHE_MS = 6 * 60 * 60 * 1000;
 const HISTORY_START = "1999-01-01";
 
@@ -177,6 +178,12 @@ function direction20dLabels(rows: FeatureRow[]) {
   );
 }
 
+function direction60dLabels(rows: FeatureRow[]) {
+  return rows.map((row) =>
+    row.forward60dReturn === null ? null : row.forward60dReturn > 0 ? 1 : 0,
+  );
+}
+
 /**
  * Continuation is the daily analogue of trending behaviour: the next session
  * closing in the same direction as the one just finished. It is the label a
@@ -286,9 +293,10 @@ async function buildPayload() {
   if (prices.length < 500) throw new Error("The index price series is unavailable.");
 
   const studyYears = Array.from({ length: 11 }, (_, index) => new Date().getUTCFullYear() - 10 + index);
-  const [releases, meetings] = await Promise.all([
+  const [releases, meetings, geoeconomicEvents] = await Promise.all([
     loadPublishedReleaseDates(studyYears).catch(() => []),
     loadFomcMeetings().catch(() => null),
+    loadGeoeconomicEvents().catch(() => null),
   ]);
   const majorReleases = new Set(
     releases
@@ -333,6 +341,7 @@ async function buildPayload() {
     { id: "direction", kind: "classifier", rows, labels: directionLabels(rows), target: "direction", question: "Will the next session close higher?", horizon: 1 },
     { id: "direction5d", kind: "classifier", rows, labels: direction5dLabels(rows), target: "direction5d", question: "Will the index close higher over the next 5 sessions?", horizon: 5 },
     { id: "direction20d", kind: "classifier", rows, labels: direction20dLabels(rows), target: "direction20d", question: "Will the index close higher over the next 20 sessions?", horizon: 20 },
+    { id: "direction60d", kind: "classifier", rows, labels: direction60dLabels(rows), target: "direction60d", question: "Will the index close higher over the next 60 sessions?", horizon: 60 },
     { id: "continuation", kind: "classifier", rows, labels: continuationLabels(rows), target: "continuation", question: "Will the next session move in the same direction as this one?", horizon: 1 },
     { id: "volatilityExpansion", kind: "classifier", rows, labels: volatilityExpansionLabels(rows), target: "volatilityExpansion", question: "Will 5-day realized volatility expand above the 20-day baseline?", horizon: 5 },
     { id: "wideRangeDay", kind: "classifier", rows, labels: wideRangeDayLabels(rows), target: "wideRangeDay", question: "Will the next session be an explosive wide-range day (>1.5x 20d ATR)?", horizon: 1 },
@@ -350,6 +359,7 @@ async function buildPayload() {
   const direction = classifier("direction");
   const direction5d = classifier("direction5d");
   const direction20d = classifier("direction20d");
+  const direction60d = classifier("direction60d");
   const continuation = classifier("continuation");
   const volatilityExpansion = classifier("volatilityExpansion");
   const wideRangeDay = classifier("wideRangeDay");
@@ -358,13 +368,14 @@ async function buildPayload() {
   const drawdown5d = classifier("drawdown5d");
   const volatility = (evaluated.get("volatility") ?? null) as ReturnType<typeof evaluateVolatility>;
 
-  // Nine targets are each tested against their own base rate, so at a nominal
+  // Ten targets are each tested against their own base rate, so at a nominal
   // five percent a couple would be expected to clear the bar on noise alone.
   // The verdict shown is the one that survives the correction, not the raw test.
   const scored = [
     direction,
     direction5d,
     direction20d,
+    direction60d,
     continuation,
     volatilityExpansion,
     wideRangeDay,
@@ -485,6 +496,10 @@ async function buildPayload() {
   await yieldToEventLoop();
   const directionFit = fitCurrent(rows, directionLabels(rows));
   await yieldToEventLoop();
+  const direction20dFit = fitCurrent(rows, direction20dLabels(rows));
+  await yieldToEventLoop();
+  const direction60dFit = fitCurrent(rows, direction60dLabels(rows));
+  await yieldToEventLoop();
   const continuationFit = fitCurrent(rows, continuationLabels(rows));
   const directionProbability = directionFit
     ? logisticPredict(
@@ -498,6 +513,12 @@ async function buildPayload() {
         withIntercept(applyStandardizer(continuationFit.standardizer, lastRow.features)),
       )
     : null;
+  const horizonProbability = (fit: ReturnType<typeof fitCurrent>) =>
+    fit
+      ? logisticPredict(fit.weights, withIntercept(applyStandardizer(fit.standardizer, lastRow.features)))
+      : null;
+  const direction20dProbability = horizonProbability(direction20dFit);
+  const direction60dProbability = horizonProbability(direction60dFit);
 
   // The two targets that actually beat their baseline were only ever
   // backtested; no live probability was produced for either, so the one part of
@@ -699,6 +720,10 @@ async function buildPayload() {
       : null,
     index: "Nasdaq-100",
     lastPrice,
+    // Policy events are delivered to the engine so the pre-session briefing
+    // and macro page see the same evidence. They remain outside the fitted
+    // probability until an event feature has an honest walk-forward record.
+    geoeconomicEvents,
     forecast: {
       direction: {
         probability: directionProbability,
@@ -715,6 +740,24 @@ async function buildPayload() {
           continuationProbability === null || !continuationFit
             ? null
             : (continuationProbability - continuationFit.baseRate) * 100,
+      },
+      longHorizon: {
+        twentySessions: {
+          horizon: 20,
+          probability: direction20d?.beatsBaseline ? direction20dProbability : null,
+          baseRate: direction20dFit?.baseRate ?? null,
+          hasMeasuredEdge: direction20d?.beatsBaseline ?? false,
+          falseDiscoveryRate: direction20d?.falseDiscoveryRate ?? null,
+        },
+        sixtySessions: {
+          horizon: 60,
+          probability: direction60d?.beatsBaseline ? direction60dProbability : null,
+          baseRate: direction60dFit?.baseRate ?? null,
+          hasMeasuredEdge: direction60d?.beatsBaseline ?? false,
+          falseDiscoveryRate: direction60d?.falseDiscoveryRate ?? null,
+        },
+        caveat:
+          "A bullish or bearish outlook is shown only after its own horizon beats the unconditional base rate out of sample and survives the multiple-testing correction. An unavailable probability means the model has not earned a directional claim, not that the market is bearish.",
       },
       // How the next session behaves, as opposed to which way it goes. This is
       // the part that survives testing: direction has no measured edge at this
@@ -761,6 +804,7 @@ async function buildPayload() {
       direction,
       direction5d,
       direction20d,
+      direction60d,
       continuation,
       volatilityExpansion,
       wideRangeDay,

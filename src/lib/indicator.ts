@@ -128,6 +128,8 @@ var string[] book_name = array.new_string(2, "")
 
 var bool parsed = false
 var bool payload_is_futures = false
+var bool payload_is_stock = false
+var bool payload_is_mixed = false
 var float payload_ref = 0.0
 var float payload_epoch = 0.0
 var float payload_warn_after = 0.0
@@ -263,6 +265,8 @@ if not parsed
         blocks = str.split(str.substring(bridge, 4), "|")
         header = str.split(f_str(blocks, 0), "~")
         payload_is_futures := f_str(header, 1) == "F"
+        payload_is_stock := f_str(header, 2) == "STOCK"
+        payload_is_mixed := f_str(header, 2) == "MIXED"
         payload_ref := f_number(header, 3)
         payload_epoch := f_number(header, 4)
         payload_warn_after := f_number(header, 5)
@@ -314,7 +318,9 @@ if payload_epoch > 0 and time <= payload_epoch * 1000
 // chart is already in the payload's price space and nothing needs mapping;
 // around 0.024 it is the ETF, around 1.005 the front future.
 reference_gap = payload_ref > 0 ? math.abs(close / payload_ref - 1) : float(na)
-auto_mode = payload_is_futures ? (na(reference_gap) or reference_gap < 0.10 ? "None" : "Payload-reference ratio") : (na(held_ratio) ? (payload_ref > 0 ? "Payload-reference ratio" : "None") : "Cash-index ratio")
+chart_ticker = str.upper(syminfo.ticker)
+chart_is_futures = str.contains(chart_ticker, "NQ") or str.contains(chart_ticker, "ES")
+auto_mode = (payload_is_stock or (payload_is_mixed and not chart_is_futures)) ? "None" : payload_is_futures ? (na(reference_gap) or reference_gap < 0.10 ? "None" : "Payload-reference ratio") : (na(held_ratio) ? (payload_ref > 0 ? "Payload-reference ratio" : "None") : "Cash-index ratio")
 active_mode = map_mode == "Auto" ? auto_mode : map_mode
 
 float map_factor = 1.0
@@ -602,7 +608,12 @@ if barstate.islast
             role = array.get(lv_role, source_index)
             weight = array.get(lv_weight, source_index)
             settled = f_settled(array.get(lv_settles, source_index))
-            if f_visible(kind) and (role == 0 or show_confirmation) and not f_weight_filtered(kind, weight) and not (settled and settled_mode == "Hide")
+            label_text = array.get(lv_label, source_index)
+            // A MIXED payload deliberately contains futures and watchlist books.
+            // Keep only the source that belongs to the chart under the study.
+            // The source name prefixes every label in the bridge format.
+            matches_chart = payload_is_stock ? str.startswith(label_text, chart_ticker + " ") : not payload_is_mixed ? true : str.contains(chart_ticker, "NQ") ? (str.startswith(label_text, "NDX ") or str.startswith(label_text, "QQQ ")) : str.contains(chart_ticker, "ES") ? (str.startswith(label_text, "SPX ") or str.startswith(label_text, "SPY ")) : str.startswith(label_text, chart_ticker + " ")
+            if matches_chart and f_visible(kind) and (role == 0 or show_confirmation) and not f_weight_filtered(kind, weight) and not (settled and settled_mode == "Hide")
                 mapped = f_map(array.get(lv_price, source_index))
                 if not na(mapped) and (max_distance <= 0 or (close > 0 and math.abs(mapped / close - 1) * 100 <= max_distance))
                     array.push(visible_price, mapped)

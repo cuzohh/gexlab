@@ -19,16 +19,17 @@ cd /d "%~dp0"
 cls
 
 echo.
-echo   %CYAN%  ______   _______   _  _      _         _______   _______  %RESET%
-echo   %CYAN% / ___  \ (  ____ \ ( \/ )    ( \       (  ___  ) (  ____ \ %RESET%
-echo   %BLUE%/ /   \  \^| (    \/  \  /     ^| (       ^| (   ) ^| ^| (    \/ %RESET%
-echo   %BLUE%^| ^|    ) ^|^| (__       \/      ^| ^|       ^| (___) ^| ^| (__     %RESET%   %WHITE%G E X L A B%RESET%  %EMERALD%v3.0.0%RESET%
-echo   %PURPLE%^| ^|    ^| ^|^|  __)      /\      ^| ^|       ^|  ___  ^| ^|  __ \   %RESET%   %MUTED%------------------------------------%RESET%
-echo   %PURPLE%^| ^|    ) ^|^| (        /  \     ^| ^|       ^| (   ) ^| ^| (  \ \  %RESET%   %AMBER%* QUANTITATIVE ENGINE %RESET%
-echo   %PINK%\ \___/  /^| (____/\ / /\ \    ^| (____/\ ^| )   ( ^| ^| (___) ) %RESET%   %CYAN%* REAL-TIME GAMMA STRUCTURE %RESET%
-echo   %PINK% \______/ (_______/ \_/  \_\  (_______/ ^|/     \^| (______/  %RESET%   %EMERALD%* FORECAST ^& REVERSAL ZONES %RESET%
+echo   %CYAN%   ######  #######  ##   ##  ##        #####   ######  %RESET%
+echo   %CYAN%  ##       ##       ### ###  ##       ##   ##  ##   ## %RESET%
+echo   %BLUE%  ##       ##        #####   ##       ##   ##  ##   ## %RESET%
+echo   %BLUE%  ##  ####  #####      ##    ##       #######  ######  %RESET%
+echo   %PURPLE% ##   ##  ##         ##     ##       ##   ##  ## ##   %RESET%
+echo   %PURPLE% ##   ##  ##        ###     ##       ##   ##  ##  ##  %RESET%
+echo   %PINK%  ######  #######  ##   ##  #######  ##   ##  ######  %RESET%
 echo.
-echo   %MUTED%------------------------------------------------------------------------------------%RESET%
+echo   %WHITE%  G E X L A B%RESET%  %EMERALD%v3.0.0%RESET%   %MUTED%// MARKET CONTEXT ENGINE%RESET%
+echo   %MUTED%  ================================================================%RESET%
+echo   %AMBER%  QUANTITATIVE ENGINE%RESET%   %CYAN%REAL-TIME GAMMA STRUCTURE%RESET%   %EMERALD%FORECAST + REVERSAL ZONES%RESET%
 echo.
 echo.
 echo   %MUTED%[01]%RESET%  %INK%Runtime check%RESET%

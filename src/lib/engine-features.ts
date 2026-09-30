@@ -10,6 +10,8 @@ export type FeatureRow = {
   forward5dReturn: number | null;
   /** Cumulative close-to-close return over next 20 sessions (1 month), in percent. */
   forward20dReturn: number | null;
+  /** Cumulative close-to-close return over next 60 sessions (about one quarter), in percent. */
+  forward60dReturn: number | null;
   /** Worst close-to-close excursion over the following five sessions, in percent. */
   forward5dDrawdown: number | null;
   /** Return of the session the features end on, in percent. */
@@ -247,6 +249,7 @@ export function buildFeatureRows(
     const nextSession = prices[index + 1] ?? null;
     const session5Ahead = prices[index + 5] ?? null;
     const session20Ahead = prices[index + 20] ?? null;
+    const session60Ahead = prices[index + 60] ?? null;
     // A release on the calendar day after this session, or on the session that
     // actually follows it, both count as "tomorrow" for a Friday close.
     const eventTomorrow =
@@ -341,6 +344,9 @@ export function buildFeatureRows(
     const forward20dReturn = session20Ahead
       ? Math.log(session20Ahead.value / current) * 100
       : null;
+    const forward60dReturn = session60Ahead
+      ? Math.log(session60Ahead.value / current) * 100
+      : null;
     const forward5dPrices = prices.slice(index + 1, index + 6);
     const forward5dDrawdown =
       forward5dPrices.length === 5
@@ -353,6 +359,7 @@ export function buildFeatureRows(
       forwardReturn,
       forward5dReturn,
       forward20dReturn,
+      forward60dReturn,
       forward5dDrawdown,
       currentReturn: returns[returnIndex].value,
       forwardAbsolute: forwardReturn === null ? null : Math.abs(forwardReturn),

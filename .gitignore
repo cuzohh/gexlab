@@ -8,3 +8,7 @@ data/
 tsconfig.tsbuildinfo
 .chrome-qa
 .chrome-qa-history
+.codex-final-profile/
+coverage/
+*.sqlite*
+*.db*

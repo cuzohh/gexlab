@@ -1,7 +1,7 @@
 # Context Handoff — GEXLab V3
 
-Next.js 16 / React 19 / TypeScript. Three workspaces: Macro `/`, Options `/structure`, Engine `/engine`.
-Working tree clean at `e53bb28`. **93/93 tests, tsc/lint/build clean.**
+Next.js 16 / React 19 / TypeScript. Main workspaces include Macro `/`, Options `/structure`, Engine `/engine`, and an experimental Equity Desk under `/stocks`.
+Updated 2026-09-29. The current release candidate includes substantial Equity Desk and repo-packaging changes. Inspect `git status` and the latest release commit before editing. The test/build status in this file is not current; do not repeat historical counts as a present verification result.
 
 ```
 npm test          # node --experimental-strip-types --test tests/*.test.mjs
@@ -11,12 +11,14 @@ npm run dev
 
 ## House rules — load-bearing, not preferences
 
-1. **Zero-account, official sources only.** No API keys anywhere. FRED via `fredgraph.csv`, CME
-   daily bulletin PDF, Chicago Fed CSV, NY Fed JSON, CFTC, and one academic site (below).
+1. **Public endpoints, explicit provenance.** No market-data API key is configured. Core macro
+   inputs use public official sources; price context and parts of the Equity Desk also use
+   unofficial third-party endpoints. SEC routes require `GEXLAB_SEC_CONTACT` at runtime.
 2. **Never fabricate.** A missing value renders as a missing state, never a plausible number.
    Several commits here exist only because something confidently displayed nothing.
-3. **Strict walk-forward.** Nothing is claimed to have skill unless it beat its base rate
-   out-of-sample after a Benjamini-Hochberg correction. Currently 3 of 9 targets do.
+3. **Strict walk-forward.** Treat predictive skill as established only when it beats its base rate
+   out of sample after correction. Counts and scores are time-sensitive; inspect current saved
+   evaluation output before reporting them.
 4. **Comments explain why, not what**, and record what was measured — several say "this regressed
    twice" or carry the numbers that justified a threshold. Match that register.
 
@@ -159,23 +161,25 @@ value off every call and produced a 100%-puts ranking. Each session now prices a
 - The macro route holds **two copies** of the regime scoring (`marketStateAt` and an inline block)
   with a guard that **throws** if they diverge by more than 1. Change both.
 
+## Release and packaging notes
+
+- The public README now describes the current Macro, Options, Engine, and experimental Equity Desk areas and makes no alpha claim.
+- Docker Compose runs one production-mode Next.js instance with a persistent named SQLite volume. The container setup still needs a build and persistence smoke check.
+- SEC requests use `GEXLAB_SEC_CONTACT`; configure a real monitored email in the runtime environment. Do not commit it.
+- The Equity Desk additions have not been reviewed or verified as a production release candidate.
+
 ## Open items, in priority order
 
-1. **Paste the Pine into TradingView.** The only unverified surface, and it is large.
-2. **Schedule `npm run collect:intraday`** every 15 minutes during RTH. `engine_intraday_log` has 4
-   timestamps, all 20:00Z — no intraday history exists. This blocks intraday regime detection *and*
-   same-session block detection, and every day it is off is unrecoverable. Not scheduled here: that
-   is a persistent change to the user's machine and needs their say-so.
-3. Absolute histogram magnitude in the bridge — the profile normalises to +/-100 of its own peak, so
+1. **Review the complete release diff and run `npm run check` before a production release.** Do not assume the feature additions have passed checks.
+2. **Paste the Pine into TradingView.** String assertions do not compile the indicator.
+3. Decide whether to schedule `npm run collect:intraday` every 15 minutes during RTH. The script takes one sample and exits; it is optional, and each missed session is unrecoverable for positioning research.
+4. Absolute histogram magnitude in the bridge — the profile normalises to +/-100 of its own peak, so
    a dead tape and a monster expiry draw identically.
-4. Country-level geopolitical detail and the 8 category shares are parsed but not surfaced.
-5. UI direction: the user shared reference screenshots (a 61-indicator board, a composite macro-bias
-   page). Worth stealing is the **composite score with a contribution breakdown**; the flat
-   equal-weight tile grid is not — nothing reads first. Do not copy the visual style.
+5. Country-level geopolitical detail and the 8 category shares are parsed but not surfaced.
+6. UI direction: reference dashboards can inform information hierarchy, but keep the GEXLab visual
+   style. A composite score should show its contribution breakdown; avoid flat equal-weight tiles.
 
-## User
+## Product context
 
-Day trader, NQ/NDX focus. Pushes back with specifics and is usually right — the live conversion
-ratio and "the market is up 4%, why is this bearish" both surfaced real problems. Wants the horizon
-and the source stated. Prefers being told a thing cannot be measured over being handed a number that
-looks like it can.
+NQ/NDX is the primary use case. State the forecast horizon and data source, show freshness, and
+prefer an unavailable value to a number that cannot be measured reliably.

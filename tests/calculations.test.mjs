@@ -104,6 +104,15 @@ import { assessSnapshotQuality } from "../src/lib/snapshot-quality.ts";
 import { PINE_SCRIPT } from "../src/lib/indicator.ts";
 import { MOTIVEWAVE_STUDY } from "../src/lib/motivewave-indicator.ts";
 import { readJavaSource, renderModule } from "../scripts/sync-motivewave.mjs";
+import { relativeStrengthIndex } from "../src/lib/technicals.ts";
+
+test("a flat price window has a neutral RSI", () => {
+  const rows = Array.from({ length: 15 }, (_, index) => ({
+    date: `2026-01-${String(index + 1).padStart(2, "0")}`,
+    close: 100,
+  }));
+  assert.equal(relativeStrengthIndex(rows), 50);
+});
 
 test("timestamps without a zone are interpreted in New York, including DST", () => {
   assert.equal(parseEasternTimestamp("2026-07-26 12:00:00"), "2026-07-26T16:00:00.000Z");

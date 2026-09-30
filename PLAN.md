@@ -1,5 +1,9 @@
 # GEXLab V3 — NQ Macro Regime & Options-Structure Plan
 
+## Current-scope addendum (2026-09-29)
+
+This document records the original macro and options build. The current repository also contains an experimental Equity Desk under `/stocks` for company, options, ownership, estimates, and catalyst research. That addition does not turn the app into an execution system or establish predictive performance. References below to stock selection being outside the macro regime's scope apply to that shared regime overlay; the Equity Desk is a separate research workspace. Current source and release limits are in [README.md](README.md), [data-sources.md](docs/data-sources.md), and [production-readiness.md](docs/production-readiness.md).
+
 ## 1. Purpose
 
 Build V3 as an end-of-day decision-support application for trading NQ futures.
@@ -531,7 +535,7 @@ All deeper research, raw time series, and downloaded-data inspection remain one 
 
 ### Equity dip regime
 
-This is a shared market backdrop, not a stock scanner and not a recommendation engine.
+This is a shared market backdrop, not a stock scanner or recommendation engine. The separate Equity Desk is exploratory company research, not a recommendation engine.
 
 It answers only:
 
@@ -545,7 +549,7 @@ Inputs are grouped into five ideas:
 - Volatility and hedging.
 - Macro and event risk.
 
-Display only the final state and the two or three reasons driving it. Individual stock selection remains outside V3’s scope.
+Display only the final state and the two or three reasons driving it. Individual stock selection remains outside the macro overlay's scope.
 
 ### Fear-and-greed presentation
 

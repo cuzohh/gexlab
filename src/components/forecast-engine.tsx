@@ -53,9 +53,29 @@ type EngineData = {
   nextSession: string;
   index: string;
   stale?: boolean;
+  geoeconomicEvents: {
+    events: {
+      id: string;
+      source: "USTR" | "OFAC" | "BIS";
+      sourceUrl: string;
+      title: string;
+      publishedAt: string | null;
+      status: "proposed" | "announced" | "effective" | "update";
+      channels: ("trade" | "technology" | "energy" | "fx" | "credit")[];
+      tags: string[];
+    }[];
+    stale: boolean;
+    sources: { source: "USTR" | "OFAC" | "BIS"; available: boolean }[];
+    caveat: string;
+  } | null;
   forecast: {
     direction: { probability: number | null; baseRate: number | null; edge: number | null };
     continuation: { probability: number | null; baseRate: number | null; edge: number | null };
+    longHorizon: {
+      twentySessions: { horizon: number; probability: number | null; baseRate: number | null; hasMeasuredEdge: boolean; falseDiscoveryRate: number | null };
+      sixtySessions: { horizon: number; probability: number | null; baseRate: number | null; hasMeasuredEdge: boolean; falseDiscoveryRate: number | null };
+      caveat: string;
+    };
     expectedMove: number | null;
     typicalMove: number;
     lastPrice?: number;
@@ -204,6 +224,7 @@ type EngineData = {
     direction: ClassifierEvaluation | null;
     direction5d?: ClassifierEvaluation | null;
     direction20d?: ClassifierEvaluation | null;
+    direction60d?: ClassifierEvaluation | null;
     continuation: ClassifierEvaluation | null;
     volatilityExpansion?: ClassifierEvaluation | null;
     wideRangeDay?: ClassifierEvaluation | null;
@@ -364,6 +385,33 @@ function ProbabilityCard({
   );
 }
 
+function LongHorizonOutlook({ outlook }: { outlook: EngineData["forecast"]["longHorizon"] }) {
+  const card = (target: (typeof outlook)["twentySessions"], label: string) => {
+    const bullish = target.probability !== null && target.probability >= 0.5;
+    return (
+      <article className={`long-horizon-card long-horizon-card--${target.hasMeasuredEdge ? (bullish ? "constructive" : "stress") : "neutral"}`}>
+        <span>{label} · {target.horizon} sessions</span>
+        <strong>{target.hasMeasuredEdge ? (bullish ? "Bullish bias" : "Bearish bias") : "Unproven"}</strong>
+        <p>{target.probability === null ? "No probability is published until this horizon earns a directional claim." : `${(target.probability * 100).toFixed(0)}% chance of a higher close · base rate ${(target.baseRate! * 100).toFixed(0)}%.`}</p>
+        <small>{target.hasMeasuredEdge ? `Validated after multiple-testing correction${target.falseDiscoveryRate === null ? "" : ` · q ${target.falseDiscoveryRate.toFixed(3)}`}` : "Not a buy / no-buy gate."}</small>
+      </article>
+    );
+  };
+  return (
+    <section className="long-horizon-outlook reveal reveal--1">
+      <div className="section-heading">
+        <div><p className="section-kicker">Stock horizon outlook</p><h2>Does the evidence support holding risk?</h2></div>
+        <p>A research filter, not authorization to buy.</p>
+      </div>
+      <div className="long-horizon-grid">
+        {card(outlook.twentySessions, "Next month")}
+        {card(outlook.sixtySessions, "Next quarter")}
+      </div>
+      <p className="data-disclaimer">{outlook.caveat}</p>
+    </section>
+  );
+}
+
 /**
  * How the next session behaves, as opposed to which way it goes.
  *
@@ -390,8 +438,10 @@ function SessionCharacter({
   return (
     <section id="behavior" className="session-character reveal reveal--2">
       <div className="section-heading">
-        <span className="card-kicker">Before the open · {session}</span>
-        <h2>How the next session behaves</h2>
+        <div>
+          <p className="section-kicker">Before the open · {session}</p>
+          <h2>How the next session behaves</h2>
+        </div>
         <p>{character.caveat}</p>
       </div>
       <div className="session-character-grid">
@@ -651,16 +701,60 @@ function SessionContextPanel({ context }: { context: EngineData["forecast"]["ses
   );
 }
 
+function GeoeconomicBriefing({ events }: { events: EngineData["geoeconomicEvents"] }) {
+  const current = events?.events.slice(0, 3) ?? [];
+  return (
+    <section className="engine-geoeconomic reveal reveal--2">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Policy-event overlay</p>
+          <h2>What to verify before trusting the read</h2>
+        </div>
+        <p>Shared with Macro. Context only—these events do not alter the fitted probabilities.</p>
+      </div>
+      {current.length ? (
+        <div className="engine-geoeconomic-grid">
+          {current.map((event) => (
+            <a href={event.sourceUrl} target="_blank" rel="noreferrer" key={event.id}>
+              <span>{event.source} · {event.status}</span>
+              <strong>{event.title}</strong>
+              <small>{event.channels.join(" → ")}{event.tags.length ? ` · ${event.tags.join(", ")}` : ""}</small>
+            </a>
+          ))}
+        </div>
+      ) : <p className="engine-geoeconomic-empty">No official policy ledger is available; the forecast remains based on its validated market inputs.</p>}
+      {events && <p className="data-disclaimer">{events.caveat}</p>}
+    </section>
+  );
+}
+
+/**
+ * Ten targets, each with a five-measure table, a calibration strip and two
+ * paragraphs explaining the standard error. Laid out open, that is most of the
+ * page, and the question it answers — did this target beat the base rate — is
+ * one word per target. The verdict and the number the verdict rests on stay on
+ * the closed row; everything that supports them is one click away, unchanged.
+ */
 function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null }) {
   if (!evaluation) return null;
+  const advantage = evaluation.comparison
+    ? `${signed(evaluation.comparison.meanAdvantage, "", 4)} log loss`
+    : "not scored";
+  const significance = evaluation.falseDiscoveryRate === null
+    ? null
+    : `q ${evaluation.falseDiscoveryRate < 0.001 ? "< 0.001" : evaluation.falseDiscoveryRate.toFixed(3)}`;
   return (
-    <article className="score-block">
-      <header>
+    <details className="score-block">
+      <summary>
         <h3>{evaluation.question}</h3>
+        <span className="score-block-stat">
+          {advantage}
+          {significance && <small>{significance}</small>}
+        </span>
         <span className={`state-label state-label--${evaluation.beatsBaseline ? "constructive" : "stress"}`}>
           {evaluation.beatsBaseline ? "Beats base rate" : "No measured skill"}
         </span>
-      </header>
+      </summary>
       <table className="score-table">
         <thead>
           <tr>
@@ -773,8 +867,8 @@ function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null })
               numbers: a model can finish a ten-thousandth ahead and have shown nothing.
             </>
           )}{" "}
-          q is the p-value after a false-discovery-rate correction across all nine targets, since testing
-          nine questions at once is expected to produce a winner or two by chance.
+          q is the p-value after a false-discovery-rate correction across all ten targets, since testing
+          ten questions at once is expected to produce a winner or two by chance.
         </p>
       )}
       {evaluation.coefficients.length > 0 && (
@@ -800,7 +894,7 @@ function ScoreTable({ evaluation }: { evaluation: ClassifierEvaluation | null })
           </p>
         </details>
       )}
-    </article>
+    </details>
   );
 }
 
@@ -899,7 +993,9 @@ export function ForecastEngine() {
         />
       )}
 
+      {data?.forecast.longHorizon && <LongHorizonOutlook outlook={data.forecast.longHorizon} />}
       {data?.forecast.sessionContext && <SessionContextPanel context={data.forecast.sessionContext} />}
+      <GeoeconomicBriefing events={data?.geoeconomicEvents ?? null} />
 
       {data?.evaluation.volatility && (
         <section id="move-size" className="volatility-scorecard reveal reveal--2">
@@ -946,6 +1042,7 @@ export function ForecastEngine() {
           <ScoreTable evaluation={data?.evaluation.continuation ?? null} />
           {data?.evaluation.direction5d && <ScoreTable evaluation={data.evaluation.direction5d} />}
           {data?.evaluation.direction20d && <ScoreTable evaluation={data.evaluation.direction20d} />}
+          {data?.evaluation.direction60d && <ScoreTable evaluation={data.evaluation.direction60d} />}
           {data?.evaluation.volatilityExpansion && <ScoreTable evaluation={data.evaluation.volatilityExpansion} />}
           {data?.evaluation.wideRangeDay && <ScoreTable evaluation={data.evaluation.wideRangeDay} />}
           {data?.evaluation.rallySpike5d && <ScoreTable evaluation={data.evaluation.rallySpike5d} />}

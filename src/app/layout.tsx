@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, Instrument_Sans, Newsreader } from "next/font/google";
 import Script from "next/script";
 import { AppShell } from "@/components/app-shell";
+import { PerformanceReporter } from "@/components/performance-reporter";
 import "./globals.css";
 
 const instrumentSans = Instrument_Sans({
@@ -49,6 +50,7 @@ export default function RootLayout({
       className={`${instrumentSans.variable} ${newsreader.variable} ${plexMono.variable}`}
     >
       <body>
+        <PerformanceReporter />
         <Script id="gexlab-theme" strategy="beforeInteractive">
           {themeScript}
         </Script>

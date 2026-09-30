@@ -6,7 +6,7 @@
 //
 //   header  H~<space>~<instrument>~<refSpot>~<epochSec>~<warnAfterSec>
 //     space       N = native index points, F = already futures-converted
-//     instrument  NQ | ES  (the futures contract the payload is aimed at)
+//     instrument  NQ | ES | STOCK (the chart price space the payload targets)
 //     refSpot     the reference price every block has been rescaled onto
 //     epochSec    snapshot time, so the chart can show payload age
 //     warnAfterSec earliest instant at which an age warning is meaningful
@@ -142,7 +142,7 @@ export type BridgeSource = {
 
 export type BridgeOptions = {
   space: "N" | "F";
-  instrument: "NQ" | "ES";
+  instrument: "NQ" | "ES" | "STOCK" | "MIXED";
   /** Price every source is rescaled onto: index spot for N, futures for F. */
   referenceSpot: number;
   generatedAt?: Date | number;
@@ -152,6 +152,8 @@ export type BridgeOptions = {
   gammaCount?: number;
   deltaCount?: number;
   maxExpiries?: number;
+  /** Keep every source in its own native price space for a multi-chart payload. */
+  preserveNative?: boolean;
 };
 
 export type Concentration = {
@@ -367,7 +369,7 @@ export function buildBridgeBlock(source: BridgeSource, options: BridgeOptions) {
   const { parts } = options;
   // Every source is rescaled onto the reference price so one chart-space
   // conversion in the indicator serves index, ETF and futures alike.
-  const factor = source.spot > 0 ? options.referenceSpot / source.spot : 1;
+  const factor = options.preserveNative ? 1 : source.spot > 0 ? options.referenceSpot / source.spot : 1;
   const step = strikeIncrement(source.strikes.map((row) => row.strike));
   const separation = minimumSeparation(step, source.spot);
   const gamma = parts.gamma

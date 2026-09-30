@@ -34,6 +34,10 @@ const NAMESPACES = [
   { name: "macro-output", retainSessions: 120 },
   { name: "events", retainSessions: 120 },
   { name: "engine-output", retainSessions: 120 },
+  // Six months of estimate observations. Each row is a handful of numbers, so
+  // the whole series across a watchlist is well under a megabyte — but it is
+  // written every session and would otherwise grow without limit.
+  { name: "estimate-history", retainSessions: 130 },
 ];
 const RETAIN_RECENT_DAYS = 2;
 

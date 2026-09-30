@@ -26,6 +26,22 @@ const BASE = flag("base", process.env.GEXLAB_BASE_URL || "http://localhost:3000"
 const FORCE = args.includes("--force");
 const GAP_MS = Number(flag("gap", "2000"));
 
+/**
+ * The tickers whose analyst estimates are tracked over time.
+ *
+ * A price target on its own is close to useless — it is anchored to the price
+ * and revised slowly, so the gap widens by itself whenever a stock falls. The
+ * revision is the signal, and a revision needs yesterday's reading to exist.
+ * Each ticker costs one scrape a day and stores about a hundred bytes.
+ *
+ * Set GEXLAB_ESTIMATE_TICKERS to a comma-separated list to follow your own
+ * positions instead of the default.
+ */
+const ESTIMATE_TICKERS = (process.env.GEXLAB_ESTIMATE_TICKERS || "NVDA,MSFT,AAPL,AMZN,META,GOOGL,TSLA")
+  .split(",")
+  .map((ticker) => ticker.trim().toUpperCase())
+  .filter((ticker) => /^[A-Z]{1,5}$/.test(ticker));
+
 const TARGETS = [
   "/api/options/SPX?updates=eod",
   "/api/options/SPY?updates=eod",
@@ -38,6 +54,10 @@ const TARGETS = [
   // snapshots have settled. This pass is also what records the next
   // session's prediction before that session happens.
   "/api/engine",
+  // One consensus read per followed ticker. These come after the market data
+  // and before the engine so a slow scrape cannot delay the session's own
+  // snapshots.
+  ...ESTIMATE_TICKERS.map((ticker) => `/api/analyst/${ticker}`),
 ];
 
 function easternParts(date = new Date()) {

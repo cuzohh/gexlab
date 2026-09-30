@@ -8,6 +8,64 @@ import { describeSessionLag } from "@/lib/market-time";
 type Tone = "constructive" | "caution" | "stress" | "neutral";
 type View = "overview" | "regime" | "history";
 
+type NewsTimelineSummary = {
+  windows: {
+    day: { value: number | null; samples: number };
+    threeDay: { value: number | null; samples: number };
+    week: { value: number | null; samples: number };
+  };
+  baseline: number | null;
+  change20: number | null;
+  percentile: number | null;
+  asOf: string | null;
+};
+
+type NewsSentimentData = {
+  source: string;
+  retrievedAt: string;
+  asOf: string | null;
+  stale: boolean;
+  tone: NewsTimelineSummary;
+  attention: NewsTimelineSummary;
+  topics: { id: string; label: string; tone: NewsTimelineSummary }[];
+  query: string;
+  method: string;
+  caveat: string;
+};
+
+type GeopoliticalData = {
+  asOf: string | null;
+  level: number | null;
+  change20: number | null;
+  latest: number | null;
+  threats: number | null;
+  acts: number | null;
+  threatShare: number | null;
+  countries: { code: string; value: number; date: string }[];
+  countriesAsOf: string | null;
+  method: string;
+  caveat: string;
+};
+
+type GeoeconomicEventFeed = {
+  events: {
+    id: string;
+    source: "USTR" | "OFAC" | "BIS";
+    sourceUrl: string;
+    title: string;
+    publishedAt: string | null;
+    status: "proposed" | "announced" | "effective" | "update";
+    channels: ("trade" | "technology" | "energy" | "fx" | "credit")[];
+    tags: string[];
+  }[];
+  channels: { channel: "trade" | "technology" | "energy" | "fx" | "credit"; events: number }[];
+  retrievedAt: string;
+  stale: boolean;
+  sources: { source: "USTR" | "OFAC" | "BIS"; available: boolean }[];
+  method: string;
+  caveat: string;
+};
+
 type MacroData = {
   source: string;
   fetchedAt: string;
@@ -109,6 +167,9 @@ type MacroData = {
     method: string;
     caveat: string;
   };
+  geopolitical: GeopoliticalData | null;
+  geoeconomicEvents: GeoeconomicEventFeed | null;
+  newsSentiment: NewsSentimentData | null;
   metrics: {
     id: string;
     label: string;
@@ -342,6 +403,220 @@ function DataStatus({ data, error }: { data: MacroData | null; error: string }) 
           : "No placeholder values are shown"}
       </span>
     </div>
+  );
+}
+
+function newsTone(value: number | null): Tone {
+  if (value === null) return "neutral";
+  return value >= 0.5 ? "constructive" : value <= -0.5 ? "stress" : "neutral";
+}
+
+function signedNews(value: number | null) {
+  return value === null ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function NewsContext({ data }: { data: NewsSentimentData | null }) {
+  const tone = data?.tone.windows.threeDay.value ?? null;
+  const attention = data?.attention.windows.threeDay.value ?? null;
+  const attentionRank = data?.attention.percentile === null || data?.attention.percentile === undefined
+    ? "unranked"
+    : `${data.attention.percentile}th percentile`;
+  return (
+    <section className="news-context reveal reveal--3" aria-label="Global news context">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Global news context</p>
+          <h2>What the world is emphasizing</h2>
+        </div>
+        <span className="news-context-status">{data ? `${data.source}${data.stale ? " · saved snapshot" : ""}` : "Not connected"}</span>
+      </div>
+      {data ? (
+        <>
+          <div className="news-context-summary">
+            <article>
+              <span>Article tone · 72h</span>
+              <strong className={`state-label state-label--${newsTone(tone)}`}>{signedNews(tone)}</strong>
+              <p>24h {signedNews(data.tone.windows.day.value)} · 7d {signedNews(data.tone.windows.week.value)}</p>
+            </article>
+            <article>
+              <span>Coverage attention · 72h</span>
+              <strong>{attention === null ? "—" : `${attention.toFixed(2)}%`}</strong>
+              <p>{attentionRank} versus the prior twenty daily observations.</p>
+            </article>
+            <article>
+              <span>Tone shift vs baseline</span>
+              <strong>{signedNews(data.tone.change20)}</strong>
+              <p>72h average compared with the prior twenty daily observations.</p>
+            </article>
+          </div>
+          <div className="news-topic-list">
+            {data.topics.map((topic) => {
+              const topicValue = topic.tone.windows.threeDay.value;
+              return (
+                <article className="news-topic" key={topic.id}>
+                  <span>{topic.label}</span>
+                  <strong className={`state-label state-label--${newsTone(topicValue)}`}>{signedNews(topicValue)}</strong>
+                  <small>7d {signedNews(topic.tone.windows.week.value)} · {topic.tone.percentile === null ? "unranked" : `${topic.tone.percentile}th percentile`}</small>
+                </article>
+              );
+            })}
+          </div>
+          <p className="data-disclaimer">{data.caveat}</p>
+        </>
+      ) : (
+        <div className="data-pending">
+          <strong>Global news context is unavailable.</strong>
+          <p>The Macro regime remains independent of this optional, unvalidated input.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function GeoeconomicContext({
+  geopolitical,
+  events,
+  metrics,
+}: {
+  geopolitical: GeopoliticalData | null;
+  events: GeoeconomicEventFeed | null;
+  metrics: MacroData["metrics"];
+}) {
+  const metric = (id: string) => metrics.find((item) => item.id === id);
+  const oilVol = metric("ovx");
+  const breakevens = metric("breakevens");
+  const dollar = metric("dollar");
+  const credit = metric("hy-spread");
+  const levelTone: Tone = geopolitical?.level === null || geopolitical?.level === undefined
+    ? "neutral"
+    : geopolitical.level >= 150 ? "stress" : geopolitical.level >= 110 ? "caution" : "constructive";
+  const anticipation = geopolitical?.threatShare === null || geopolitical?.threatShare === undefined
+    ? "Unavailable"
+    : geopolitical.threatShare >= 0.55 ? "Threat-led" : "Act-led";
+  const channelEvidence = [
+    { id: "energy", label: "Energy", value: oilVol?.change, available: oilVol?.value !== null && oilVol?.value !== undefined },
+    { id: "fx", label: "FX", value: dollar?.change, available: dollar?.value !== null && dollar?.value !== undefined },
+    { id: "credit", label: "Credit", value: credit?.change, available: credit?.value !== null && credit?.value !== undefined },
+  ];
+
+  return (
+    <section className="geoeconomic-context reveal reveal--3" aria-label="Geoeconomic transmission context">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">Geoeconomics · shock transmission</p>
+          <h2>Where policy and conflict can reach the trade</h2>
+        </div>
+        <span className="news-context-status">
+          {geopolitical?.asOf ? `GPR through ${shortDate(geopolitical.asOf)}` : "Geopolitical feed unavailable"}
+        </span>
+      </div>
+      {geopolitical ? (
+        <>
+          <div className="geoeconomic-lead">
+            <div>
+              <span>30-day geopolitical-risk index</span>
+              <strong className={`state-label state-label--${levelTone}`}>
+                {geopolitical.level === null ? "—" : geopolitical.level.toFixed(1)}
+              </strong>
+              <p>100 is the publisher’s long-run average · {signedText(geopolitical.change20, " points over 20 sessions")}</p>
+            </div>
+            <div>
+              <span>What is leading coverage</span>
+              <strong>{anticipation}</strong>
+              <p>
+                Threats {geopolitical.threats === null ? "—" : geopolitical.threats.toFixed(1)} · acts {geopolitical.acts === null ? "—" : geopolitical.acts.toFixed(1)}
+              </p>
+            </div>
+            <p className="geoeconomic-reading">
+              Treat this as a scenario trigger, then confirm the transmission path below. It is kept outside the regime score because news attention is not itself a market outcome.
+            </p>
+          </div>
+          <div className="transmission-grid">
+            <article>
+              <span>Energy & inflation</span>
+              <strong>{oilVol?.display ?? "Unavailable"}</strong>
+              <p>OVX · {breakevens?.display ?? "—"} breakevens. Energy shocks can alter inflation and rate expectations.</p>
+            </article>
+            <article>
+              <span>Trade & FX</span>
+              <strong>{dollar?.display ?? "Unavailable"}</strong>
+              <p>Dollar pressure is the first observable cross-border channel after tariffs, sanctions, or capital restrictions.</p>
+            </article>
+            <article>
+              <span>Funding & risk appetite</span>
+              <strong>{credit?.display ?? "Unavailable"}</strong>
+              <p>High-yield spread · watch for credit confirmation before treating a shock as broad deleveraging.</p>
+            </article>
+          </div>
+          <div className="transmission-map" aria-label="Official policy events and their market confirmation channels">
+            <div className="transmission-map-title">
+              <span>Policy event → market confirmation</span>
+              <p>Animated paths are channels to inspect, not causal claims.</p>
+            </div>
+            <div className="transmission-map-body">
+              <div className="transmission-source-stack">
+                {(events?.sources ?? [{ source: "USTR", available: false }, { source: "OFAC", available: false }, { source: "BIS", available: false }]).map((source) => (
+                  <span className={source.available ? "is-live" : ""} key={source.source}>{source.source}</span>
+                ))}
+              </div>
+              <svg viewBox="0 0 360 122" role="img" aria-label="Paths from official policy sources to energy, FX, and credit confirmation">
+                <path className="transmission-path" d="M30 20 C130 20, 155 24, 250 24" />
+                <path className="transmission-path transmission-path--delay" d="M30 61 C115 61, 166 61, 250 61" />
+                <path className="transmission-path transmission-path--slow" d="M30 102 C145 102, 148 98, 250 98" />
+                <circle className="transmission-node" cx="30" cy="20" r="4" /><circle className="transmission-node" cx="30" cy="61" r="4" /><circle className="transmission-node" cx="30" cy="102" r="4" />
+                <circle className="transmission-node transmission-node--out" cx="250" cy="24" r="4" /><circle className="transmission-node transmission-node--out" cx="250" cy="61" r="4" /><circle className="transmission-node transmission-node--out" cx="250" cy="98" r="4" />
+              </svg>
+              <div className="transmission-confirmation-stack">
+                {channelEvidence.map((channel) => (
+                  <span className={channel.available ? "is-live" : ""} key={channel.id}>
+                    <b>{channel.label}</b><em>{channel.value === null || channel.value === undefined ? "—" : `${channel.value > 0 ? "+" : ""}${channel.value.toFixed(2)}`}</em>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="official-event-ledger">
+            <div className="official-event-ledger-head">
+              <span>Official policy ledger</span>
+              <p>{events ? `${events.events.length} review items · ${events.stale ? "saved snapshot" : "sources connected"}` : "Sources unavailable"}</p>
+            </div>
+            {events?.events.length ? (
+              <ol>
+                {events.events.slice(0, 6).map((event) => (
+                  <li key={event.id}>
+                    <time>{event.publishedAt ? shortDate(event.publishedAt) : "Undated"}</time>
+                    <span className={`event-status event-status--${event.status}`}>{event.status}</span>
+                    <a href={event.sourceUrl} target="_blank" rel="noreferrer">{event.title}</a>
+                    <div>{event.channels.map((channel) => <i key={channel}>{channel}</i>)}{event.tags.map((tag) => <i className="event-tag" key={tag}>{tag}</i>)}</div>
+                  </li>
+                ))}
+              </ol>
+            ) : <p className="official-event-empty">No official event listing is available. The market-confirmation checks remain live.</p>}
+            {events && <details className="learn-panel"><summary>Event-ledger method</summary><p>{events.method}</p><p>{events.caveat}</p></details>}
+          </div>
+          {geopolitical.countries.length > 0 && (
+            <div className="geoeconomic-countries">
+              <span>Highest country readings · {geopolitical.countriesAsOf ? monthLabel(geopolitical.countriesAsOf) : "latest available"}</span>
+              <ol>
+                {geopolitical.countries.slice(0, 6).map((country) => (
+                  <li key={country.code}><b>{country.code}</b><em>{country.value.toFixed(1)}</em></li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <details className="learn-panel">
+            <summary>How to use this read</summary>
+            <p>{geopolitical.method}</p>
+            <p>{geopolitical.caveat}</p>
+          </details>
+        </>
+      ) : (
+        <div className="data-pending">
+          <strong>Geoeconomic context is unavailable.</strong>
+          <p>Macro, options, and flow analysis remain available; no headline-based conclusion is substituted.</p>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -977,7 +1252,7 @@ export function MacroDashboard({ view }: { view: View }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/macro", { signal: controller.signal })
+    fetch(`/api/macro?view=${view}`, { signal: controller.signal })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok) throw new Error(payload.error || "Macro request failed.");
@@ -988,7 +1263,7 @@ export function MacroDashboard({ view }: { view: View }) {
         if (reason.name !== "AbortError") setError(reason.message);
       });
     return () => controller.abort();
-  }, []);
+  }, [view]);
 
   const trail = useMemo(
     () => data?.history.rows.slice(0, 3).reverse().map((row) => ({
@@ -1125,6 +1400,9 @@ export function MacroDashboard({ view }: { view: View }) {
             {!data && <div className="macro-loading">{error || "Loading official observations…"}</div>}
           </div>
         </section>
+
+        <NewsContext data={data?.newsSentiment ?? null} />
+        <GeoeconomicContext geopolitical={data?.geopolitical ?? null} events={data?.geoeconomicEvents ?? null} metrics={data?.metrics ?? []} />
 
         <section className="availability-strip reveal reveal--3">
           <article><span>Economic data</span><strong>{data ? "Series connected" : "Checking"}</strong><p>{data?.availability.series.unavailableSeries.length ? `Unavailable: ${data.availability.series.unavailableSeries.join(", ")}` : "Series-level dates are shown throughout."}</p></article>
