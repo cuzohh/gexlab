@@ -167,7 +167,7 @@ value off every call and produced a 100%-puts ranking. Each session now prices a
 - On 2026-09-30, `npm run check` passed on Node 24.14.0: ESLint, all 172 tests, and the production build. `npm audit` is clean after updating Next.js and `sharp`.
 - A local production server using a temporary SQLite database returned `ok` from `/api/health` and HTTP 200 for the homepage. The temporary database was removed afterward.
 - Docker Compose defines one production-mode Next.js instance with a persistent named SQLite volume. Docker was unavailable in the verification environment, so container build and persistence remain unverified.
-- A source-terms review found material restrictions for the current automated Yahoo, Cboe, Nasdaq, and StockAnalysis adapters. No permissions are on file. Do not operate these adapters until their use is authorized or they are replaced; details and source links are in `docs/data-sources.md`.
+- A source-terms review found material restrictions for the current automated Yahoo, Cboe, Nasdaq, and StockAnalysis adapters. The repo does not record provider permissions. Do not operate these adapters until their use is authorized or they are replaced; details and source links are in `docs/data-sources.md`.
 - SEC requests use `GEXLAB_SEC_CONTACT`; configure a real monitored email in the runtime environment. Do not commit it.
 - The automated checks do not replace a source-level review or the external TradingView, provider-terms, SEC-contact, and hosted-operations checks.
 
