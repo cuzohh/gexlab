@@ -59,11 +59,11 @@ docker compose up --build
 
 For Compose environment values, copy `.env.example` to `.env` and fill in `GEXLAB_SEC_CONTACT` if you use SEC-backed pages. Open <http://localhost:3000>. The port is bound to loopback by default. The `/api/health` check confirms the app can read its SQLite store. The database lives in the `gexlab-v3-data` Docker volume and survives `docker compose down`; **do not use `docker compose down -v` unless you intend to delete that database**. This setup is for one app instance. SQLite WAL storage is not configured for multiple replicas or shared network filesystems.
 
-Before exposing an instance publicly, configure a persistent volume and backups, set `GEXLAB_SEC_CONTACT` for SEC requests, put HTTPS and suitable access/abuse controls in front of it, and review the upstream providers' terms. See [production readiness](docs/production-readiness.md).
+Do not expose the included live-data adapters as a public hosted service yet. The current Yahoo, Cboe, Nasdaq, and StockAnalysis integrations need written authorization for their exact automated use or replacement with appropriately licensed sources. Before any public instance, also configure a persistent volume and backups, set `GEXLAB_SEC_CONTACT` for SEC requests, and put HTTPS and access/abuse controls in front of it. See [the programmatic-access review](docs/data-sources.md#programmatic-access-review-2026-09-30) and [production readiness](docs/production-readiness.md).
 
 ## Data and model limits
 
-The app reads public and no-account endpoints directly. Those sources can change formats, impose limits, or stop responding. Some market data is delayed, and some historical macro data predates GEXLab's local vintage capture; those older periods are revised-data reconstructions rather than point-in-time archives. A source list and notes are in [Data sources](docs/data-sources.md).
+Some adapters issue direct HTTP requests to public, no-account endpoints. That does not grant programmatic-use rights; see the [source terms review](docs/data-sources.md#programmatic-access-review-2026-09-30). Sources can change formats, impose limits, or stop responding. Some market data is delayed, and some historical macro data predates GEXLab's local vintage capture; those older periods are revised-data reconstructions rather than point-in-time archives. A source list and notes are in [Data sources](docs/data-sources.md).
 
 The interface exposes freshness and missing-data states, but users still need to check observation dates and source notes before relying on a reading. This software is for research and education. It is not investment, legal, or tax advice and does not execute trades.
 

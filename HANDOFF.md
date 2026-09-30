@@ -164,19 +164,25 @@ value off every call and produced a 100%-puts ranking. Each session now prices a
 ## Release and packaging notes
 
 - The public README now describes the current Macro, Options, Engine, and experimental Equity Desk areas and makes no alpha claim.
-- Docker Compose runs one production-mode Next.js instance with a persistent named SQLite volume. The container setup still needs a build and persistence smoke check.
+- On 2026-09-30, `npm run check` passed on Node 24.14.0: ESLint, all 172 tests, and the production build. `npm audit` is clean after updating Next.js and `sharp`.
+- A local production server using a temporary SQLite database returned `ok` from `/api/health` and HTTP 200 for the homepage. The temporary database was removed afterward.
+- Docker Compose defines one production-mode Next.js instance with a persistent named SQLite volume. Docker was unavailable in the verification environment, so container build and persistence remain unverified.
+- A source-terms review found material restrictions for the current automated Yahoo, Cboe, Nasdaq, and StockAnalysis adapters. No permissions are on file. Do not operate these adapters until their use is authorized or they are replaced; details and source links are in `docs/data-sources.md`.
 - SEC requests use `GEXLAB_SEC_CONTACT`; configure a real monitored email in the runtime environment. Do not commit it.
-- The Equity Desk additions have not been reviewed or verified as a production release candidate.
+- The automated checks do not replace a source-level review or the external TradingView, provider-terms, SEC-contact, and hosted-operations checks.
 
 ## Open items, in priority order
 
-1. **Review the complete release diff and run `npm run check` before a production release.** Do not assume the feature additions have passed checks.
-2. **Paste the Pine into TradingView.** String assertions do not compile the indicator.
-3. Decide whether to schedule `npm run collect:intraday` every 15 minutes during RTH. The script takes one sample and exits; it is optional, and each missed session is unrecoverable for positioning research.
-4. Absolute histogram magnitude in the bridge — the profile normalises to +/-100 of its own peak, so
+1. **Review the complete release diff.** Automated checks passed, but they do not constitute a source-level or visual review.
+2. **Resolve provider rights.** Obtain written authorization for the current automated data integrations or replace them with licensed sources before operating them.
+3. **Build and exercise Docker Compose on the intended host.** Verify the named volume survives container replacement and test backup/restore.
+4. **Paste the Pine into TradingView.** String assertions do not compile the indicator.
+5. Configure `GEXLAB_SEC_CONTACT` and set up access controls, HTTPS, monitoring, backups, and recovery before public hosting.
+6. Decide whether to schedule `npm run collect:intraday` every 15 minutes during RTH. The script takes one sample and exits; it is optional, and each missed session is unrecoverable for positioning research.
+7. Absolute histogram magnitude in the bridge — the profile normalises to +/-100 of its own peak, so
    a dead tape and a monster expiry draw identically.
-5. Country-level geopolitical detail and the 8 category shares are parsed but not surfaced.
-6. UI direction: reference dashboards can inform information hierarchy, but keep the GEXLab visual
+8. Country-level geopolitical detail and the 8 category shares are parsed but not surfaced.
+9. UI direction: reference dashboards can inform information hierarchy, but keep the GEXLab visual
    style. A composite score should show its contribution breakdown; avoid flat equal-weight tiles.
 
 ## Product context
