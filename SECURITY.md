@@ -4,4 +4,4 @@ GEXLab is a self-hosted research application. It is not designed as a multi-user
 
 Do not put API credentials, personal SEC contact details, database files, or provider payloads in issues or pull requests. Local `.env*` files and the SQLite data directory are excluded from Git.
 
-If you find a security issue, use GitHub's private vulnerability reporting for this repository if it is enabled. Do not publish exploit details in a public issue.
+If you find a security issue, use GitHub's private vulnerability reporting for this repository. Do not publish exploit details in a public issue.
