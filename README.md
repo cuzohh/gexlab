@@ -1,6 +1,10 @@
 
 
-https://github.com/user-attachments/assets/0f865f55-29f5-4da7-9587-a58a45307878
+
+
+https://github.com/user-attachments/assets/41b59212-e452-4e61-b20c-41d3cc17aeab
+
+
 
 # GEXLab V3
 
@@ -14,7 +18,7 @@ GEXLab is a self-hosted market research workbench for NQ/ES. It brings macro con
 - **Options structure:** NDX/NDXP and SPX/SPXW exposure, levels, chains, volatility surfaces, and term structure. ETF chains are also available in the stock workspace.
 - **Forecast research:** NQ/ES regime and session-character outputs with historical evaluation. Treat these as research artifacts, not trade recommendations.
 - **Equity desk:** company fundamentals, estimates, options, ownership, catalysts, and cross-asset context. Some pages use third-party public pages and remain experimental.
-- **Chart bridge:** TradingView Pine and MotiveWave Java studies. The Pine script still needs a manual TradingView compile check; see [the MotiveWave notes](motivewave/README.md) and [release checklist](docs/production-readiness.md).
+- **Chart bridge:** TradingView Pine and MotiveWave Java studies. see [the MotiveWave notes](motivewave/README.md) and [release checklist](docs/production-readiness.md).
 - **Local history:** source observations and versioned calculations are stored separately in SQLite so calculations can be inspected and reproduced.
 
 ## Run locally
