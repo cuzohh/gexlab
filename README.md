@@ -2,11 +2,6 @@
 
 https://github.com/user-attachments/assets/0f865f55-29f5-4da7-9587-a58a45307878
 
-<p align="center">
-  <a href="docs/media/gexlab-v3-reel.mp4"><img src="docs/media/gexlab-v3-reel.gif" alt="GEXLab V3 motion reel: the options profile's spot tag fills the frame, the implied volatility surface lifts into 3D, then its cells fall into the next-session forecast distribution" width="100%"></a>
-</p>
-<p align="center"><a href="docs/media/gexlab-v3-reel.mp4"><b>▶ Watch the full 60-second reel (with sound)</b></a></p>
-
 # GEXLab V3
 
 GEXLab is a self-hosted market research workbench for NQ/ES. It brings macro conditions, index options structure, market history, and an experimental equity research desk into one interface. It is designed to explain the data and its limits, not to send orders.
