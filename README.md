@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/0f865f55-29f5-4da7-9587-a58a45307878
+
 <p align="center">
   <a href="docs/media/gexlab-v3-reel.mp4"><img src="docs/media/gexlab-v3-reel.gif" alt="GEXLab V3 motion reel: the options profile's spot tag fills the frame, the implied volatility surface lifts into 3D, then its cells fall into the next-session forecast distribution" width="100%"></a>
 </p>
